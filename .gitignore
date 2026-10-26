@@ -1,0 +1,41 @@
+# PUBLIC REPO. User data, local notes, keys and build output never get committed.
+
+# User data (catalogues hold real file paths)
+data/
+*.journal.jsonl
+
+# Local-only working docs, handovers, tester details
+_local/
+
+# Secrets and signing material
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+keys/
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+*.egg-info/
+
+# Build output
+build/
+dist/
+
+# Editor / OS / harness
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.claude/
+node_modules/

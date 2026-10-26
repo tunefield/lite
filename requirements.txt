@@ -1,0 +1,17 @@
+# Tunefield V1 — pinned dependency ranges. Needs Python 3.10 or newer; install 3.12
+# from python.org (not Apple's built-in; 3.12 is the tested version — newer
+# usually works, the launchers warn and fall back gracefully). macOS/Linux/Windows.
+# Lock to a known-good combination for distribution by generating
+# a requirements-lock.txt from a fresh venv: `pip freeze > requirements-lock.txt`.
+Flask>=3.0,<4
+librosa>=0.10,<0.12
+numpy>=1.26,<3
+scipy>=1.11,<2
+soundfile>=0.12,<1
+pyloudnorm>=0.1.1,<1
+# Not currently used — app.py serves via Flask's built-in server. Kept here for a
+# post-beta switch to production-style local serving; uncomment once app.py uses it.
+# waitress>=3.0,<4
+# Optional: enables the experimental "Export → Rekordbox collection" (writes playlists
+# straight into Rekordbox 6/7's database). The menu item only appears when installed.
+# pyrekordbox>=0.4,<1

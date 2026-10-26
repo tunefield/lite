@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- The three entitlements a PyInstaller+numba app needs under the hardened runtime,
+     read back from the first ACCEPTED notarization (2026-08-12): llvmlite JIT-compiles
+     analysis kernels (allow-jit + unsigned-executable-memory) and Python extension
+     loading needs library validation off. Remove any of these and analysis dies at
+     runtime while the signature still LOOKS fine. -->
+<dict>
+    <key>com.apple.security.cs.allow-jit</key><true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+    <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>
