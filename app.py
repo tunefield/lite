@@ -1209,6 +1209,7 @@ def library_analyse():
                 elsewhere.setdefault(key, (m["slug"], e))
     added = []
     errors = []
+    already = 0    # already in this Field
     skipped = {}   # {ext: count} refused at the gate — same shape /library/scan reports
 
     # ── Pre-flight (serial, cheap): everything that can be judged without decoding ──
@@ -1218,7 +1219,7 @@ def library_analyse():
         if not os.path.exists(path):
             errors.append({"path": path, "error": "not found"}); continue
         if path.lower() in cataloged:
-            errors.append({"path": path, "error": "already cataloged"}); continue
+            already += 1; continue   # a non-event: counted, never an error (beta8 #2)
         ext = os.path.splitext(path)[1].lower()
         if ext not in ALLOWED:
             skipped[ext or "(none)"] = skipped.get(ext or "(none)", 0) + 1
@@ -1330,7 +1331,7 @@ def library_analyse():
             # slug's set lazily from this request's snapshot, then dedup against both.
             committed = _COMMITTED_PATHS.setdefault(slug, set(cataloged))
             if path.lower() in committed or path.lower() in cataloged:
-                errors.append({"path": path, "error": "already cataloged"}); continue
+                already += 1; continue
             # Durable per track exactly as before — an interrupt (USB pull, crash, quit)
             # still loses at most one track. The difference is that appending one line
             # costs the same whether the catalog holds 100 tracks or 30,000.
@@ -1350,6 +1351,7 @@ def library_analyse():
     return jsonify({"ok": True, "added": added, "errors": errors,
                     "copied_count": sum(1 for a in added if a.get("copied")),
                     "added_count": len(added), "error_count": len(errors),
+                    "already_count": already,
                     "skipped": skipped})
 
 

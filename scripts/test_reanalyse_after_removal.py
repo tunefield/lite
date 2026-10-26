@@ -60,7 +60,7 @@ try:
     check("baseline: first analyse adds both tracks", j.get("added_count") == 2, j)
     j = analyse(wavs[:1])
     check("baseline: same path again is refused (dedup intact)",
-          j.get("added_count") == 0 and (j.get("errors") or [{}])[0].get("error") == "already cataloged", j)
+          j.get("added_count") == 0 and j.get("already_count") == 1 and not j.get("errors"), j)
 
     # A — Mark's case: delete the Field, re-create it (same slug), analyse the same folder
     check("A: DELETE /catalogs/curve", J(c.delete("/catalogs/curve")).get("ok") is True)
@@ -85,7 +85,7 @@ try:
     check("C: analyse re-adds the removed track", j.get("added_count") == 1, j)
     j = analyse([os.path.join(MUSIC, ents[1]["filename"])])
     check("C: the untouched track is still refused", j.get("added_count") == 0
-          and (j.get("errors") or [{}])[0].get("error") == "already cataloged", j)
+          and j.get("already_count") == 1 and not j.get("errors"), j)
 finally:
     shutil.rmtree(ROOT, ignore_errors=True)
 

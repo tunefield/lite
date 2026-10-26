@@ -12,7 +12,6 @@ function renderRepair() {}
 function returnToAnchor() {}
 function setMode() {}
 function syncTransportPos() {}
-function updateTabCounts() {}
 
 // pilot 5641
 const MOOD_COLOR = { euphoric:'#ffd700', intense:'#ff4444', upbeat:'#44dd88', melancholic:'#4488ff' };
@@ -196,98 +195,6 @@ CAMELOT.forEach(c => {
 });
 // pilot 6116
 function noteToCamelot(note, mode) { return NOTE_TO_CAMELOT[note]?.[mode] || null; }
-// pilot 6555
-let libRoots = [];
-// pilot 6599
-let libRootsFailed = false;
-// pilot 6615
-function _analyseTargetCat() {
-  return document.getElementById('upload-cat-select')?.value || activeCatalog || '';
-}
-// pilot 6619
-function renderLibRoots() {
-  const list = document.getElementById('lib-roots-list');
-  if (!list) return;
-  if (!libRoots.length) {
-    // "None configured" and "couldn't ask" look identical from here, and telling someone
-    // their folders are gone when they aren't is the worse of the two mistakes.
-    list.innerHTML = libRootsFailed
-      ? `<div class="lib-roots-unread">Couldn\u2019t read your music folders. Nothing has been lost \u2014 try restarting Tunefield.</div>`
-      : `<div style="color:var(--muted);font-size:11px;padding:6px 4px;font-style:italic">No music folders yet. Add one below to start scanning.</div>`;
-    document.getElementById('lib-scan-controls').style.display = 'none';
-    document.getElementById('lib-scan-results').innerHTML = '';
-    return;
-  }
-  // VIEW scope = the multi-select chips (which Fields' folders are shown);
-  // the ADD/analyse DESTINATION stays the step-1 selector. Selected fields each get
-  // their own section below.
-  // Destination-driven since 2026-08-24: this panel shows the folders of the Field
-  // you are ADDING to (step-1 selector), plus shared folders; everything else is in
-  // the collapsed "other Fields" group. The chip row no longer exists on this tab.
-  const selected = [_analyseTargetCat()].filter(Boolean);
-
-  const catOpts = (r) =>
-    `<option value=""${r.cat == null ? ' selected' : ''}>— all Fields</option>` +
-    (allCatalogs || []).map(c =>
-      `<option value="${esc(c.slug)}"${r.cat === c.slug ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
-  const row = (r) => {
-    const display  = r.absolute || r.path;
-    const portable = r.absolute && r.absolute !== r.path;  // stored relative — roams with the drive
-    const tip      = portable ? `Portable (stored as "${r.path}") — travels with this drive` : r.path;
-    const col      = r.cat ? catalogColor(r.cat) : 'var(--muted)';
-    return `
-    <div class="lib-root-row${r.exists ? '' : ' missing'}" style="border-left:3px solid ${col}">
-      <span class="path" title="${esc(tip)}">${esc(display)}</span>
-      ${portable ? '<span class="badge" style="background:#11A5B3" title="Stored relative to drive root">⇄ portable</span>' : ''}
-      ${r.exists ? '<span class="badge">ok</span>' : '<span class="badge missing">missing</span>'}
-      <select onchange="libRootAssign('${escJs(r.path)}', this.value)"
-        title="Move this folder to another Field — its files scan and analyse there. '— all Fields' folders appear with every selection."
-        style="background:var(--surface2);border:1px solid var(--border);color:${col};border-radius:0;font-size:11px;padding:2px 4px;max-width:140px">${catOpts(r)}</select>
-      <button class="btn-icon btn-icon-danger" onclick="libRootRemove('${escJs(r.path)}')" title="Remove this root (does not delete files)">×</button>
-    </div>`;
-  };
-  const head = (label, col, count, tip) =>
-    `<div title="${esc(tip || '')}" style="display:flex;align-items:center;gap:7px;margin:10px 0 5px;font-size:10px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)">
-       <span style="width:8px;height:8px;border-radius:50%;background:${col};flex:0 0 auto"></span>${esc(label)}
-       <span style="font-weight:600;letter-spacing:0">(${count})</span></div>`;
-
-  const shared = libRoots.filter(r => r.cat == null);
-  const others = libRoots.filter(r => r.cat != null && !selected.includes(r.cat));
-
-  let html = '';
-  if (!selected.length) {
-    html += `<div style="color:var(--muted);font-size:11px;padding:4px;font-style:italic">No destination Field picked — choose one in step 1 above to see and edit its folders.</div>`;
-  }
-  // One section per SELECTED Field, in catalog order.
-  for (const c of (allCatalogs || []).filter(c => selected.includes(c.slug))) {
-    const mine = libRoots.filter(r => r.cat === c.slug);
-    html += head(`Folders for ${c.name}`, catalogColor(c.slug), mine.length,
-                 `These folders belong to “${c.name}” — their files scan and analyse into it`);
-    html += mine.length ? mine.map(row).join('')
-          : `<div style="color:var(--muted);font-size:11px;padding:2px 4px 4px;font-style:italic">No folders assigned to “${esc(c.name)}” yet — add one below, or move one over via a folder's dropdown.</div>`;
-  }
-  if (shared.length) {
-    html += head('Shared — all Fields', 'var(--muted)', shared.length,
-                 'These folders scan with every Field selection (a nested sub-folder assigned to a specific Field carves its files out)');
-    html += shared.map(row).join('');
-  }
-  if (others.length) {
-    // Grouped by their home Field, collapsed by default — visible on demand so a
-    // folder can be pulled over without leaving the page, but never cluttering it.
-    const bySlug = {};
-    others.forEach(r => (bySlug[r.cat] = bySlug[r.cat] || []).push(r));
-    const groups = Object.entries(bySlug).map(([slug, rs]) => {
-      const name = (allCatalogs || []).find(c => c.slug === slug)?.name || slug;
-      return head(name, catalogColor(slug), rs.length) + rs.map(row).join('');
-    }).join('');
-    html += `<details style="margin-top:10px">
-      <summary style="cursor:pointer;font-size:10px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:2px 0">Other Fields' folders (${others.length}) — click to show / reassign</summary>
-      ${groups}
-    </details>`;
-  }
-  list.innerHTML = html;
-  document.getElementById('lib-scan-controls').style.display = 'flex';
-}
 // pilot 7444
 async function loadCatalogMeta() {
   let meta;
@@ -336,7 +243,7 @@ async function loadCatalogMeta() {
   // showing "No Fields selected" over a correctly-selected Default, with the user's
   // folders buried under "Other Fields' folders" — every reload, until any tab click
   // repainted it (M2 report P7). Re-render now that the selection actually exists.
-  if (typeof renderLibRoots === 'function') renderLibRoots();
+  window.renderLibRoots?.();
 }
 // pilot 7548
 async function loadCatalog() {
@@ -736,6 +643,13 @@ function layoutEdgeDrawers(protect) {
     }
     return;
   }
+}
+// pilot (closeAllDrawers) — the canvas opens clean on every Field-tab entry (Mark, 2026-08-24).
+// applyFieldDrawer(true) first: closing commits staged Field ticks instead of dropping them.
+function closeAllDrawers() {
+  if (typeof applyFieldDrawer === 'function') applyFieldDrawer(true);
+  EDGE_DRAWERS.forEach(id => _drawerSetWanted(id, false));
+  layoutEdgeDrawers();
 }
 // pilot 10722
 function toggleDrawer(id) {
@@ -1605,7 +1519,7 @@ function applyFieldView(v) {
   // and Import/apply is free — so a free install could take on weights it has no control
   // to see or undo, permanently, via localStorage. They also feed vecMatrix(), which FLOW
   // uses, so the leak changed free behaviour invisibly (audit, 2026-09-20).
-  if (v.weights && (typeof tfAllowed !== 'function' || tfAllowed('vecmath'))) {
+  if (v.weights) {
     for (const k of Object.keys(vecWeights)) {
       if (typeof v.weights[k] === 'number') vecWeights[k] = Math.max(0, Math.min(2, v.weights[k]));
     }
@@ -5961,8 +5875,98 @@ function featUse(name) {
   if (typeof fieldEvent === 'function') fieldEvent('feature_first_use', { name: String(name).slice(0, 60) });
 }
 
-// Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, _analyseTargetCat, renderLibRoots, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, adoptPlaylistStrays, audioPlayById, matrixCommitIdx, refreshActiveFilterCount, renderCatalog, renderFieldChecks, renderRepair, returnToAnchor, setMode, syncTransportPos, updateTabCounts });
+// pilot 7726 — Field (catalogue) management. Lives here because it writes activeCatalog,
+// viewedCatalogs and allCatalogs, which this module owns.
+function setActiveCatalog(slug) {
+  activeCatalog = slug;
+  try { localStorage.setItem('active-catalog', slug); } catch (_) {}
+  window.onActiveCatalogChange?.();
+  if (!viewedCatalogs.has(slug)) {
+    viewedCatalogs.add(slug);
+    if (_fdStaged) _fdStaged.add(slug);   // same reason as in toggleViewedCatalog
+    renderCombineChips();
+    try { localStorage.setItem('viewed-catalogs', JSON.stringify([...viewedCatalogs])); } catch (_) {}
+  }
+  renderCatSelector();
+  loadCatalog();
+}
+// pilot 7744
+async function newCatalogPrompt() {
+  const name = prompt('New Field name:');
+  if (!name?.trim()) return null;
+  const res  = await fetch('/catalogs', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name.trim() })
+  });
+  const data = await res.json();
+  if (data.error) { showToast(data.error); return null; }
+  allCatalogs.push({ name: data.name, slug: data.slug, count: 0 });
+  activeCatalog = data.slug;
+  try { localStorage.setItem('active-catalog', data.slug); } catch (_) {}
+  // A brand-new Field takes the view on its own — adding the slug would blend the empty
+  // Field into whatever was already selected (Mark, 2026-08-27).
+  viewedCatalogs = new Set([data.slug]);
+  try { localStorage.setItem('viewed-catalogs', JSON.stringify([...viewedCatalogs])); } catch (_) {}
+  renderCatSelector(); renderCombineChips();
+  window.onActiveCatalogChange?.();
+  await loadCatalog();
+  return data.slug;
+}
+// pilot 7775
+async function deleteCatalogPrompt() {
+  if (allCatalogs.length <= 1) { showToast('Cannot delete the only Field.'); return; }
+  const c = allCatalogs.find(x => x.slug === activeCatalog);
+  if (!confirm(`Delete Field "${c?.name || activeCatalog}" and all its tracks? Audio moves to Tunefield's trash and entries are snapshotted.`)) return;
+  const res  = await fetch(`/catalogs/${activeCatalog}`, { method:'DELETE' });
+  const data = await res.json();
+  if (data.error) { showToast(data.error); return; }
+  allCatalogs    = allCatalogs.filter(x => x.slug !== activeCatalog);
+  viewedCatalogs.delete(activeCatalog);
+  activeCatalog  = allCatalogs[0].slug;
+  if (!viewedCatalogs.size) viewedCatalogs.add(activeCatalog);
+  renderCatSelector(); renderCombineChips();
+  window.onActiveCatalogChange?.();
+  await loadCatalog();
+}
+// pilot 7790
+async function renameCatalogPrompt() {
+  const c = allCatalogs.find(x => x.slug === activeCatalog);
+  const name = prompt('Rename Field:', c?.name || '');
+  if (!name?.trim() || name.trim() === c?.name) return;
+  const res  = await fetch(`/catalogs/${activeCatalog}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name.trim() })
+  });
+  const data = await res.json();
+  if (data.error) { showToast(data.error); return; }
+  if (c) c.name = name.trim();
+  renderCatSelector(); renderCombineChips();
+  window.onActiveCatalogChange?.();
+}
 
-neuralActive = true;   // the pilot's switchTab set this; Lite has no tab switcher yet
-loadCatalogMeta().then(() => loadCatalog()).then(() => initNeural());
+function updateTabCounts() {
+  const n = document.getElementById('tab-neural-count');
+  if (n) n.textContent = catalog.length;
+}
+
+// Called by app.js on every switch to or from the Field tab (was part of the pilot's switchTab).
+async function fieldShow(on) {
+  neuralActive = on;
+  if (!on) {
+    if (typeof fpsActive !== 'undefined' && fpsActive) exitFPS();
+    if (typeof _kbHeld !== 'undefined') { _kbHeld.clear(); _kbVel.x = _kbVel.y = _kbVel.z = 0; }
+    return;
+  }
+  closeAllDrawers();
+  try {
+    await loadCatalogMeta(); await loadCatalog(); await initNeural();
+  } catch (err) {
+    console.error('Tunefield init failed:', err); showToast('Could not load the Field — is the app still running?');
+  }
+  window.__syncNeuralSize?.();
+}
+
+// Inline on*="" handlers and generated markup call these by global name.
+Object.assign(window, { updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, adoptPlaylistStrays, audioPlayById, matrixCommitIdx, refreshActiveFilterCount, renderCatalog, renderFieldChecks, renderRepair, returnToAnchor, setMode, syncTransportPos, updateTabCounts });
+
+export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast };

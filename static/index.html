@@ -6,17 +6,65 @@
 <title>Tunefield</title>
 <link rel="icon" href="/favicon.ico">
 <link rel="stylesheet" href="/static/css/app.css">
-<style>
-  :root { color-scheme: light dark; --bg:#0d1014; --fg:#e8ecf0; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f4f5f7; --fg:#15181c; } }
-  [hidden] { display:none !important; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.4 -apple-system, system-ui, sans-serif; }
-</style>
+<link rel="stylesheet" href="/static/css/lite.css">
 <script type="importmap">{"imports":{"three":"/static/vendor/three/three.module.js","three/addons/":"/static/vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
 <main id="app">
-<div class="tab-panel active" id="tab-neural">
+<header>
+  <div class="hd-left"><h1 class="tf-wordmark">tunefield<span class="tf-dot">.</span></h1></div>
+  <nav class="hd-tabs tab-bar">
+    <button class="tab-btn" id="tab-analyse-btn" onclick="switchTab('analyse')">Analyse</button>
+    <button class="tab-btn" id="tab-neural-btn" onclick="switchTab('neural')">Field <span class="tab-count" id="tab-neural-count">0</span></button>
+  </nav>
+</header>
+
+<div class="tab-panel" id="tab-analyse">
+  <div class="an">
+    <div class="an-field">
+      <label for="cat-select">Field</label>
+      <select class="cat-select" id="cat-select" onchange="setActiveCatalog(this.value)"></select>
+      <button class="btn-sm" onclick="newCatalogPrompt()">＋ New Field</button>
+      <button class="btn-sm" onclick="renameCatalogPrompt()">Rename</button>
+      <button class="btn-sm" onclick="deleteCatalogPrompt()">Delete</button>
+    </div>
+
+    <button class="an-add" id="lib-add-btn" onclick="addMusic()">Add music</button>
+    <p class="an-hint">Pick a folder. Everything new in it is analysed, and you can use the Field while it runs.</p>
+    <details class="an-path">
+      <summary>Or paste a folder path</summary>
+      <div class="an-path-row">
+        <input type="text" class="search-input" id="lib-root-input" placeholder="/Users/you/Music/Sets" onkeydown="if(event.key==='Enter')addMusic(true)">
+        <button class="btn-sm" onclick="addMusic(true)">Add</button>
+      </div>
+    </details>
+
+    <section class="an-progress" id="an-progress" hidden aria-live="polite">
+      <div class="an-line">
+        <b class="an-head" id="an-head"></b>
+        <span class="an-eta" id="an-eta"></span>
+        <button class="btn-sm" id="an-cancel" onclick="cancelScan()" hidden>Cancel</button>
+        <button class="btn-sm an-open" id="an-open" onclick="switchTab('neural')" hidden>Open the Field</button>
+        <button class="btn-sm an-open" id="an-resume" onclick="resumeAnalysisQueue()" hidden>Resume</button>
+        <button class="btn-sm" id="an-dismiss" onclick="anResumeDismiss()" hidden>Not now</button>
+      </div>
+      <div class="an-bar"><div class="an-fill" id="an-fill"></div></div>
+      <div class="an-counts" id="lib-scan-status"></div>
+    </section>
+
+    <section class="an-folders" id="an-folders" hidden>
+      <div class="an-folders-head"><h3>Music folders in this Field</h3>
+        <button class="btn-sm" onclick="checkForNew()">Check for new music</button></div>
+      <div id="lib-roots-list"></div>
+    </section>
+  </div>
+</div>
+
+<div class="tab-panel" id="tab-neural">
+  <div class="field-empty" id="field-empty" hidden>
+    <p>This Field has no music yet.</p>
+    <button class="an-add" onclick="switchTab('analyse')">Add music</button>
+  </div>
   <div class="neural-canvas-wrap">
     <canvas id="neural-canvas"></canvas>
     <!-- The tool dock is GONE (Mark, 2026-08-28): every field tool now flanks the
@@ -285,14 +333,6 @@
       </div>
       <button class="nt-btn" id="nt-next"  onclick="ntNext()" title="Next track">⏭</button>
       <button class="nt-btn nt-btn-stop" id="nt-stop" onclick="audioStop()" title="Stop (Esc)">⏹</button>
-      <!-- Fallback mode pills — shown ONLY where the Playlist Builder (the primary home of
-           mode switching) is hidden: the Top filter layout and the Playlists tab. No ids —
-           setMode() toggles .active on every .sp-mode by data-mode, so both copies stay in sync. -->
-      <div class="sp-modes nt-modes-fallback">
-        <button class="sp-mode m-explore" data-mode="explore" onclick="setMode('explore')" title="EXPLORE — listen and roam; nothing writes to the playlist">✦ Explore</button>
-        <button class="sp-mode m-learn" data-mode="learn" onclick="setMode('learn')" title="CURATE — double-click adds to the active playlist">⏺ Curate</button>
-        <button class="sp-mode m-playback" data-mode="playback" onclick="setMode('playback')" title="PLAY — auto-advance through the playlist">▶ Play</button>
-      </div>
       <!-- Combined seek + preview bar: ONE strip = the whole track. The pink band between
            the thumbs is the preview window (drag to trim), the mode-coloured fill is the
            live playback position, and a click ANYWHERE on the strip seeks — inside or
@@ -423,6 +463,6 @@
 
 </main>
 <audio id="global-audio" preload="none"></audio>
-<script type="module" src="/static/js/field.js"></script>
+<script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
