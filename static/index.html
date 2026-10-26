@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tunefield</title>
 <link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/static/css/app.css">
 <style>
   :root { color-scheme: light dark; --bg:#0d1014; --fg:#e8ecf0; }
   @media (prefers-color-scheme: light) { :root { --bg:#f4f5f7; --fg:#15181c; } }
@@ -14,7 +15,414 @@
 <script type="importmap">{"imports":{"three":"/static/vendor/three/three.module.js","three/addons/":"/static/vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
-<main id="app"></main>
-<script type="module" src="/static/js/main.js"></script>
+<main id="app">
+<div class="tab-panel active" id="tab-neural">
+  <div class="neural-canvas-wrap">
+    <canvas id="neural-canvas"></canvas>
+    <!-- The tool dock is GONE (Mark, 2026-08-28): every field tool now flanks the
+         Spread dial in the top-centre strip (.neural-spread-center). -->
+    <!-- Edge drawers (2026-08-03, Mark): axes + filters tuck away behind slim tabs on
+         the left edge; the field, wheel and playlist stay resident. -->
+    <!-- Edge-drawer RAIL: the tabs stack in flow with a gap, so a taller tab
+         (FILTERS carries a badge) can never overlap the one below it. Each
+         open card is absolutely positioned off its own tab, so opening one
+         never shifts the others. -->
+    <div class="edge-drawer-rail">
+      <div class="edge-drawer" id="fields-drawer" data-open="0">
+        <button class="drawer-tab" onclick="toggleDrawer('fields-drawer')" title="Which Fields are in view — tick any combination"><svg class="dt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><line x1="3.5" y1="9.5" x2="20.5" y2="9.5"/><line x1="8.5" y1="9.5" x2="8.5" y2="19.5"/></svg><span class="dt-label">FIELDS</span></button>
+        <div class="drawer-body">
+          <div id="field-checks" class="field-checks"></div>
+          <!-- Same staged-then-Apply contract as the List/Repair dropdown (Mark,
+               2026-09-20): ticking here used to reload the catalog and rebuild the
+               graph on EVERY tick, so composing a 3-Field view cost three full
+               rebuilds of a 20k-node field. Ticks stage; Apply (or closing the
+               drawer) commits, exactly as clicking outside the dropdown does. -->
+          <div class="cp-footer fd-footer">
+            <button onclick="fieldPickerAll(true)" title="Tick every Field">All</button>
+            <button onclick="fieldPickerAll(false)" title="Untick every Field">None</button>
+            <button class="cp-apply" id="fd-apply" onclick="applyFieldDrawer()"
+                    title="Apply the ticked selection">Apply</button>
+          </div>
+        </div>
+      </div>
+      <div class="edge-drawer" id="axes-drawer" data-open="0">
+        <button class="drawer-tab" onclick="toggleDrawer('axes-drawer')" title="Axis & display mappings — X/Y/Z, colour, size, spikes  [Z]"><svg class="dt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="1.5"/><line x1="12" y1="3.5" x2="12" y2="20.5"/><line x1="3.5" y1="12" x2="20.5" y2="12"/></svg><span class="dt-label">AXES</span></button>
+        <div class="drawer-body">
+          <div class="nt-axis-row">
+            <select class="axis-sel ax-x" id="nx-axis" onchange="rebuildGraph()" title="Metric controlling horizontal position"></select>
+            <span class="neural-label ax-x" title="Horizontal axis metric (red arrow in the field)">X</span>
+          </div>
+          <div class="nt-axis-row">
+            <select class="axis-sel ax-y" id="ny-axis" onchange="rebuildGraph()" title="Metric controlling vertical position"></select>
+            <span class="neural-label ax-y" title="Vertical axis metric (green arrow in the field)">Y</span>
+          </div>
+          <div class="nt-axis-row">
+            <select class="axis-sel ax-z" id="nz-axis" onchange="rebuildGraph()" title="Metric controlling depth position"></select>
+            <span class="neural-label ax-z" title="Depth axis metric (blue arrow in the field)">Z</span>
+          </div>
+          <div class="nt-axis-row">
+            <select class="axis-sel" id="n-size" onchange="rebuildGraph()" title="Metric controlling node radius — bigger = higher value"></select>
+            <span class="neural-label" title="Node size encoding">Size</span>
+          </div>
+          <div class="nt-axis-row">
+            <select class="axis-sel" id="n-color" onchange="rebuildGraph()" title="Mood = preset palette · Key = Camelot wheel hues · Genre = palette per tag · numeric metric = gradient (blue=low, red=high)"></select>
+            <span class="neural-label" title="Colour encoding for each node">Colour</span>
+          </div>
+          <!-- SPIKES hidden in V1 (Mark, 2026-08-04). Kept in the DOM, and the whole
+               spike pipeline is kept intact, so un-hiding is a one-line change — but the
+               metric is forced 'off' at boot below, so no spiked geometry is ever built
+               even for a user who had it switched on before. -->
+          <div class="nt-axis-row" id="nt-spike-row" style="display:none">
+            <select class="axis-sel" id="n-spike" onchange="setNeuralSpikeMetric(this.value)" title="Spike morph — nodes grow sharp needles as this metric rises (perfect sphere → sea-urchin). Off by default."></select>
+            <span class="neural-label" title="Spike morph — a 6th visual dimension via geometry">Spikes</span>
+          </div>
+          <!-- VIEWS — named, portable Field configurations (2026-08-15). The first real
+               step toward the Discovery Profile idea from the strategic review: a view
+               is HOW this user relates music to music (axes + weights + formula +
+               spread), saved, reloadable, and exportable as a versioned JSON file. -->
+          <div class="views-section" id="views-section">
+            <div class="views-head">
+              <span class="neural-label">Views</span>
+              <button class="btn-sm" onclick="saveFieldView()" title="Save the current axes, weights, formula and spread as a named view">+ Save</button>
+              <button class="btn-sm" onclick="importFieldView()" title="Import a view from a .tfview.json file">Import</button>
+              <input type="file" id="view-import-file" accept=".json,application/json" style="display:none">
+            </div>
+            <div id="views-list" class="views-list"></div>
+            <!-- FORMULAS (Mark, 2026-08-26): part of the Views cluster — a formula is
+                 just another way of viewing the field. The picker applies a preset or
+                 saved patch IMMEDIATELY (same loadFormulaPatch path the old ƒx-panel
+                 selector used); ƒx opens the full editor as a popup (#formula-popup).
+                 The button keeps the id formula-btn so the Pro gate (FEATURES
+                 'formula') and the neural-formula-on CSS keep working unchanged. -->
+            <div class="views-head" style="margin-top:7px">
+              <span class="neural-label" title="Formulas are views written as maths — pick a preset below to re-shape the field, or press ƒx to write your own">Formulas</span>
+              <button class="btn-sm" id="formula-btn" onclick="toggleFormulaPanel()" title="ƒx editor — type maths over the track metrics (bpm, ene, dnc…) to reposition the whole field. Opens as a popup.">ƒx Edit</button>
+            </div>
+            <div style="display:flex;gap:5px;align-items:center">
+              <select id="formula-patch-sel" onchange="if(this.value!=='')loadFormulaPatch(this.value)" style="flex:1;min-width:0" title="Formula presets &amp; your saved patches — picking one re-shapes the field with it straight away"></select>
+              <button class="btn-sm" onclick="deleteFormulaPatch()" title="Delete the selected patch (built-in presets can't be deleted)">✕</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="edge-drawer" id="filters-drawer" data-open="0">
+        <button class="drawer-tab" onclick="toggleDrawer('filters-drawer')" title="Track filters — search, mood, BPM, released…  [X]"><svg class="dt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="7" x2="20.5" y2="7"/><line x1="3.5" y1="12" x2="20.5" y2="12"/><line x1="3.5" y1="17" x2="20.5" y2="17"/><circle cx="9" cy="7" r="2.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.4" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.4" fill="currentColor" stroke="none"/></svg><span class="dt-label">FILTERS</span><span class="fb-active-count drawer-badge" id="fd-active-count"></span></button>
+        <div class="drawer-body" id="filters-drawer-body"></div>
+      </div>
+      <!-- Key wheel drawer (Mark, 2026-08-04) — the wheel tucks away like the other two;
+           #camelot-pane is reparented into this body by moveFilterBarToActiveTab. -->
+      <div class="edge-drawer" id="key-drawer" data-open="0">
+        <button class="drawer-tab" onclick="toggleDrawer('key-drawer')" title="Camelot key wheel — filter by key, mix modes, harmonic relationships  [C]"><svg class="dt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><line x1="12" y1="3.5" x2="12" y2="20.5"/><path d="M12 12 19.4 8.6M12 12 4.6 8.6"/></svg><span class="dt-label">KEY</span></button>
+        <div class="drawer-body" id="key-drawer-body"></div>
+      </div>
+
+    </div>
+
+    <!-- Toolbar retired 2026-08-03 (Mark): Reset/Covers/Pathway/Focus/Lens are now
+         square icon buttons docked on the key wheel's right side (#cw-dock). -->
+    <div class="neural-toolbar" style="display:none">
+<!-- Key View toggle moved into the Camelot wheel block 2026-07-24 — it's the key-relationship
+           display switch, so it lives with the key controls it governs. -->
+      <!-- #n-style select removed 2026-05-30 — rebuildGraph's ?.value fallback resolves to 'sphere'.
+           cover-orb / sphere-cover render branches preserved as V2 jumping-off point. -->
+    </div>
+    <!-- Spread slider — top-centre of the tunefield. Morphs each axis with a tanh S-curve:
+         right = orbs further apart (outliers compressed back on-screen), left = tighter. -->
+    <!-- Top bar: Spread + the ◍ filter fade, side by side (Mark, 2026-08-04). The
+         visible/total counter moved out to the top-RIGHT corner. -->
+    <!-- SPREAD is a rotary dial (Mark, 2026-08-27), not a slider: it borrows the
+         transport play button's ring language so the two read as the same instrument.
+         Drag it round, or scroll over it. Dial only — clicking does nothing, because
+         there is no sensible "off" for a zoom. The range input underneath is kept as the
+         real control (keyboard, forms, every existing caller of setNeuralSpread) and is
+         visually hidden; the ring is a skin over it. -->
+    <!-- Field tool ring (Mark, 2026-08-28): the four everyday tools flank the Spread
+         dial at top-centre — Reset and Focus to its left, Covers and Pathway to its
+         right — all circular at the dial's own scale. Ids unchanged: every state class,
+         digit shortcut and help entry keeps working. -->
+    <div class="neural-spread-center">
+      <button class="cw-dock-btn" id="matrix-reset-btn" onclick="resetNeuralUser()" title="Reset camera — re-frame the whole field  [1]"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 4 1.5 10 7.5 10"/><path d="M4 15a9 9 0 1 0 2-9.5L1.5 10"/></svg></button>
+      <button class="cw-dock-btn" id="matrix-focus-btn" onclick="toggleFocusFrame()" title="Focus — every selection jumps the view in close to that track. In Explore it goes further: the camera follows whatever is playing and orbits it, like Fly in Play — grab the view to take over. The field itself never moves.  [2]"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="3.2"/></svg></button>
+      <div class="spd" id="nt-spread-dial" role="presentation"
+           title="Spread — drag UP for orbs further apart (×3, outliers compressed back on-screen), DOWN for tighter (×0.5). Scroll works too; double-click resets to ×1. The ring shows where you are.">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="spd-ring-bg" cx="32" cy="32" r="26"/>
+          <circle class="spd-ring-fill" cx="32" cy="32" r="26" id="nt-spread-arc"/>
+          <g class="spd-glass" transform="translate(32,32)">
+            <circle cx="-1.5" cy="-1.5" r="6.2"/>
+            <line x1="3" y1="3" x2="8.5" y2="8.5"/>
+          </g>
+        </svg>
+        <input type="range" id="n-spread" class="nt-spread spd-input"
+               min="50" max="300" step="5" value="100"
+               oninput="setNeuralSpread(this.value); syncSpreadDial()" onchange="commitNeuralSpread()"
+               aria-label="Spread">
+      </div>
+      <button class="cw-dock-btn" id="vecmath-btn" onclick="toggleVecPanel()" title="Vector maths — auto axes (PCA / t-SNE), vector arithmetic and the similarity weights. The everyday set tools live in the Set tools box, opened from the Playlist Builder in Curate.  [3]"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 11 12 4 17.5Z"/><path d="M20 6.5 13 12l7 5.5Z"/></svg></button>
+      <button class="cw-dock-btn" id="matrix-coverorb-btn" onclick="toggleCoverOrbs()" title="Covers — render each track as its album art instead of a coloured sphere  [4]"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><polyline points="21 15 16 10 5 21"/></svg></button>
+      <button class="cw-dock-btn" id="matrix-trail-btn" onclick="togglePlaylistTrail()" title="Pathway — the active playlist's route, alone in the field: everything not on it hides while the trail is on  [5]"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="19" r="2.2"/><circle cx="19" cy="5" r="2.2"/><path d="M7 17.5c3.5-1 2.5-5.5 6-7s4-2 4.5-3.5"/></svg></button>
+      <button class="cw-dock-btn" id="fps-toggle" onclick="toggleFPS()" aria-pressed="false" style="display:none"
+              title="FPS mode (F) — mouse steers the view, WASD flies, the crosshair is your cursor: click to preview, Shift+click or double-click to select. Esc leaves. Flight speed is in ⚙ Settings.  [6]"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.5" y2="12"/></svg></button>
+    </div>
+    <div id="neural-track-count" class="neural-count-badge" title="Visible tracks / total in this Field"></div>
+    <!-- Action cluster — top-right: auto/transport buttons only (Reset/Pathway/Covers
+         moved into the toolbar column 2026-07-21) -->
+    <div class="neural-actions">
+      <!-- The ◉ Key View (High-Vis) switch and the edge-style switch both live in the
+           Camelot wheel panel's .cw-keyview-section — grouped with the key-compat
+           controls they modify (moved there 2026-07-24). -->
+      <button class="btn-sm" id="matrix-stop-btn" onclick="audioStop()" title="Stop playback (Esc also works)" style="display:none;border-color:#ff4444;color:#ff6666">⏹</button>
+    </div>
+    <!-- Fly toggle — cinematic auto-camera master switch. Persistent, subtle, top-right of the
+         canvas; shown in Playback. Grabbing the view (or clicking) hands control to the user;
+         clicking again re-engages the flyby. -->
+    <button class="fly-toggle btn-sm on" id="fly-toggle" onclick="toggleFly()" aria-pressed="true"
+            title="Fly — cinematic auto-camera. Grab the view (or click) to take over; click again to resume the flyby.  [Y]">Fly</button>
+    <!-- FPS crosshair — the cursor while the pointer is locked. Shown via body.fps-on. -->
+    <div class="fps-crosshair" id="fps-crosshair" aria-hidden="true"><span></span><span></span></div>
+    <!-- HUD orientation gizmo — 6-pointed axis cross, bottom-right, camera-synced -->
+    <canvas id="nt-gizmo" width="110" height="110" aria-hidden="true" title="Orientation gizmo — which way the X / Y / Z axes point from where the camera is now"></canvas>
+    <!-- The ƒx formula panel left this spot 2026-08-26 (Mark): it's now the
+         #formula-popup overlay at body level, opened from the AXES drawer. -->
+
+    <!-- ⋈ Vector maths — auto axes, vector arithmetic and the similarity weights.
+         Sits in the sidebar under the dock (the ƒx formula editor that used to sit
+         beside it became the #formula-popup overlay, 2026-08-26). The everyday
+         set tools (similar / groups / routes / set builder) moved to the SET TOOLS
+         drawer on the field's right edge (Mark, 2026-08-26) — with them gone the old
+         Simple|Full switch had nothing left to hide, so it's gone too. -->
+    <div id="vecmath-panel">
+      <div class="vm-head">
+        <span class="vm-title" title="Tools that work across ALL of a track's measurements at once, instead of just the three axes you can see">⋈ Vector maths</span>
+        <button class="cp-close" onclick="toggleVecPanel()" title="Close this panel (the field keeps whatever you applied — use Reset view to undo it)">×</button>
+      </div>
+      <button class="btn-sm vm-reset" onclick="vmResetView()" title="Put the field back to ordinary metric axes: drops PCA / t-SNE axes, cluster colouring, similarity distance and any ƒx formula, and restores the axes you had before.">⟲ Reset view</button>
+
+      <div class="vm-sec">
+        <div class="vm-h" title="Lets the maths choose the axes instead of you picking metrics">Auto axes</div>
+        <div class="vm-row">
+          <button class="btn-sm vm-go" onclick="vmRunPCA()" title="Principal Component Analysis — finds the three directions your library genuinely varies along and offers them as axes, each labelled with what it is made of and how much of the variation it explains.">PCA</button>
+          <button class="btn-sm vm-go" id="vm-tsne-btn" onclick="vmRunTSNE()" title="t-SNE — a nonlinear 2D layout that pulls similar tracks into visible clumps. Runs in the background with a progress bar; press again to cancel. Large libraries are sampled and it says so.">t-SNE</button>
+        </div>
+        <div id="vm-axes-out" class="vm-out"></div>
+      </div>
+
+      <div class="vm-sec">
+        <div class="vm-h" title="Start from a track and nudge it along named qualities to find real tracks near that imaginary point">Vector arithmetic</div>
+        <input id="vm-arith" class="vm-input" spellcheck="false" placeholder="-voc +2rough" title="Nudge your selected track along named dimensions, in standard deviations. e.g. “-voc +2rough” = this track, but less vocal and much rougher. Names: bpm ene dnc dyn bri voc rough perc mode chflux onsden pulse — plus friendly ones like energy, dance, dynamics, brightness, vocals, roughness, tempo.">
+        <div class="vm-row">
+          <button class="btn-sm vm-go" onclick="vmRunArith()" title="Find the real tracks nearest that imaginary point">Nearest to that</button>
+        </div>
+        <div id="vm-arith-out" class="vm-out"></div>
+      </div>
+
+      <details class="vm-sec" id="vm-weights">
+        <summary style="cursor:pointer;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px" title="Decide which musical qualities matter when judging similarity">Weights — what “similar” means to you</summary>
+        <div id="vm-weight-rows" style="margin-top:6px"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">0 ignores that aspect · 1 is neutral · 2 doubles it. Tempo is compared as log(bpm), so 124→128 counts the same as 62→64; key is compared by its position on the wheel, so 12A and 1A are neighbours.</div>
+      </details>
+    </div>
+    <!-- Visible/total track counter now lives inside .neural-spread-center (top-centre) -->
+    <div class="neural-tooltip" id="neural-tooltip">
+      <img class="nt-cover" id="nt-cover" alt="">
+      <div class="nt-body">
+        <div class="nt-name" id="nt-name"></div>
+        <div class="nt-meta" id="nt-meta"></div>
+      </div>
+    </div>
+    <!-- Navigation instructions — top-left, to the right of the axis toolbar -->
+    <div class="neural-hint" title="Mouse guide for the field — hidden when the HUD is set to CLEAN in ⚙ Settings">
+      <span>Right-click drag (or left-click drag) = rotate</span>
+      <span>Scroll = zoom</span>
+      <span>Click = preview</span>
+      <span>Double-click = select / add</span>
+      <span>Hold + drag ↕ = scrub</span>
+    </div>
+    <!-- Empty-state overlay — rebuildGraph shows this when the active Field has no tracks. -->
+    <div id="neural-empty">
+      <div class="empty-state">
+        <img class="icon" src="/static/assets/tunefield-logo.png" alt="">
+        <div id="neural-empty-msg">This Field is empty.<br>Analyse some tracks on the <b>Analyse</b> tab and they'll appear here.</div>
+      </div>
+    </div>
+    <!-- Background-colour picker — HIDDEN + DISABLED in V1; DOM stays so V2 can re-enable
+         without re-plumbing. Don't delete. -->
+    <button class="neural-bg-picker" style="display:none" title="Field background colour (V2)">
+      <input type="color" id="neural-bg-input" value="#050508" disabled oninput="setNeuralBackground(this.value)">
+    </button>
+    <!-- Camelot wheel slot — bottom-left of the neural window. The actual wheel DOM (#camelot-pane)
+         is reparented in/out of this slot when the Neural tab is activated / left. -->
+    <div class="neural-legend" id="neural-legend" style="display:none" title="What the node colours mean — follows the Colour dropdown in the ⊞ AXES drawer"></div>
+    <!-- Transport — pure tape-transport + combined seek/preview bar + current track info.
+         Mode switching (Record / Explore / Playback) lives in the Playlist Builder panel;
+         this bar only plays. -->
+    <div class="neural-transport" id="neural-transport">
+      <button class="nt-btn" id="nt-prev"  onclick="previousTrack()"     title="Previous track in playlist">⏮</button>
+      <!-- Preview DIAL (Mark, 2026-08-03; segmented 2026-08-12) — the big knob between
+           prev and next, Winamp style: the slim bar's frame wraps the protruding circle.
+           The ring is 24 on/off segments (click toggles, drag paints, double-click
+           isolates; the selection stays one block), the thin outer arc is the true
+           window, the inner
+           mode-coloured arc is live position. Tap the inner disc to seek. -->
+      <div class="nt-dial" id="nt-dial">
+        <svg id="nt-dial-svg" viewBox="0 0 96 96"
+             title="Preview window — 24 segments, each 1/24 of the track (12 o'clock = start). Click a segment to switch it on or off; drag to switch several. Double-click a segment to isolate it. The selection stays one block; switching everything off returns to the full track. Tap the inner disc to seek.">
+          <g transform="rotate(-90 48 48)">
+            <circle class="ntd-track" cx="48" cy="48" r="37"/>
+            <!-- 24 clickable arc segments, built at wire time (same pattern as the key
+                 wheel's 12 arcs). They are the editor AND the coarse display; the thin
+                 ntd-window arc above them shows the TRUE range, which the fine slider
+                 can put anywhere — the segments deliberately show only the nearest
+                 1/24 approximation (Mark's spec: don't snap the slider). -->
+            <g id="ntd-segs"></g>
+            <circle class="ntd-window" id="ntd-window" cx="48" cy="48" r="44"/>
+            <circle class="ntd-prog" id="ntd-prog" cx="48" cy="48" r="27"/>
+          </g>
+        </svg>
+        <button class="nt-btn nt-btn-big" id="nt-play"
+                onclick="togglePlayPause()"
+                title="Play / pause · Space">▶</button>
+      </div>
+      <button class="nt-btn" id="nt-next"  onclick="ntNext()" title="Next track">⏭</button>
+      <button class="nt-btn nt-btn-stop" id="nt-stop" onclick="audioStop()" title="Stop (Esc)">⏹</button>
+      <!-- Fallback mode pills — shown ONLY where the Playlist Builder (the primary home of
+           mode switching) is hidden: the Top filter layout and the Playlists tab. No ids —
+           setMode() toggles .active on every .sp-mode by data-mode, so both copies stay in sync. -->
+      <div class="sp-modes nt-modes-fallback">
+        <button class="sp-mode m-explore" data-mode="explore" onclick="setMode('explore')" title="EXPLORE — listen and roam; nothing writes to the playlist">✦ Explore</button>
+        <button class="sp-mode m-learn" data-mode="learn" onclick="setMode('learn')" title="CURATE — double-click adds to the active playlist">⏺ Curate</button>
+        <button class="sp-mode m-playback" data-mode="playback" onclick="setMode('playback')" title="PLAY — auto-advance through the playlist">▶ Play</button>
+      </div>
+      <!-- Combined seek + preview bar: ONE strip = the whole track. The pink band between
+           the thumbs is the preview window (drag to trim), the mode-coloured fill is the
+           live playback position, and a click ANYWHERE on the strip seeks — inside or
+           outside the window. -->
+      <!-- The linear seek/preview strip was removed 2026-08-03 (Mark) — the DIAL is the
+           whole story now: outer ring = preview window, inner arc = position, inner-disc
+           click = seek. -->
+      <div class="nt-info" title="What's playing now — title, position in the playlist, and elapsed / total time">
+        <div class="nt-info-title" id="nt-info-title">—</div>
+        <div class="nt-info-meta"  id="nt-info-meta"></div>
+      </div>
+      <!-- VOLUME (Mark, 2026-08-27) — deliberately the SAME component as the field's
+           SPREAD dial (.spd, same ring, same teal, same vertical drag), just sized to the
+           32px button row so it sits in the capsule rather than poking out of it. The one
+           behaviour it adds is click-to-mute: unlike a zoom, a volume genuinely has an
+           "off", so the knob gets the affordance people expect from one. -->
+      <div class="spd spd-vol" id="nt-vol-dial" role="presentation"
+           title="Volume — drag UP louder, DOWN quieter. Scroll works too. Click to mute or unmute.">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="spd-ring-bg" cx="32" cy="32" r="26"/>
+          <circle class="spd-ring-fill" cx="32" cy="32" r="26" id="nt-vol-arc"/>
+          <g class="spd-glass" transform="translate(32,32)">
+            <path d="M-8 -3.5 h4 l5 -4.5 v16 l-5 -4.5 h-4 z" stroke-linejoin="round"/>
+            <path class="spd-wave" d="M4 -4 a6 6 0 0 1 0 8"/>
+            <path class="spd-wave" d="M7.5 -7.5 a10.5 10.5 0 0 1 0 15"/>
+            <path class="spd-x" d="M4 -4 l8 8 M12 -4 l-8 8"/>
+          </g>
+        </svg>
+        <input type="range" id="n-volume" class="spd-input"
+               min="0" max="100" step="1" value="100"
+               oninput="setVolume(this.value / 100)" aria-label="Volume">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PLAYLISTS TAB ── -->
+<div id="formula-popup" style="display:none;position:fixed;inset:0;z-index:650;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this)toggleFormulaPanel()">
+  <div id="formula-panel" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:800;font-size:12px;color:#d9c2ff">ƒx Formula axes</span>
+      <button class="cp-close" onclick="toggleFormulaPanel()" style="margin-left:auto" title="Close the formula editor (any applied formula stays active — use Clear to drop it)">×</button>
+    </div>
+    <textarea id="formula-input" rows="3" spellcheck="false"
+      placeholder="x=bpm*5(ene-dnc)  y=dnc^2/(val/ene)  size=ene*dnc&#10;Anything you skip keeps its dropdown metric."></textarea>
+    <div id="formula-error"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn-sm" onclick="applyFormula()" style="background:linear-gradient(180deg,#8d5cf6,#6d38d8);color:#fff;border-color:#b78cff;flex:1" title="Run the formula and re-arrange the field along it">Apply</button>
+      <button class="btn-sm" onclick="clearFormula()" title="Back to the dropdown metrics">Clear</button>
+      <button class="btn-sm" onclick="saveFormulaPatch()" title="Save the current formula as a named patch — it appears in the Formulas picker in the AXES drawer">Save</button>
+    </div>
+    <details id="formula-vars" style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Variables &amp; functions</summary>
+      <div id="formula-vars-list" style="margin-top:6px;font-size:10px;line-height:1.7;color:var(--muted);columns:2"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Also: <code>sin cos tan sqrt abs log ln exp min() max() pow() floor round sign pi e</code> · <code>^</code> = power · <code>5(ene-dnc)</code> multiplies</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Targets: <code>x=</code> <code>y=</code> <code>z=</code> <code>size=</code></div>
+    </details>
+  </div>
+</div>
+<div id="settools-box" role="dialog" aria-label="Set tools" aria-modal="false">
+  <div class="stb-head">
+    <span class="stb-title">Set tools</span>
+    <button class="cp-close" onclick="closeSetToolsBox()" title="Close (Esc)">×</button>
+  </div>
+  <div class="stb-body">
+        <div class="vm-sec">
+          <div class="vm-h" title="Finds the tracks nearest yours across every measurement at once — not just the three on screen">Similar tracks</div>
+          <div class="vm-row">
+            <button class="btn-sm vm-go" onclick="vmFindSimilar()" title="Find the tracks that most resemble your SELECTED track (double-click a node to select one). Results are ranked by distance — smaller is more alike.">Find similar</button>
+            <label class="vm-note" for="vm-k" title="How many similar tracks to return (1–100)">Tracks</label>
+            <input id="vm-k" class="vm-input" type="number" min="1" max="100" step="1" value="10" style="width:52px" title="How many similar tracks to return (1–100)" onchange="vmClampNum(this)">
+          </div>
+          <div id="vm-sim-out" class="vm-out"></div>
+        </div>
+
+        <div class="vm-sec">
+          <div class="vm-h" title="Designs a whole set: pick a Start and End track, how many tracks, and the energy shape the journey should follow — the maths picks coherent steps that trace your curve.">Set builder</div>
+          <div class="vm-row">
+            <button class="btn-sm vm-go" onclick="sbMarkStart()" title="Remember your SELECTED track as the set's opening track">Start here</button>
+            <button class="btn-sm vm-go" onclick="sbMarkEnd()" title="Remember your SELECTED track as the set's closing track — optional: with no End marked the set journeys freely from the Start. Press again on the same track to clear it.">End here</button>
+            <span class="vm-note" id="sb-anchors">no start · no end</span>
+          </div>
+          <div class="vm-row">
+            <label class="vm-note">Tracks</label>
+            <input id="sb-n" class="vm-input" type="number" min="2" step="1" value="20" style="width:64px">
+            <button class="btn-sm" onclick="sbSetAll()" title="Use every track in the current Field selection">All</button>
+            <label class="vm-note" style="margin-left:8px">Shape</label>
+            <select id="sb-metric" title="The metric the curve shapes along the set">
+              <option value="energy" selected>Energy</option>
+              <option value="bpm">BPM</option>
+              <option value="dance">Danceability</option>
+              <option value="brightness">Brightness</option>
+              <option value="vocals">Vocals</option>
+              <option value="rating">Rating</option>
+            </select>
+          </div>
+          <div class="vm-row" id="sb-curves" title="The energy shape of the journey — click one, or ƒx for a formula"></div>
+          <div class="vm-row" id="sb-formula-row" style="display:none">
+            <input id="sb-formula" class="vm-input" placeholder="0.5 + 0.4*sin(2*pi*i/cyc)" style="flex:1"
+                   title="Curve formula → target 0–1. Variables: t (position 0–1), i (track index), n (list length), cyc (tracks per cycle). Functions: the usual maths set.">
+          </div>
+          <div class="vm-row">
+            <label class="vm-note" title="Tracks per waveform cycle — drives the Waves preset and the cyc variable in formulas">Cycle</label>
+            <input id="sb-interval" class="vm-input" type="number" min="2" step="1" value="8" style="width:52px">
+            <label class="vm-note" style="margin-left:8px" title="Left: smoother musical transitions. Right: hit the curve harder.">Flow</label>
+            <input id="sb-blend" type="range" min="0" max="100" value="50" style="flex:1">
+            <label class="vm-note">Curve</label>
+          </div>
+          <div class="vm-row">
+            <button class="btn-sm vm-go" id="sb-generate" onclick="sbGenerate()">Build set</button>
+          </div>
+          <div id="vm-sb-out" class="vm-out"></div>
+        </div>
+
+        <div class="vm-sec">
+          <div class="vm-h" title="Groups your library by how the music actually sounds, ignoring the genre tags">Groups by sound</div>
+          <div class="vm-row">
+            <button class="btn-sm vm-go" onclick="vmRunClusters(true)" title="Sort the whole library into groups of similar-sounding tracks and colour the field by them. Each group is labelled with the genre tag most of its members carry — so you can see where the sound agrees with your labels and where it doesn't.">Group my library</button>
+            <label class="vm-note" for="vm-clusters" title="How many groups to split the library into (2–32)">Groups</label>
+            <input id="vm-clusters" class="vm-input" type="number" min="2" max="32" step="1" value="8" style="width:52px" title="How many groups to split the library into (2–32)" onchange="vmClampNum(this)">
+          </div>
+          <div id="vm-clusters-out" class="vm-out"></div>
+        </div>
+
+        
+
+  </div>
+
+</main>
+<audio id="global-audio" preload="none"></audio>
+<script type="module" src="/static/js/field.js"></script>
 </body>
 </html>
