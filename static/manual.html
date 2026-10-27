@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tunefield Manual</title>
+<!-- GENERATED from MANUAL.md by scripts/build_manual.py — edit the .md, not this file. -->
+<style>
+  :root{
+    --paper:#F6F2E9; --card:#FBF8F1; --ink:#1C1A16; --body:#3A362E;
+    --muted:#7A7466; --line:#D8D2C2;
+    --teal:#20706F; --rust:#B4472F; --mustard:#B07C10;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--paper); color:var(--body);
+    font-family:"Avenir Next","Avenir","Futura","Century Gothic","Nunito Sans",system-ui,sans-serif;
+    font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:46rem; margin:0 auto; padding:0 1.4rem 5rem}
+  .masthead{padding:2.8rem 0 1.4rem; border-bottom:2px solid var(--ink); margin-bottom:2rem}
+  .brand{font-weight:700; color:var(--ink)} .brand b{color:var(--rust)}
+  .ver{color:var(--muted); font-size:.85rem; margin-top:.2rem}
+  h1{font-size:clamp(1.8rem,5vw,2.4rem); color:var(--ink); letter-spacing:-.015em;
+     line-height:1.1; margin:1.2rem 0 .6rem; text-wrap:balance}
+  h2{font-size:1.25rem; color:var(--ink); margin:2.4rem 0 .7rem; padding-top:1.2rem;
+     border-top:1px solid var(--line); letter-spacing:-.01em}
+  h3{font-size:1.02rem; color:var(--teal); margin:1.6rem 0 .4rem;
+     text-transform:uppercase; letter-spacing:.09em; font-size:.82rem}
+  h4{font-size:.98rem; color:var(--ink); margin:1.2rem 0 .3rem}
+  p{margin:0 0 .9rem} strong{color:var(--ink)}
+  a{color:var(--teal); text-underline-offset:2px}
+  code{font-family:ui-monospace,Menlo,monospace; font-size:.85em; background:var(--card);
+    border:1px solid var(--line); padding:.06em .35em; color:var(--ink)}
+  pre{background:var(--card); border:1px solid var(--line); padding:.8rem 1rem;
+    overflow-x:auto; font-size:.85rem} pre code{border:none; padding:0}
+  ul,ol{margin:0 0 1rem; padding-left:1.2rem} li{margin-bottom:.35rem}
+  hr{border:none; border-top:1px solid var(--line); margin:2rem 0}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; background:var(--card);
+    margin:0 0 1rem; display:block; overflow-x:auto}
+  th{font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; text-align:left;
+     color:var(--muted); padding:.5rem .75rem; border:1px solid var(--line)}
+  td{padding:.5rem .75rem; border:1px solid var(--line); vertical-align:top}
+  blockquote{margin:0 0 1rem; padding:.6rem 1rem; border-left:4px solid var(--mustard);
+    background:var(--card); color:var(--body)}
+  .curves{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:.7rem; margin:0 0 1rem}
+  .curve{background:var(--card); border:1px solid var(--line); padding:.7rem .8rem}
+  .curve svg{display:block; width:100%; height:44px; margin-bottom:.45rem}
+  .curve b{display:block; font-size:.85rem; color:var(--ink)}
+  .curve span{font-size:.78rem; color:var(--muted); line-height:1.35; display:block}
+  .curve .cyc{color:var(--mustard); font-weight:700}
+  .foot{margin-top:3rem; padding-top:1.2rem; border-top:1px solid var(--line);
+        color:var(--muted); font-size:.85rem}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="masthead">
+    <div class="brand">tunefield<b>.</b> user manual</div>
+    <div class="ver">version 1.0.0 · built 2026-10-27</div>
+  </div>
+  <h1 id="tunefield-lite--user-manual">Tunefield Lite — User Manual</h1>
+<p><em>Public beta. The exact version is in the <code>VERSION</code> file and at the top of every Feedback report.</em></p>
+<p>Tunefield turns your music into a space you can fly through. Every track becomes a point in a 3D field shaped by the music itself — tempo, loudness, key, mood — so <em>where things are</em> means something. <strong>Tunefield Lite does one job: it helps a DJ build a set from a selection of music.</strong> Add a folder, see it as a field, build the set, play it through, export it to your DJ software.</p>
+<p>It runs entirely on your own Mac. Your music, your analysis and your sets never leave the machine; the only thing that ever goes out is a Feedback report, and only when you send it.</p>
+<p><strong>Needs:</strong> a Mac with Apple Silicon (M1 or newer), macOS 14 Sonoma or newer.</p>
+<hr />
+<h2 id="contents">Contents</h2>
+<ol>
+<li><a href="#1-the-loop-in-two-minutes">The loop in two minutes</a></li>
+<li><a href="#2-the-analyse-tab">The Analyse tab</a></li>
+<li><a href="#3-the-field-tab">The Field tab</a></li>
+<li><a href="#4-building-a-set">Building a set</a></li>
+<li><a href="#5-up-next">Up next</a></li>
+<li><a href="#6-set-tools">Set tools</a></li>
+<li><a href="#7-playing-a-set">Playing a set</a></li>
+<li><a href="#8-the-playlists-tab">The Playlists tab</a></li>
+<li><a href="#9-the-list-tab">The List tab</a></li>
+<li><a href="#10-the-repair-tab">The Repair tab</a></li>
+<li><a href="#11-exporting--rekordbox-traktor-ableton">Exporting — Rekordbox, Traktor, Ableton</a></li>
+<li><a href="#12-keyboard-reference">Keyboard reference</a></li>
+<li><a href="#13-settings">Settings</a></li>
+<li><a href="#14-troubleshooting--faq">Troubleshooting / FAQ</a></li>
+<li><a href="#15-appendix-what-the-metrics-mean">Appendix: what the metrics mean</a></li>
+</ol>
+<hr />
+<h2 id="1-the-loop-in-two-minutes">1. The loop in two minutes</h2>
+<ol>
+<li><strong>Analyse → Add music.</strong> Pick a folder. Everything new in it is analysed; a big progress panel shows how far it has got and how long is left.</li>
+<li><strong>Field.</strong> Your tracks appear as coloured spheres — left to right is slow to fast, bottom to top is quiet to loud, colour is the key.</li>
+<li><strong>＋ New set</strong>, then <strong>double-click</strong> tracks to add them. <strong>Up next</strong> under the set suggests what could follow.</li>
+<li><strong>▶ Play.</strong> The set plays through, each track's preview section, and the camera flies to each track as it starts.</li>
+<li><strong>Export set.</strong> Rekordbox, Traktor, Ableton or M3U8.</li>
+</ol>
+<p>Everything you create lives in the <code>data/</code> folder next to the app (or on the USB stick, for the portable build). Deleted audio goes to <code>data/_trash/</code> first, never straight to oblivion.</p>
+<p>The five tabs across the top, in workflow order:</p>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>What it's for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Analyse</strong></td>
+<td>Add music folders and watch them get analysed</td>
+</tr>
+<tr>
+<td><strong>Field</strong></td>
+<td>The 3D field, with your set beside it</td>
+</tr>
+<tr>
+<td><strong>Playlists</strong></td>
+<td>All your sets</td>
+</tr>
+<tr>
+<td><strong>List</strong></td>
+<td>Everything as a sortable table, with the same filters as the Field</td>
+</tr>
+<tr>
+<td><strong>Repair</strong></td>
+<td>Library health: covers, tags, genres, paths, duplicates</td>
+</tr>
+</tbody>
+</table>
+<p>Whenever something breaks or confuses you, press <strong>Feedback</strong> (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. <strong>Copy &amp; open form ↗</strong> opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.</p>
+<hr />
+<h2 id="2-the-analyse-tab">2. The Analyse tab</h2>
+<p>This is where music enters Tunefield.</p>
+<p><strong>Add music</strong> opens the folder picker. Pick a folder and Tunefield adds it, looks through it, and analyses every track that isn't already in this Field — one action, nothing to tick. <strong>Or paste a folder path</strong> does the same from a typed path.</p>
+<p>While it runs:</p>
+<ul>
+<li><strong>The progress panel is unmissable.</strong> Within a second of pressing Add music it says what it is doing. The first few tracks take longest while the analyser warms up; after that you see <em>Analysing 120 of 1,376</em> and <em>about 9 min left</em>.</li>
+<li><strong>Cancel</strong> stops after the batch in flight. Everything analysed so far stays.</li>
+<li><strong>You can use the Field while it runs.</strong> Analysis slows itself down slightly while the Field or the List is on screen, so neither stutters.</li>
+<li><strong>Interrupted runs come back.</strong> If the app quits or crashes mid-run, the next launch opens on Analyse with <em>Analysis was interrupted — N files still to go</em> and a <strong>Resume</strong> button. Closing the window mid-run asks first.</li>
+</ul>
+<p>When it finishes, the panel says what happened: <em>120 tracks added · 30 already in this Field · 2 files couldn't be read</em>. <strong>Tracks already in the Field are a count, never an error.</strong> Files that genuinely can't be decoded are listed under <em>details</em> with the reason.</p>
+<p><strong>Analysis is fully local.</strong> No audio ever leaves your machine. Each track is analysed over half its length, sampled in blocks spread across the record, so a quick pass still hears the intro, the middle and the end.</p>
+<p><strong>Fields.</strong> A Field is a named collection — your whole library, or one gig's worth. The <strong>Field</strong> selector at the top of the tab picks which one you're adding to; <strong>＋ New Field</strong>, <strong>Rename</strong> and <strong>Delete</strong> manage them. <strong>Music folders in this Field</strong> lists the folders you've added; <strong>Check for new music</strong> looks through them all again and analyses what's new; <strong>Remove</strong> takes a folder off the list (your audio files are never touched).</p>
+<p><strong>First launch</strong> opens straight on Analyse with one thing to do: Add music. An empty Field says so, with the same button, instead of showing an empty space.</p>
+<hr />
+<h2 id="3-the-field-tab">3. The Field tab</h2>
+<p>Every track is a sphere floating in space. <strong>Position, colour and size each represent a metric you choose</strong> — so you decide what "close together" means. The field stays fast with many thousands of tracks.</p>
+<h3 id="31-the-drawers">3.1 The drawers</h3>
+<p>Four slim tabs sit on the field's left edge:</p>
+<ul>
+<li><strong>FIELDS</strong> — tick which Fields are in view.</li>
+<li><strong>AXES</strong> — the dropdowns for <strong>X / Y / Z / Size / Colour</strong>, saved <strong>Views</strong>, and <strong>Formulas</strong> (a presets &amp; patches picker, and <strong>ƒx Edit</strong> for writing your own axis maths).</li>
+<li><strong>FILTERS</strong> — search, mood, vocals, and ranges for BPM, danceability, loudness, length and release year.</li>
+<li><strong>KEY</strong> — the Camelot wheel.</li>
+</ul>
+<p>Click a tab to slide its drawer out; click again to tuck it away. Several can be open at once. <strong>Drawer size</strong> in ⚙ Settings scales them all.</p>
+<p>Available metrics: BPM, Loudness, Danceability, Brightness, <strong>Key (Camelot)</strong> (put it on X to line the library up by the wheel), Vocals, <strong>Mood</strong> (four coarse bands), Rating, <strong>Released</strong> (a timeline of your library), Genre, and any tags you've created. Fresh installs start at X = BPM, Y = Loudness, Z = Danceability, Colour = Key.</p>
+<p><strong>Every axis says which way it runs</strong> — the arrowhead end carries the metric and its high-end word (<code>fast ▸</code>, <code>loud ▸</code>, <code>danceable ▸</code>), the other end the low-end word (<code>◂ slow</code>, <code>◂ quiet</code>). A small axis cross bottom right turns with the camera, for when you've flown yourself into disorientation.</p>
+<p><strong>Formulas.</strong> In the AXES drawer, pick one of the built-in presets and the whole field re-arranges — the Camelot wheel as a literal circle, a peak-time finder, half-time twins. <strong>ƒx Edit</strong> lets you write your own, e.g. <code>x=bpm*5(ene-dnc) y=dnc^2/(bri/ene) size=ene</code>, using short names for the metrics (<code>bpm ene dnc bri voc rat rel dur key mod grp rough perc onsd puls chfx dyn</code>). Undefined results pin a track to the middle instead of flinging it into deep space.</p>
+<h3 id="32-mouse">3.2 Mouse</h3>
+<ul>
+<li><strong>Drag</strong> to rotate · <strong>scroll</strong> to zoom · <strong>Reset</strong> (left of the tool ring) re-frames everything</li>
+<li><strong>Click</strong> a track → select it and hear its preview</li>
+<li><strong>Double-click</strong> a track → <strong>add it to your set</strong> (and hear it)</li>
+<li><strong>Hold on a track and drag up/down</strong> → scrub through it</li>
+<li>Hover shows artist and title, then BPM · Key · Genre</li>
+</ul>
+<h3 id="33-the-tool-ring-and-the-spread-dial">3.3 The tool ring and the Spread dial</h3>
+<p>Top centre of the field: <strong>Reset</strong>, <strong>◎ Focus</strong> (every selection flies the camera in close; orbiting by hand releases it), <strong>⋈ Vector maths</strong> (the advanced panel — see §6), <strong>Covers</strong> (album art on every sphere) and <strong>Pathway</strong>. The <strong>Spread dial</strong> in the middle stretches or squeezes the whole field ×0.5 to ×3 — drag up/down or scroll, double-click to snap back to ×1. Keys <code>1</code>–<code>5</code> press the ring left to right.</p>
+<p><strong>Pathway.</strong> Your set's route through the field is always drawn as a line. The Pathway button switches what the rest of the field does around it: <strong>the whole field</strong>, or <strong>only the tracks in your set</strong>. Only-the-set takes effect once the set has at least two tracks, and every launch starts with the whole field showing.</p>
+<h3 id="34-the-camelot-wheel">3.4 The Camelot wheel</h3>
+<p>The KEY drawer's wheel <strong>filters the field by key</strong>.</p>
+<ul>
+<li><strong>Click a key</strong> to show only that key; click more to add them. The <strong>⊘</strong> button in the middle clears the key selection — your track's key stays outlined as a "you are here" marker.</li>
+<li><strong>The mode pads</strong> — <strong>Safe / Wider / +Mood / All</strong> — select keys that mix with your selected track's key. Clicking the active pad again cycles <strong>dark</strong> (minor only) → <strong>light</strong> (major only) → normal.</li>
+<li><strong>◯ Rings / — Lines / ⊙ Preview</strong> show the twelve nearest harmonically compatible tracks from your selected track, faded by rank. ⊙ Preview (or <code>V</code>) makes them follow whatever you're previewing instead.</li>
+<li><strong>Wheel labels</strong> — note names, Camelot <code>8B</code>, or Open Key <code>1d</code> — are in ⚙ Settings, or step through them with the small key button beside the wheel.</li>
+</ul>
+<p>The FILTERS and KEY drawers are the same filters the List tab uses: a key picked in one applies in the other.</p>
+<h3 id="35--a-hidden-mode">3.5 ✛ A hidden mode</h3>
+<p>Somewhere in the Field is a first-person flight mode — for those who find it. A certain classic sequence of keys, entered on the Field tab, unlocks it for good; once found, a <strong>✛</strong> button joins the tool ring and <strong><code>F</code></strong> toggles it. Inside, the mouse steers, WASD flies, and the crosshair is your cursor — click previews, Shift+click or double-click adds. <strong><code>Esc</code></strong> leaves, and leaving never stops the music. <strong>Flight speed</strong> is in ⚙ Settings.</p>
+<hr />
+<h2 id="4-building-a-set">4. Building a set</h2>
+<p>The <strong>Your set</strong> panel sits beside the Field.</p>
+<ul>
+<li><strong>＋ New set</strong> creates a set and opens it. The selector beside it switches between sets; <strong>✎</strong> renames, <strong>×</strong> deletes.</li>
+<li><strong>Double-click</strong> a track in the Field to add it. Each add lands <strong>right after the track you last added or played</strong>, so you build forward from where you are.</li>
+<li><strong>Drag</strong> a row by its grip to reorder. <strong>×</strong> on a row removes it. <strong>Clear</strong> empties the set.</li>
+<li><strong>↶ Undo</strong> steps back through every add, removal and reorder — press it repeatedly to keep walking back.</li>
+<li><strong>Lock</strong> protects a finished set from edits.</li>
+</ul>
+<p>The top of the panel shows the track count and the total running time.</p>
+<hr />
+<h2 id="5-up-next">5. Up next</h2>
+<p>Under the set, <strong>Up next</strong> keeps five tracks ready that would follow well — Spotify-style, but steered by you:</p>
+<ul>
+<li><strong>↗ up / → steady / ↘ down</strong> — the energy shape. <em>Up</em> builds the loudness as the set grows, <em>down</em> winds it down, <em>steady</em> holds it.</li>
+<li><strong>Roam</strong> — how far each suggestion may travel from the track before it. Left hugs one sound; right reaches across the library.</li>
+<li><strong>Key</strong> — how strictly suggestions keep to harmonically compatible keys. Left: anything goes. Right: compatible keys only.</li>
+</ul>
+<p>Up next follows <strong>the track you last double-clicked</strong> — add a track and the suggestions re-aim from it. (With nothing added yet, it follows the last track in the set.) It only suggests tracks your filters allow, and never one already in the set.</p>
+<ul>
+<li><strong>Click</strong> a suggestion to hear it.</li>
+<li><strong>＋</strong> (or double-click) <strong>keeps</strong> it — it joins the set.</li>
+<li><strong>×</strong> drops it; it isn't offered again this session.</li>
+</ul>
+<p><strong>A playing set never runs dry.</strong> When the set reaches its last track, the first Up next track joins the set and plays, and so on — the set keeps growing for as long as you let it play.</p>
+<hr />
+<h2 id="6-set-tools">6. Set tools</h2>
+<p><strong>⋈ Set tools</strong> in the set panel opens one-click tools that compare tracks by their whole sound — sixteen measurements per track, not just the three the field shows. No AI, no internet: your own library's measurements, compared honestly. Results list underneath; click any to hear it, and <strong>＋ Add all to the set</strong> takes them.</p>
+<p><strong>This track</strong> — click a track in the Field first:</p>
+<table>
+<thead>
+<tr>
+<th>Button</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>More like this</strong></td>
+<td>The ten tracks closest in overall sound</td>
+</tr>
+<tr>
+<td><strong>Bridge to here</strong></td>
+<td>Stepping-stone tracks from the last track in your set to the selected one</td>
+</tr>
+<tr>
+<td><strong>Less vocal / More energy / Darker / Brighter</strong></td>
+<td>Tracks like this one, nudged in that direction</td>
+</tr>
+<tr>
+<td><strong>Distance as axis</strong></td>
+<td>Puts "how far from this track" on the X axis — nearest on the left</td>
+</tr>
+<tr>
+<td><strong>Build a set from here</strong></td>
+<td>A 20-track set starting here, shaped by energy — preview it, then save it</td>
+</tr>
+</tbody>
+</table>
+<p><strong>This set:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Button</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>More like this set</strong></td>
+<td>Tracks closest to the set as a whole</td>
+</tr>
+<tr>
+<td><strong>Smooth the order</strong></td>
+<td>Reorders the set so each step is as small as possible (Undo reverses it)</td>
+</tr>
+<tr>
+<td><strong>Check the flow</strong></td>
+<td>The set as a journey: its energy shape, the average step, the roughest transition</td>
+</tr>
+<tr>
+<td><strong>Fix the worst jump</strong></td>
+<td>Finds the roughest step and offers a track to insert between the two</td>
+</tr>
+<tr>
+<td><strong>Odd one out</strong></td>
+<td>The track that sits furthest from the rest, with a Remove button</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The Field:</strong> <strong>Arrange by sound</strong> lays the field out along the three directions your library actually varies (PCA); <strong>Map by similarity</strong> pulls similar tracks into visible clumps (t-SNE); <strong>Group by sound</strong> colours the field into sound families; <strong>⟲ Reset view</strong> puts the axes back.</p>
+<p><strong>Library:</strong> <strong>Near-duplicates</strong> lists pairs of tracks that sound almost identical — the same record twice, or two edits.</p>
+<p><strong>The advanced panel.</strong> ⚙ Settings → <strong>⋈ Advanced vector panel</strong> (or key <code>3</code>) opens the full tools: PCA and t-SNE with their detail, free-form vector arithmetic (<code>-voc +2rough</code> — "this, but less vocal and much rougher", in standard deviations), and the <strong>Weights</strong> that decide what "similar" means to you. The weights affect every Set tool.</p>
+<hr />
+<h2 id="7-playing-a-set">7. Playing a set</h2>
+<p>Press <strong>▶</strong> on the transport at the bottom. The set plays through in order, starting from the track you last added or played, and <strong>the camera flies to each track as it starts</strong> — a slow orbit that breathes in and out. Grab the view (drag, scroll or the flight keys) and the camera is yours; the <strong>Fly</strong> button hands it back.</p>
+<p><strong>The preview window</strong> is the ring around the play button: <strong>24 segments</strong>, each 1/24 of a track, 12 o'clock = the start. Click a segment to switch it on or off; drag to paint several; double-click to isolate one. The lit segments are the part of every track you hear:</p>
+<ul>
+<li>A track you <strong>click in the Field</strong> plays its preview section and <strong>stops at the end of it</strong>.</li>
+<li>In a <strong>playing set</strong>, reaching the end of the section moves on to the next track.</li>
+<li><strong>Every segment off</strong> plays every track in full.</li>
+</ul>
+<p>The transport also has <strong>⏮ / ⏭</strong> (previous / next), <strong>⏹</strong> stop, and the <strong>volume dial</strong> at its right end: drag up/down or scroll for level, click to mute.</p>
+<hr />
+<h2 id="8-the-playlists-tab">8. The Playlists tab</h2>
+<p>Every set as a card, with its tracks.</p>
+<ul>
+<li><strong>＋ New set</strong> creates one.</li>
+<li><strong>Drag</strong> tracks between cards to move them; hold <strong>Alt</strong> while dropping to copy; <strong>×</strong> removes.</li>
+<li>Each card has <strong>Set active</strong> (open it in the set panel), <strong>Duplicate</strong>, <strong>Rename</strong>, <strong>Lock</strong> and <strong>Delete</strong>. Deleting is undoable from the toast that follows.</li>
+<li><strong>Analyse my set</strong> on a card is the same report as Set tools → Check the flow.</li>
+</ul>
+<hr />
+<h2 id="9-the-list-tab">9. The List tab</h2>
+<p>The tracks of whichever Fields are ticked in <strong>Fields ▾</strong>, as one sortable table.</p>
+<ul>
+<li><strong>Columns</strong> — click a header to sort; drag a header onto another to reorder; drag edges for width; <strong>⊞ Columns</strong> shows or hides them. <strong>Key</strong> follows your wheel-label setting.</li>
+<li><strong>The sidebar</strong> holds the same filters and Camelot wheel as the Field's drawers — they're shared, so filtering here filters the Field too.</li>
+<li><strong>Ratings</strong> — click the ★ column to rate 0–5. Ratings work as a field metric and in formulas (<code>rat</code>).</li>
+<li><strong>Check</strong> — tempo confidence as a traffic light: <strong>red</strong> = the file's tag and the analysis disagree (worth a listen), <strong>yellow</strong> = medium, <strong>green</strong> = high. Sort by it and check the top until it turns green.</li>
+<li><strong>Right-click</strong> a row to add it to a set.</li>
+<li><strong>Export ▾</strong> exports what the filters show (see §11).</li>
+<li><strong>Table / Cards</strong> switches the view.</li>
+</ul>
+<hr />
+<h2 id="10-the-repair-tab">10. The Repair tab</h2>
+<p>Field health. Pick the Field, press <strong>Scan health</strong>, and the findings group into cards:</p>
+<table>
+<thead>
+<tr>
+<th>Card</th>
+<th>What it means</th>
+<th>Fix offered</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Broken file paths</td>
+<td>Entry points at a file that no longer exists</td>
+<td>Delete orphan entries, or relink</td>
+</tr>
+<tr>
+<td>Missing cover art</td>
+<td>No embedded art, no folder cover.jpg</td>
+<td>Extract covers, then Generate key-colour covers</td>
+</tr>
+<tr>
+<td>Missing artist / title</td>
+<td>Tags never extracted</td>
+<td>Backfill tags from files</td>
+</tr>
+<tr>
+<td>Missing genre</td>
+<td>No genre tag</td>
+<td>Extract genres</td>
+</tr>
+<tr>
+<td>Failed / partial analysis</td>
+<td>BPM = 0 or duration = 0</td>
+<td>Rescan all</td>
+</tr>
+<tr>
+<td>Catalog name ↔ tag mismatch</td>
+<td>Tags disagree with the stored name</td>
+<td>Apply tags to catalog names (undoable) — files on disk are never renamed</td>
+</tr>
+<tr>
+<td>Duplicates</td>
+<td>Same track catalogued more than once</td>
+<td>Auto-delete duplicates (keep best), after a preview</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Covers:</strong> <strong>Extract covers</strong> pulls the art embedded in your files; <strong>Generate key-colour covers</strong> draws a sleeve from the track's key colour, artist and title for whatever is left — so every track can end up with one. Long jobs show their progress on the Repair tab with a <strong>Cancel</strong>. Per-row buttons fix or <strong>ignore</strong> individual issues; ignored issues stay out of future scans until you clear the ignored list.</p>
+<p>When a file simply carries no tags, Repair says so plainly — <em>the remaining tracks have no artist/title tags in the file</em> — rather than reporting a failure. <strong>Rescan all</strong> re-analyses tracks whose files were copied into Tunefield's own library; tracks analysed in place from your own folders are re-analysed by removing and re-adding them on the Analyse tab.</p>
+<blockquote>
+<p><strong>Caution: delete and dedup actions remove catalog entries</strong> — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of exactly what would be deleted, you confirm before anything runs, an Undo is offered straight after, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.</p>
+</blockquote>
+<hr />
+<h2 id="11-exporting--rekordbox-traktor-ableton">11. Exporting — Rekordbox, Traktor, Ableton</h2>
+<p><strong>Export set</strong> (set panel) exports the open set; <strong>Export ▾</strong> (List tab) exports what the filters show. You can switch the <strong>Source</strong> at the top of the menu either way.</p>
+<table>
+<thead>
+<tr>
+<th>Menu item</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>M3U8 — absolute paths</strong></td>
+<td>A standard playlist with full file paths — for players on this machine</td>
+</tr>
+<tr>
+<td><strong>M3U8 — relative (filenames)</strong></td>
+<td>Filenames only — place it alongside your audio and it works anywhere</td>
+</tr>
+<tr>
+<td><strong>Rekordbox — bridge (auto)</strong></td>
+<td>The recommended Rekordbox route — see below</td>
+</tr>
+<tr>
+<td><strong>Rekordbox XML — download</strong></td>
+<td>A one-off XML — for taking a set to another machine</td>
+</tr>
+<tr>
+<td><strong>Ableton Live Set</strong></td>
+<td>A ready-to-open <code>.als</code>: two alternating deck tracks, one scene per track, every clip warped to its BPM. Opens in any Live edition; audio is referenced in place</td>
+</tr>
+<tr>
+<td><strong>Traktor NML</strong></td>
+<td>Drop into Traktor's Playlists folder, or import via Traktor's File menu</td>
+</tr>
+<tr>
+<td><strong>CSV — all metadata</strong></td>
+<td>The whole Field's analysis as a spreadsheet</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-rekordbox-bridge">The Rekordbox bridge</h3>
+<p>Every exported set collects in <strong>one fixed XML file</strong> (<code>~/Music/Tunefield/tunefield.xml</code>) that Rekordbox watches. Set it up once — <strong>setup</strong> beside the menu item shows the path to copy:</p>
+<ol>
+<li><strong>Rekordbox → Preferences → Advanced → Database</strong> — under "rekordbox xml", set <strong>Imported Library</strong> to that file.</li>
+<li><strong>View → Layout</strong> — tick <strong>rekordbox xml</strong> so the sidebar section shows.</li>
+</ol>
+<p>After that, every export appears in Rekordbox's xml sidebar: right-click → <strong>Import Playlist</strong>. Re-exporting a set updates it in place. Your Rekordbox collection itself is never touched. <em>(For USB sticks and CDJs, do the final "Export to device" from Rekordbox.)</em></p>
+<hr />
+<h2 id="12-keyboard-reference">12. Keyboard reference</h2>
+<p>Press <strong><code>?</code></strong> on the Field tab for this list in the app.</p>
+<p><strong>Fly the field</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>W</code> <code>S</code></td>
+<td>forward / back</td>
+</tr>
+<tr>
+<td><code>A</code> <code>D</code></td>
+<td>strafe left / right</td>
+</tr>
+<tr>
+<td><code>Q</code> <code>E</code></td>
+<td>rise / sink</td>
+</tr>
+<tr>
+<td><code>Shift</code></td>
+<td>hold to sprint (×3)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Pick tracks</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>←</code> <code>↑</code> <code>→</code> <code>↓</code></td>
+<td>hop to the next track in that direction</td>
+</tr>
+<tr>
+<td><code>Enter</code></td>
+<td>preview it (like a click)</td>
+</tr>
+<tr>
+<td><code>Shift</code>+<code>Enter</code></td>
+<td>add it (like a double-click)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tools and drawers</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code>–<code>5</code></td>
+<td>the tool ring: Reset · ◎ Focus · ⋈ Vector maths · Covers · Pathway</td>
+</tr>
+<tr>
+<td><code>Z</code> <code>X</code> <code>C</code></td>
+<td>open / close the Axes, Filters and Key drawers</td>
+</tr>
+<tr>
+<td><code>Y</code></td>
+<td>Fly on / off</td>
+</tr>
+<tr>
+<td><code>V</code></td>
+<td>Rings / Lines follow the previewed track</td>
+</tr>
+<tr>
+<td><code>⌘ ,</code></td>
+<td>Settings</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Play</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Space</code></td>
+<td>play / pause</td>
+</tr>
+<tr>
+<td><code>Esc</code></td>
+<td>back to the selected track, or stop</td>
+</tr>
+<tr>
+<td><code>?</code></td>
+<td>show / hide the key list</td>
+</tr>
+</tbody>
+</table>
+<p><strong>First-person</strong> <em>(once unlocked — §3.5)</em>: <code>F</code> enters and leaves, the mouse looks, click previews, Shift+click adds, <code>Esc</code> leaves.</p>
+<p>Keys never fire while you're typing in a box or dragging a slider.</p>
+<hr />
+<h2 id="13-settings">13. Settings</h2>
+<p><strong>⚙</strong> (top right, or <code>⌘ ,</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Help</strong></td>
+<td>Opens this manual</td>
+</tr>
+<tr>
+<td><strong>Beta</strong></td>
+<td>Saves the local usage log, if you want to send it with feedback</td>
+</tr>
+<tr>
+<td><strong>Wheel labels</strong></td>
+<td>Note names, Camelot (<code>1A/1B</code>) or Open Key (<code>1m/1d</code>)</td>
+</tr>
+<tr>
+<td><strong>Vector maths</strong></td>
+<td>Opens the advanced ⋈ panel</td>
+</tr>
+<tr>
+<td><strong>Appearance</strong></td>
+<td>Light or Dark interface</td>
+</tr>
+<tr>
+<td><strong>Background</strong></td>
+<td>Light or dark ground behind the Field and the pages</td>
+</tr>
+<tr>
+<td><strong>Drawer size</strong></td>
+<td>Scales the Field's drawers, 50–150%</td>
+</tr>
+<tr>
+<td><strong>Filtered-out tracks</strong></td>
+<td>0% hides tracks your filters exclude (the default); higher leaves them as faint, still-clickable ghosts</td>
+</tr>
+<tr>
+<td><strong>Flight speed</strong></td>
+<td>First-person and keyboard flight, 25–250%</td>
+</tr>
+<tr>
+<td><strong>Distance fog</strong></td>
+<td>Far tracks fade into the ground, for depth</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="14-troubleshooting--faq">14. Troubleshooting / FAQ</h2>
+<p><strong>macOS says it can't check the app.</strong> The downloaded app is signed and notarized, so a plain double-click should open it. If you copied it from somewhere else and macOS still objects: <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>, once.</p>
+<p><strong>macOS asks to access your Music, Documents or a drive.</strong> That's macOS checking before Tunefield reads a folder you picked. Allow it — Tunefield only reads the folders you add. If you said no by mistake, change it in <strong>System Settings → Privacy &amp; Security → Files and Folders</strong>.</p>
+<p><strong>A track fails to analyse.</strong> Corrupt or very short files fail cleanly and are listed under <em>details</em> in the Analyse panel. Anything else isn't expected — send it via Feedback with the filename.</p>
+<p><strong>The BPM is half or double.</strong> Tempo detection sometimes lands on the wrong multiple. Fix it on the track's card in the List: <strong>÷2, ×⅔, ×1½, ×2</strong>, with a reset. Corrections survive re-analysis.</p>
+<p><strong>The key looks wrong.</strong> Correct it on the track card: <strong>‹ ›</strong> step a semitone, <strong>maj↔min</strong> flips the mode, <strong>rel</strong> swaps to the relative key. Stored like tempo corrections and used everywhere, including exports.</p>
+<p><strong>My acapella or stem is classified wrong.</strong> Put a label in the filename or tags — <code>(Acapella)</code>, <code>(Instrumental)</code>, <code>Vocals Only</code> — and it overrides detection.</p>
+<p><strong>Filtered-out tracks disappear.</strong> A filter takes them off the screen. <strong>⚙ Settings → Filtered-out tracks</strong> keeps them as faint ghosts instead.</p>
+<p><strong>I deleted something I shouldn't have.</strong> Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to <code>data/_trash/</code> rather than being erased.</p>
+<p><strong>Start over cleanly.</strong> Quit, delete the <code>data/</code> folder, relaunch.</p>
+<hr />
+<h2 id="15-appendix-what-the-metrics-mean">15. Appendix: what the metrics mean</h2>
+<p>An honest note up front: BPM and key come from the file's own tags where they exist, and signal analysis where they don't, and are usually right (see the FAQ for the known failure modes and the one-click corrections). Loudness is a real measurement; <strong>danceability, brightness and vocals are heuristic scores</strong> — good for <em>arranging</em> music in space, not gospel. If a score contradicts your ears, trust your ears (and send feedback).</p>
+<p><strong>BPM</strong> — tempo in beats per minute. Where the file ships its own BPM tag that is used (obviously wrong tags are ignored); otherwise it's detected from the audio, with half-time misreads rescued upward when the track's own pulse supports a faster tempo. The default X axis: left to right is slow to fast.</p>
+<p><strong>Key (Camelot)</strong> — the detected key in Camelot notation: a number 1–12 plus <strong>A</strong> (minor) or <strong>B</strong> (major). Adjacent numbers, and the A/B pair on the same number, mix harmonically. Key is detected with <strong>key profiles built from electronic dance music</strong> (Faraldo et al., 2016) rather than the classical profiles most software still uses — worth around three points of accuracy on dance records. Tunefield also measures how far a record sits from concert pitch, and when it genuinely cannot tell, it says so instead of guessing.</p>
+<p><strong>Loudness</strong> — a 0–1 reading derived from the track's integrated LUFS. 50% is about as loud as a streaming-normalised release; nothing reaches 100%. The default Y axis.</p>
+<p><strong>Mood</strong> — four deliberately coarse bands: <strong>euphoric</strong> (loud + positive), <strong>intense</strong> (loud + dark), <strong>upbeat</strong> (gentle + positive), <strong>melancholic</strong> (gentle + dark). Treat it as a grouping, not a verdict.</p>
+<p><strong>Danceability</strong> — 0–1 for how much the rhythm invites movement: a danceable tempo, bass presence and a clear repeating pulse. Not a quality judgment.</p>
+<p><strong>LUFS</strong> — integrated loudness, the broadcast-standard measure. Negative: closer to 0 is louder. A List column, useful for gain staging.</p>
+<p><strong>Brightness</strong> — 0–1 for how much of the track's energy lives in the high frequencies. Handy for matching tonal character across a transition.</p>
+<p><strong>Roughness</strong> — 0–1 for how much the sound beats and grinds, measured from the fast wobble in the track's own level. A formula variable (<code>rough</code>) and part of what "similar" means.</p>
+<p><strong>Vocals</strong> — 0–1 for detected voice presence. Filename and tag labels override the detection.</p>
+<p><strong>Released</strong> — when the track came out, from the file's year or date tag, falling back to the file's date. Put it on an axis for a timeline of your library.</p>
+<hr />
+<p><em>Something in here wrong, unclear, or missing? That's exactly what <strong>Feedback</strong> is for.</em></p>
+  <div class="foot">Generated from MANUAL.md · Tunefield 1.0.0</div>
+</div>
+</body>
+</html>
