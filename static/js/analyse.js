@@ -480,6 +480,14 @@ async function resumeAnalysisQueue() {
   if (!_anQueue.length) return;
   await _anPump();
 }
+// pilot 7105 — a run lives in this page; closing or reloading mid-run asks first (resume covers the rest).
+window.addEventListener('beforeunload', (e) => {
+  if (!_anActive || !(_anQueue.length + _anInFlight)) return;
+  e.preventDefault();
+  e.returnValue = '';      // required for the prompt to appear at all
+  return '';
+});
+
 // ── Lite UI ───────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 let _anState = 'idle';   // idle | scanning | running | done

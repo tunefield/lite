@@ -19,6 +19,8 @@
     <button class="tab-btn" id="tab-playlists-btn" onclick="switchTab('playlists')">Playlists <span class="tab-count" id="tab-playlists-count">0</span></button>
     <button class="tab-btn" id="tab-catalog-btn" onclick="switchTab('catalog')">List <span class="tab-count" id="tab-catalog-count">0</span></button>
   </nav>
+  <button class="tab-btn hd-settings" id="settings-btn" onclick="openSettings()" title="Settings" aria-label="Settings">⚙</button>
+  <button class="tab-btn" id="feedback-btn" onclick="openFeedback()" title="Report a bug or share an idea — opens a short form with diagnostics filled in">Feedback</button>
 </header>
 
 <div class="tab-panel" id="tab-analyse">
@@ -235,6 +237,7 @@
     </div>
     <span class="lib-tb-sep"></span>
     <button class="lib-tb-btn lib-tb-cols" id="c-col-btn" onclick="openColPicker('c-col-btn','catalog')">⊞ Columns ▾</button>
+    <button class="lib-tb-btn lib-tb-export" id="c-export-btn" onclick="openExportMenu(event)">Export ▾</button>
   </div>
   <div id="catalog-content"></div>
   </div>
@@ -576,8 +579,25 @@
     </div>
     <div class="sp-tracks" id="sp-tracks" ondragover="spTrackDragOver(event)" ondrop="spTrackDrop(event)"></div>
     <p class="sb-hint">Double-click a track in the Field to add it. Drag to reorder. Press ▶ to play the set.</p>
+    <section class="upnext" aria-label="Up next">
+      <div class="un-head">
+        <span class="un-label">Up next</span>
+        <span class="un-shapes" role="group" aria-label="Energy shape">
+          <button class="un-shape" data-shape="up" onclick="upNextSetDial('shape','up')" title="Energy rises through the set">↗ up</button>
+          <button class="un-shape" data-shape="steady" onclick="upNextSetDial('shape','steady')" title="Energy holds steady">→ steady</button>
+          <button class="un-shape" data-shape="down" onclick="upNextSetDial('shape','down')" title="Energy winds down">↘ down</button>
+        </span>
+      </div>
+      <div class="un-dials">
+        <label title="How far from the last track it reaches — hold a sound, or wander">Roam <input type="range" id="un-roam" min="0" max="100" oninput="upNextSetDial('roam', this.value)"></label>
+        <label title="How strictly it keeps to harmonically compatible keys">Key <input type="range" id="un-keyd" min="0" max="100" oninput="upNextSetDial('keyd', this.value)"></label>
+      </div>
+      <div class="un-list" id="un-list"></div>
+    </section>
     <div class="sp-footer">
       <button class="sp-undo" id="sp-undo" onclick="undoLastAdd()">↶ Undo</button>
+      <button class="sp-tools" onclick="openSetToolsBox()" title="One-click vector tools: more like this, bridges, smoothing, groups">⋈ Set tools</button>
+      <button class="sp-export" id="sp-export-btn" onclick="openExportMenu(event)" title="Export this set for Rekordbox, Traktor, Ableton or as M3U8">Export set</button>
       <button class="sp-lock" id="sp-lock" onclick="toggleLock()">Lock</button>
     </div>
   </aside>
@@ -606,74 +626,47 @@
     </details>
   </div>
 </div>
-<div id="settools-box" role="dialog" aria-label="Set tools" aria-modal="false">
-  <div class="stb-head">
-    <span class="stb-title">Set tools</span>
-    <button class="cp-close" onclick="closeSetToolsBox()" title="Close (Esc)">×</button>
-  </div>
+<div id="settools-box" role="dialog" aria-label="Set tools">
+  <div class="stb-head"><span class="stb-title">⋈ Set tools</span><button class="cp-close" onclick="closeSetToolsBox()">×</button></div>
   <div class="stb-body">
-        <div class="vm-sec">
-          <div class="vm-h" title="Finds the tracks nearest yours across every measurement at once — not just the three on screen">Similar tracks</div>
-          <div class="vm-row">
-            <button class="btn-sm vm-go" onclick="vmFindSimilar()" title="Find the tracks that most resemble your SELECTED track (double-click a node to select one). Results are ranked by distance — smaller is more alike.">Find similar</button>
-            <label class="vm-note" for="vm-k" title="How many similar tracks to return (1–100)">Tracks</label>
-            <input id="vm-k" class="vm-input" type="number" min="1" max="100" step="1" value="10" style="width:52px" title="How many similar tracks to return (1–100)" onchange="vmClampNum(this)">
-          </div>
-          <div id="vm-sim-out" class="vm-out"></div>
-        </div>
-
-        <div class="vm-sec">
-          <div class="vm-h" title="Designs a whole set: pick a Start and End track, how many tracks, and the energy shape the journey should follow — the maths picks coherent steps that trace your curve.">Set builder</div>
-          <div class="vm-row">
-            <button class="btn-sm vm-go" onclick="sbMarkStart()" title="Remember your SELECTED track as the set's opening track">Start here</button>
-            <button class="btn-sm vm-go" onclick="sbMarkEnd()" title="Remember your SELECTED track as the set's closing track — optional: with no End marked the set journeys freely from the Start. Press again on the same track to clear it.">End here</button>
-            <span class="vm-note" id="sb-anchors">no start · no end</span>
-          </div>
-          <div class="vm-row">
-            <label class="vm-note">Tracks</label>
-            <input id="sb-n" class="vm-input" type="number" min="2" step="1" value="20" style="width:64px">
-            <button class="btn-sm" onclick="sbSetAll()" title="Use every track in the current Field selection">All</button>
-            <label class="vm-note" style="margin-left:8px">Shape</label>
-            <select id="sb-metric" title="The metric the curve shapes along the set">
-              <option value="energy" selected>Energy</option>
-              <option value="bpm">BPM</option>
-              <option value="dance">Danceability</option>
-              <option value="brightness">Brightness</option>
-              <option value="vocals">Vocals</option>
-              <option value="rating">Rating</option>
-            </select>
-          </div>
-          <div class="vm-row" id="sb-curves" title="The energy shape of the journey — click one, or ƒx for a formula"></div>
-          <div class="vm-row" id="sb-formula-row" style="display:none">
-            <input id="sb-formula" class="vm-input" placeholder="0.5 + 0.4*sin(2*pi*i/cyc)" style="flex:1"
-                   title="Curve formula → target 0–1. Variables: t (position 0–1), i (track index), n (list length), cyc (tracks per cycle). Functions: the usual maths set.">
-          </div>
-          <div class="vm-row">
-            <label class="vm-note" title="Tracks per waveform cycle — drives the Waves preset and the cyc variable in formulas">Cycle</label>
-            <input id="sb-interval" class="vm-input" type="number" min="2" step="1" value="8" style="width:52px">
-            <label class="vm-note" style="margin-left:8px" title="Left: smoother musical transitions. Right: hit the curve harder.">Flow</label>
-            <input id="sb-blend" type="range" min="0" max="100" value="50" style="flex:1">
-            <label class="vm-note">Curve</label>
-          </div>
-          <div class="vm-row">
-            <button class="btn-sm vm-go" id="sb-generate" onclick="sbGenerate()">Build set</button>
-          </div>
-          <div id="vm-sb-out" class="vm-out"></div>
-        </div>
-
-        <div class="vm-sec">
-          <div class="vm-h" title="Groups your library by how the music actually sounds, ignoring the genre tags">Groups by sound</div>
-          <div class="vm-row">
-            <button class="btn-sm vm-go" onclick="vmRunClusters(true)" title="Sort the whole library into groups of similar-sounding tracks and colour the field by them. Each group is labelled with the genre tag most of its members carry — so you can see where the sound agrees with your labels and where it doesn't.">Group my library</button>
-            <label class="vm-note" for="vm-clusters" title="How many groups to split the library into (2–32)">Groups</label>
-            <input id="vm-clusters" class="vm-input" type="number" min="2" max="32" step="1" value="8" style="width:52px" title="How many groups to split the library into (2–32)" onchange="vmClampNum(this)">
-          </div>
-          <div id="vm-clusters-out" class="vm-out"></div>
-        </div>
-
-        
-
+    <div class="tg"><div class="tg-h">This track <span>click one in the Field first</span></div>
+      <button onclick="tMoreLike()">More like this</button>
+      <button onclick="tBridge()">Bridge to here</button>
+      <button onclick="tNudge('lessvocal')">Less vocal</button>
+      <button onclick="tNudge('energy')">More energy</button>
+      <button onclick="tNudge('darker')">Darker</button>
+      <button onclick="tNudge('brighter')">Brighter</button>
+      <button onclick="tDistAxis()">Distance as axis</button>
+      <button onclick="tBuild()">Build a set from here</button>
+    </div>
+    <div class="tg"><div class="tg-h">This set</div>
+      <button onclick="tMoreLikeSet()">More like this set</button>
+      <button onclick="tSmooth()">Smooth the order</button>
+      <button onclick="tFlow()">Check the flow</button>
+      <button onclick="tFixJump()">Fix the worst jump</button>
+      <button onclick="tOddOne()">Odd one out</button>
+    </div>
+    <div class="tg"><div class="tg-h">The Field</div>
+      <button onclick="tArrange()">Arrange by sound</button>
+      <button onclick="tMap()">Map by similarity</button>
+      <button onclick="tGroup()">Group by sound</button>
+      <button onclick="tReset()">⟲ Reset view</button>
+    </div>
+    <div class="tg"><div class="tg-h">Library</div>
+      <button onclick="tDupes()">Near-duplicates</button>
+    </div>
+    <div class="tools-results">
+      <div id="tools-out"></div><div id="vm-sim-out"></div><div id="vm-clusters-out"></div><div id="vm-sb-out"></div>
+    </div>
+    <!-- Fixed inputs the pilot's similar / groups / set-builder functions read. -->
+    <div hidden>
+      <input id="vm-k" value="10"><input id="vm-clusters" value="8"><input id="sb-n" value="20">
+      <select id="sb-metric"><option value="energy" selected>energy</option></select>
+      <input id="sb-interval" value="8"><input id="sb-blend" value="50"><input id="sb-formula" value="">
+      <div id="sb-curves"></div><span id="sb-anchors"></span>
+    </div>
   </div>
+</div>
 
 </main>
 <div id="row-ctx-menu"></div>
@@ -688,6 +681,239 @@
     <button onclick="colPickerAll(true)">Show all</button>
     <button onclick="colPickerAll(false)">Hide all</button>
     <button onclick="colPickerReset()">Reset</button>
+  </div>
+</div>
+<div id="export-menu">
+  <div class="cp-header">
+    <span id="export-menu-header">Export</span>
+    <button class="cp-close" onclick="closeExportMenu()">×</button>
+  </div>
+  <div style="padding:10px 14px 6px;border-bottom:1px solid var(--border);font-size:11px">
+    <div style="color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Source</div>
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+      <input type="radio" name="export-src" value="filtered" checked onchange="setExportSource(this.value)" style="accent-color:var(--accent)">
+      <span>Filtered Field <span id="exp-src-cat-n" style="color:var(--muted)">(0)</span></span>
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+      <input type="radio" name="export-src" value="playlist" onchange="setExportSource(this.value)" style="accent-color:var(--accent)">
+      <span>Active playlist <span id="exp-src-pl-n" style="color:var(--muted)">(—)</span></span>
+    </label>
+  </div>
+  <div class="cp-list">
+    <div class="cp-item" id="exp-csv" onclick="exportAs('csv')" title="All Field metadata as CSV — ignores filters and playlist selection">
+      <span style="flex:1">CSV — all metadata</span><span style="color:var(--muted);font-size:11px">.csv</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('m3u8-abs')" title="M3U8 playlist with absolute file paths — for use on this machine">
+      <span style="flex:1">M3U8 — absolute paths</span><span style="color:var(--muted);font-size:11px">.m3u8</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('m3u8-rel')" title="M3U8 playlist with filenames only — place alongside audio files">
+      <span style="flex:1">M3U8 — relative (filenames)</span><span style="color:var(--muted);font-size:11px">.m3u8</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('rekordbox-bridge')" title="Writes into one fixed XML that Rekordbox watches — after a one-time setup, exports appear in Rekordbox's xml sidebar automatically">
+      <span style="flex:1">Rekordbox — bridge (auto)</span>
+      <span onclick="event.stopPropagation();openRbSetup()" title="One-time Rekordbox setup instructions" style="color:var(--accent);font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:0">setup</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('rekordbox')" title="Classic one-off Rekordbox XML download — for taking to another machine">
+      <span style="flex:1">Rekordbox XML — download</span><span style="color:var(--muted);font-size:11px">.xml</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('ableton')" title="Ableton Live Set — two alternating deck tracks, one scene per track, clips warped to detected BPM, scene tempo follows the set. Opens in any Live edition">
+      <span style="flex:1">Ableton Live Set</span><span style="color:var(--muted);font-size:11px">.als</span>
+    </div>
+    <div class="cp-item" onclick="exportAs('traktor')" title="Traktor NML — drop into Traktor's Playlists folder or import via File menu">
+      <span style="flex:1">Traktor NML</span><span style="color:var(--muted);font-size:11px">.nml</span>
+    </div>
+  </div>
+</div>
+<div id="rb-setup-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeRbSetup()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:700;font-size:15px"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="3" x2="5" y2="21"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="19" y1="3" x2="19" y2="21"/><circle cx="5" cy="8" r="2.2"/><circle cx="12" cy="15" r="2.2"/><circle cx="19" cy="7" r="2.2"/></svg> Rekordbox bridge — one-time setup</span>
+      <button class="cp-close" onclick="closeRbSetup()">×</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;font-size:13px;line-height:1.6">
+      <p style="margin:0;color:var(--muted);font-size:12px">Field keeps all exported playlists in one XML file that Rekordbox watches. Point Rekordbox at it once — every later export then just appears in the sidebar.</p>
+      <div style="display:flex;gap:8px;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:0;padding:8px 10px">
+        <code id="rb-bridge-path" style="flex:1;font-size:11px;word-break:break-all">~/Music/Field/tunefield.xml</code>
+        <button class="btn-sm" onclick="copyRbBridgePath()">Copy path</button>
+      </div>
+      <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px">
+        <li><strong>Rekordbox → Preferences → Advanced → Database</strong> — under “rekordbox xml”, set <strong>Imported Library</strong> to the file above (paste the path in the file dialog with <kbd>⌘⇧G</kbd>).</li>
+        <li><strong>Preferences → View → Layout</strong> — tick <strong>“rekordbox xml”</strong> so the tree shows in the sidebar.</li>
+        <li>In the sidebar’s <strong>rekordbox xml</strong> tree: click refresh, open the playlist, right-click → <strong>Import Playlist</strong>.</li>
+      </ol>
+      <p style="margin:0;color:var(--muted);font-size:11px">Safe: Rekordbox only <em>reads</em> this file — your collection database is never touched by the bridge.</p>
+      <div style="display:flex;justify-content:flex-end">
+        <button onclick="closeRbSetup()" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="feedback-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeFeedback()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:700;font-size:15px"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 4 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 8.4z"/></svg> Send feedback</span>
+      <button class="cp-close" onclick="closeFeedback()">×</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+      <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.6">
+        Found a bug, want a feature, or have an idea? This opens a 30-second form. The
+        diagnostics below are <strong>filled into the form for you</strong> (and copied to your
+        clipboard as a backup) so we can reproduce issues — which means they reach Google, who
+        host the form, as soon as it opens. Nothing is filed until you press submit there, and
+        you can clear the field first. Read them below before you click; they are all we get.
+      </p>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Diagnostics that will be sent with your report</div>
+        <textarea id="feedback-diag" readonly style="width:100%;height:120px;font-family:ui-monospace,Menlo,monospace;font-size:10px;line-height:1.5;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:0;padding:8px;resize:none"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+        <button class="btn-sm" onclick="copyFeedbackDiag()" title="Copy just the diagnostics">Copy diagnostics</button>
+        <button onclick="submitFeedback()" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Copy &amp; open form ↗</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="settings-modal" style="display:none;position:fixed;inset:0;z-index:520;background:rgba(0,0,0,.65)">
+  <div class="settings-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0;font-size:15px">⚙ Settings</h3>
+      <button class="btn-icon" onclick="closeSettings()" title="Close (Esc)">×</button>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label">Help</span>
+      <button class="lib-tb-btn" onclick="tfOpenExternal('/manual')"
+              title="The full user manual — every tab, tool and shape, in plain words. Opens in a new tab.">📖 User manual</button>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label">Beta</span>
+      <button class="lib-tb-btn" onclick="window.location.href='/usage/export'"
+              title="Download your local usage log (usage.jsonl) as a file. Nothing is ever sent automatically — sharing it with the Tunefield team is a choice you make, and this button is the only way the data leaves this machine.">⤓ Share usage data</button>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="Key wheel labels — Standard note names or Camelot positions">Wheel labels</span>
+      <div class="cw-notation" id="cw-notation">
+        <button class="cwn-stop active" data-val="standard" onclick="setWheelNotation('standard')" title="Show note + mode (C maj, A min)">♪ Notes</button>
+        <button class="cwn-stop"        data-val="camelot"  onclick="setWheelNotation('camelot')"  title="Show Camelot position + ring (8B, 1A)">1A/1B</button>
+        <button class="cwn-stop"        data-val="openkey"  onclick="setWheelNotation('openkey')"  title="Show Open Key notation, as used by Mixed In Key and Rekordbox (12d, 1m)">1m/1d</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="The overall look of the app. Light is the Bauhaus skin — bone paper, hairline rules, flat colour. Dark restores the original high-contrast theme. This is the whole interface; the field has its own switch below.">Appearance</span>
+      <div class="view-switch" id="app-skin-switch" data-on="light">
+        <button data-val="light" onclick="setAppSkin('light')" title="Bauhaus light — bone paper, warm ink, hairline rules">Light</button>
+        <button data-val="dark"  onclick="setAppSkin('dark')"  title="The original dark theme">Dark</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="The ground behind every work surface — the Field canvas, and the page behind the List, Playlists, Analyse and Repair windows. Light is the bone paper; Dark is a near-black ground. In the Field it also re-weights track, cluster, key, axis and edge colours so the space stays legible either way.">Background</span>
+      <div class="view-switch" id="field-skin-switch" data-on="light">
+        <button data-val="light" onclick="setFieldSkin('light')" title="Bone plate — the field matches the rest of the skin">Light</button>
+        <button data-val="dark"  onclick="setFieldSkin('dark')"  title="Black void — the original look, with the brighter node palette that suits it">Dark</button>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="How big the edge drawers are — AXES, FILTERS and ◍ KEY all scale together, along with the wheel inside KEY. Bigger drawers mean fewer fit open at once; Field folds the oldest when there is no longer room.">Drawer size</span>
+      <select class="cat-select" id="cw-scale" onchange="setDrawerScale(this.value)">
+        <option value="50">50%</option>
+        <option value="75">75%</option>
+        <option value="100" selected>100%</option>
+        <option value="125">125%</option>
+        <option value="150">150%</option>
+      </select>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="Filters — the ◍ KEY wheel, the ☰ FILTERS drawer, genres, tags — take tracks off the screen. Raise this and they stay as faint, still-clickable ghosts instead, which is useful when you want to see what you just excluded. 0% hides them completely.">Filtered-out tracks</span>
+      <input type="range" class="settings-range" id="filter-fade" min="0" max="60" step="5" value="0"
+             oninput="setFilterFade(this.value)"
+             title="How visible filtered-out tracks stay — 0% hides them completely (0–60%)">
+      <span class="settings-val" id="filter-fade-val">Hidden</span>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="How fast W A S D / Q E flying moves — in both orbit and ✛ FPS modes. Speed still auto-adapts to how close you are to the nearest track; this scales the whole thing. 25–50% = careful cruising, 100% = default, 200%+ = expert.">Flight speed</span>
+      <input type="range" id="kb-speed" min="25" max="250" step="5" value="100"
+             oninput="setKbSpeed(this.value)" style="flex:1;min-width:80px">
+      <span id="kb-speed-val" style="font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;min-width:40px;text-align:right">100%</span>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label">Vector maths</span>
+      <button class="lib-tb-btn" onclick="closeSettings(); toggleVecPanel()" title="PCA and t-SNE layouts, vector arithmetic and similarity weights — the one-click versions are in the Set tools">⋈ Advanced vector panel</button>
+    </div>
+    <div class="settings-row">
+      <span class="settings-label" title="Distance haze. It fades far-off tracks into the background, which gives the field depth — but it also hides them. Turn it off to see every track at full strength, however far away.">Distance fog</span>
+      <div class="view-switch" id="fog-switch" data-on="1">
+        <button data-val="on"  onclick="setFog(true)">On</button>
+        <button data-val="off" onclick="setFog(false)">Off</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="field-picker">
+  <div class="cp-header">
+    <span>Fields</span>
+    <!-- Apply, not × (Mark, 2026-08-28): the picker STAGES its ticks, so the closing
+         action is a commit and should say so. Clicking outside still applies too. -->
+    <button class="cp-apply" onclick="closeFieldPicker()" title="Apply the ticked selection">Apply</button>
+  </div>
+  <div id="field-picker-list" class="field-checks" style="padding:8px 10px;max-height:400px;overflow-y:auto"></div>
+  <div class="cp-footer">
+    <button onclick="fieldPickerAll(true)">All</button>
+    <button onclick="fieldPickerAll(false)">None</button>
+  </div>
+</div>
+<div id="kbnav-help-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeKbHelp()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(520px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:700;font-size:15px">⌨ Keyboard controls</span>
+      <button class="cp-close" onclick="closeKbHelp()">×</button>
+    </div>
+    <div style="padding:16px 20px 20px;overflow-y:auto;font-size:13px">
+      <div style="color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px">Fly the tunefield</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:3px 0"><kbd>W</kbd> <kbd>S</kbd></td><td style="color:var(--muted)">forward / back</td></tr>
+        <tr><td style="padding:3px 0"><kbd>A</kbd> <kbd>D</kbd></td><td style="color:var(--muted)">strafe left / right</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Q</kbd> <kbd>E</kbd></td><td style="color:var(--muted)">rise / sink</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Shift</kbd></td><td style="color:var(--muted)">hold to sprint (×3)</td></tr>
+      </table>
+      <div style="color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px">First-person mode</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr class="kb-fps-row"><td style="padding:3px 0"><kbd>F</kbd></td><td style="color:var(--muted)">enter / leave FPS mode (or the ✛ FPS button)</td></tr>
+        <tr><td style="padding:3px 0"><kbd>V</kbd></td><td style="color:var(--muted)">key lines follow the PREVIEW track instead of your selection (⊙ Preview switch)</td></tr>
+        <tr><td style="padding:3px 0">mouse</td><td style="color:var(--muted)">look around — the crosshair is your cursor</td></tr>
+        <tr><td style="padding:3px 0">click</td><td style="color:var(--muted)">preview what the crosshair is on</td></tr>
+        <tr><td style="padding:3px 0;white-space:nowrap"><kbd>Shift</kbd>+click</td><td style="color:var(--muted)">select / add it (double-click too)</td></tr>
+        <tr class="kb-fps-row"><td style="padding:3px 0"><kbd>Esc</kbd></td><td style="color:var(--muted)">leave FPS mode (music keeps playing)</td></tr>
+      </table>
+      <div style="color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px">Tools, drawers &amp; modes</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:3px 0;white-space:nowrap"><kbd>1</kbd>…<kbd>5</kbd></td><td style="color:var(--muted)">the tool ring around the Spread dial, left to right: reset · focus · ⋈ · covers · pathway (ƒx formulas live in the Axes drawer)</td></tr>
+        <tr><td style="padding:3px 0"><kbd>5</kbd></td><td style="color:var(--muted)">pathway toggles route only ⇄ whole field (route only hides everything off the route)</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td><td style="color:var(--muted)">open / close the Axes, Filters and Key drawers</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Y</kbd></td><td style="color:var(--muted)">FLY on / off</td></tr>
+      </table>
+      <div style="color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px">Pick tracks</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:3px 0;white-space:nowrap"><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td><td style="color:var(--muted)">hop to the next track in that direction</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Enter</kbd></td><td style="color:var(--muted)">preview it (like a click)</td></tr>
+        <tr><td style="padding:3px 0;white-space:nowrap"><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td style="color:var(--muted)">select / add it (like a double-click) — <kbd>Enter</kbd> twice does the same</td></tr>
+      </table>
+      <div style="color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 0 8px">Playback</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:3px 0"><kbd>Space</kbd></td><td style="color:var(--muted)">play / pause</td></tr>
+        <tr><td style="padding:3px 0"><kbd>Esc</kbd></td><td style="color:var(--muted)">back to the selected track, or stop</td></tr>
+        <tr><td style="padding:3px 0"><kbd>?</kbd></td><td style="color:var(--muted)">show / hide this list</td></tr>
+      </table>
+      <p style="color:var(--muted);font-size:11px;line-height:1.6;margin:14px 0 0">Keys never fire while you're typing in a search box or dragging a slider. Flying in Play hands the camera over from the cinematic Fly mode — click <strong>Fly</strong> to give it back.</p>
+    </div>
   </div>
 </div>
 <audio id="global-audio" preload="none"></audio>

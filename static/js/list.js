@@ -278,6 +278,7 @@ function setCatalogView(v) {
 }
 // pilot 8865
 function renderAnalyse() {
+  if (!document.getElementById('analyse-count')) return;   // the pilot's session list; Lite's Analyse tab is analyse.js
   const done = session.filter(r=>r.status==='done').length;
   const busy = session.filter(r=>r.status==='analyzing').length;
   document.getElementById('analyse-count').textContent =
@@ -745,7 +746,7 @@ async function rescanEntry(id, e) {
   e.stopPropagation();
   if (rescanningIds.has(id)) return;
 
-  const duration = document.getElementById('rescan-duration').value;
+  const duration = document.getElementById('rescan-duration')?.value || '0.5';   // Lite: no scan-length menu; the pilot's default
   rescanningIds.add(id);
 
   // Spin the button

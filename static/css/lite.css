@@ -59,3 +59,43 @@ body.on-tab-neural #tab-neural #side-panel { display: flex !important; margin-to
 .set-builder .sb-hint { margin: 6px 12px; font-size: 11px; color: var(--muted); }
 .set-builder .sp-tracks { flex: 1 1 auto; min-height: 120px; overflow-y: auto; }
 @media (max-width: 900px) { body #tab-neural.active { grid-template-columns: 1fr; } }
+.hd-settings { margin-left: auto; }
+
+/* Up next: the auto-queue under the set. */
+.upnext { border-top: 1px solid var(--border); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.un-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.un-label { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.un-shapes { display: flex; gap: 2px; }
+.un-shape { font-size: 10px; padding: 3px 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+.un-shape.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.un-dials { display: flex; gap: 10px; font-size: 10px; color: var(--muted); }
+.un-dials label { flex: 1; display: flex; align-items: center; gap: 4px; }
+.un-dials input { flex: 1; min-width: 0; }
+.un-row { display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto; column-gap: 4px; padding: 4px 0; border-bottom: 1px dashed var(--border); cursor: pointer; opacity: .78; }
+.un-row:hover { opacity: 1; }
+.un-title { grid-column: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.un-meta { grid-column: 1; grid-row: 2; font-size: 10px; color: var(--muted); }
+.un-keep, .un-drop { grid-row: 1 / 3; align-self: center; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--muted); padding: 0 4px; }
+.un-keep:hover { color: var(--accent); }
+.un-empty { font-size: 11px; color: var(--muted); margin: 0; }
+
+/* The advanced ⋈ vector panel (opened from Settings) floats over the Field. The pilot parked it
+   in a sidebar Lite doesn't have, and app.css hides it inside the canvas wrap. */
+body.on-tab-neural .neural-canvas-wrap > #vecmath-panel[style*="block"] {
+  display: block !important; position: absolute; top: 64px; left: 48px; width: 320px; z-index: 30;
+  background: var(--surface); box-shadow: 4px 4px 0 var(--scrim);
+}
+
+/* Set tools: the one-click vector buttons, floating beside the set builder. */
+#settools-box { display: none; position: fixed; top: 64px; right: 330px; width: 300px; max-height: calc(100vh - 170px); overflow-y: auto; z-index: 40; background: var(--surface); border: 1px solid var(--border); box-shadow: 4px 4px 0 var(--scrim); }
+#settools-box.open { display: block; }
+#settools-box .stb-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 800; }
+#settools-box .stb-body { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.tg { display: flex; flex-wrap: wrap; gap: 4px; }
+.tg-h { width: 100%; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.tg-h span { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.tg button { font-size: 11px; padding: 4px 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; }
+.tg button:hover { border-color: var(--accent); }
+.tools-results:empty, .tools-results > div:empty { display: none; }
+.vm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.vm-pair span { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

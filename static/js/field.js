@@ -383,6 +383,7 @@ function getFilteredCatalog() {
 }
 // pilot 7888
 function applyFilters() {
+  window.onSetChange?.();   // Up next draws from what the filters show
   renderCatalog();
   refreshActiveFilterCount();
   // Matrix is layout-stable: a filter change only toggles per-node visibility, never
@@ -7812,6 +7813,11 @@ async function advanceToNextTrack() {
       nextIdx = (playMode === 'shuffle') ? _shuffleNext(seq, -1) : 0;
       next = seq.ids[nextIdx];
     }
+    // Lite: a set that runs out carries on into Up next — the track joins the set and plays.
+    if (!next && seq.source === 'playlist') {
+      const more = await window.upNextTake?.();
+      if (more && await addTrackToActivePlaylist(more)) return advanceToNextTrack();
+    }
     if (!next) {
       _pbSequencing = false; _pbSeqIdx = -1;   // reached the end of the list — sequence complete
       _pbNextFull = false;   // 'ended' armed this for a follower that never came — a later
@@ -8180,6 +8186,7 @@ function renderPlaylistContent() {
   if (scroller) { _spOwnUntil = performance.now() + 300; scroller.scrollTop = keepScroll; }   // our scroll, not the user's
   _spWireGuards();
   spFollowPlaying();   // fulfils a pending intent, or re-centres a follow this rebuild threw away
+  window.onSetChange?.();   // Up next refills from the new set
 }
 // pilot 21184
 const SP_FOLLOW_TTL = 4000, SP_USER_HOLD = 1500, SP_OWN_SCROLL_MS = 1600;
@@ -9115,9 +9122,8 @@ function flowRebuildQueue() {}
 function renderExploreSessions() {}
 function refreshSnapshotsPane() {}
 // Owned by modules not written yet (settings, export, the vector buttons).
-function closeSettings() { window.settingsClose?.(); }
 function closeExportMenu() { window.exportMenuClose?.(); }
-function closeSetToolsBox() {}
+function closeSetToolsBox() { document.getElementById('settools-box')?.classList.remove('open'); }
 
 // ── List row menu (writes playlist state) ──
 // pilot 21519
@@ -9386,6 +9392,8 @@ function vecKMeans(k = 8, iters = 40) {
 const _yieldChan = (typeof MessageChannel !== 'undefined') ? new MessageChannel() : null;
 // pilot 13008
 let _yieldQueue = [];
+// pilot 13009 — answers _yieldToBrowser; without it every yield waits forever
+if (_yieldChan) _yieldChan.port1.onmessage = () => { const q = _yieldQueue; _yieldQueue = []; q.forEach(fn => fn()); };
 // pilot 13010
 function _yieldToBrowser() {
   if (!_yieldChan) return new Promise(r => setTimeout(r, 0));
@@ -9816,7 +9824,292 @@ function endScanProgress() {}
 function isScanCancelled(tok) { return !!tok?.cancelled; }
 function cancelScan() {}
 
-// Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
+// ── Settings (pilot; the rows Lite keeps) ──
+// pilot 10762
+function openSettings()  {
+  const m = document.getElementById('settings-modal');
+  if (m) m.style.display = 'block';
+}
+// pilot 10766
+function closeSettings() {
+  const m = document.getElementById('settings-modal');
+  if (m) m.style.display = 'none';
+}
+// pilot 10770
+(function wireSettingsBackdrop() {
+  const wire = () => {
+    const m = document.getElementById('settings-modal');
+    if (m) m.addEventListener('click', e => { if (e.target === m) closeSettings(); });
+  };
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', wire, { once: true });
+  else wire();
+})();
+// pilot 10838
+const CW_SIZES = [50, 75, 100, 125, 150];
+// pilot 10839
+function setDrawerScale(v) {
+  let pct = parseInt(v, 10);
+  if (!CW_SIZES.includes(pct)) pct = 100;
+  const f = (pct / 100).toFixed(2);
+  document.body.style.setProperty('--drawer-scale', f);
+  document.body.style.setProperty('--cw-scale', f);
+  try { localStorage.setItem('drawer-scale-pct', String(pct)); } catch (_) {}
+  const sel = document.getElementById('cw-scale');
+  if (sel && sel.value !== String(pct)) sel.value = String(pct);
+  // Bigger cards need more room — re-fit the stack (may fold the oldest drawer).
+  if (typeof layoutEdgeDrawers === 'function') layoutEdgeDrawers();
+}
+// pilot 11051
+function setFilterFade(sliderVal) {   // slider is 0–60 (%)
+  filterFade = Math.max(0, Math.min(0.6, (parseInt(sliderVal, 10) || 0) / 100));
+  try { localStorage.setItem('filter-fade', filterFade.toFixed(3)); } catch (_) {}
+  document.body.style.setProperty('--filter-fade-pct', Math.round(filterFade / 0.6 * 100) + '%');
+  const out = document.getElementById('filter-fade-val');
+  if (out) out.textContent = filterFade < 0.005 ? 'Hidden' : Math.round(filterFade * 100) + '%';
+  // Ghosts change hittability (scale) AND alpha — resync both.
+  if (typeof neuralSyncMatrices === 'function' && neuralInstLayers.length) neuralSyncMatrices();
+  if (typeof neuralSyncAlpha === 'function' && neuralInstLayers.length) neuralSyncAlpha();
+}
+// pilot 17605
+function setAppSkin(name) {
+  const n = (name === 'dark' || name === 'vintage') ? name : 'light';
+  try { localStorage.setItem('app-skin', n); } catch (_) {}
+  if (n === 'light') document.documentElement.removeAttribute('data-skin');
+  else               document.documentElement.setAttribute('data-skin', n);
+  const sw = document.getElementById('app-skin-switch');
+  if (sw) sw.dataset.on = n;
+  // The Camelot wheel bakes its fills at render time, so it has to be redrawn.
+  if (typeof renderCamelotWheel === 'function') renderCamelotWheel();
+}
+// pilot 17645
+function setFog(on) {
+  fogEnabled = !!on;
+  try { localStorage.setItem('field-fog', on ? '1' : '0'); } catch (_) {}
+  const sw = document.getElementById('fog-switch');
+  if (sw) sw.dataset.on = on ? '1' : '0';   // the CSS keys on "1"/"0", not "on"/"off"
+  applyFog();
+}
+// pilot 17653
+function setFieldSkin(name) {
+  const n = (name === 'dark') ? 'dark' : 'light';
+  try { localStorage.setItem('field-skin', n); } catch (_) {}
+  try { localStorage.removeItem('neural-bg-color'); } catch (_) {}   // skin owns it now
+  const sw = document.getElementById('field-skin-switch');
+  if (sw) sw.dataset.on = n;
+  document.body.classList.toggle('field-dark', n === 'dark');
+  const T = (typeof neuralThree !== 'undefined') ? neuralThree : null;
+  if (T && typeof neuralScene !== 'undefined' && neuralScene) {
+    neuralScene.background = new T.Color(FS().bg);
+    if (neuralScene.fog) { neuralScene.fog.color.set(FS().fog);
+      neuralScene.fog.near = FS().fogNear * _fogK(); neuralScene.fog.far = FS().fogFar * _fogK(); }
+    else if (fogEnabled) applyFog();
+  }
+  const wrap = document.querySelector('.neural-canvas-wrap');
+  if (wrap) wrap.style.background = FS().bg;
+  // Node colours are baked at build time — a rebuild is what actually recolours them.
+  if (typeof rebuildGraph === 'function') rebuildGraph();
+}
 
-export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation, fmtTime, activePlaylistSlug, addTrackToActivePlaylist, allPlaylists, audioPlayById, audioStop, matrixCommitIdx, refreshPlaylistPanel, setAnchorTrack };
+// ── Route finding (pilot; its UI was never reachable — Lite's Bridge buttons use it) ──
+// pilot 13059
+async function vecPathFind(fromId, toId, kN = 12, onProgress) {
+  const M = vecMatrix();
+  const a = M.idx.get(fromId), b = M.idx.get(toId);
+  if (a === undefined || b === undefined || a === b) return null;
+  const adj = await vecAdjacency(M, kN, onProgress);
+  if (!adj) return null;                            // cancelled
+  const dist = new Float64Array(M.n).fill(Infinity), prev = new Int32Array(M.n).fill(-1);
+  const seen = new Uint8Array(M.n);
+  dist[a] = 0;
+  // Binary heap, not the old scan-all-n-for-the-minimum loop: that was a second O(n²)
+  // pass costing about as much as building the graph. Edges are n*k, so this is
+  // O(n·k·log n) — at 14,694 tracks roughly 176k edge relaxations instead of 216M
+  // comparisons.
+  const hn = new Int32Array(M.n + 1), hd = new Float64Array(M.n + 1);
+  let hs = 0;
+  const push = (v, dv) => {
+    let i = ++hs; hn[i] = v; hd[i] = dv;
+    while (i > 1 && hd[i >> 1] > hd[i]) {
+      const tn = hn[i>>1], td = hd[i>>1];
+      hn[i>>1] = hn[i]; hd[i>>1] = hd[i]; hn[i] = tn; hd[i] = td; i >>= 1;
+    }
+  };
+  const pop = () => {
+    const top = hn[1];
+    hn[1] = hn[hs]; hd[1] = hd[hs]; hs--;
+    let i = 1;
+    for (;;) {
+      const l = i<<1, r = l|1; let m = i;
+      if (l <= hs && hd[l] < hd[m]) m = l;
+      if (r <= hs && hd[r] < hd[m]) m = r;
+      if (m === i) break;
+      const tn = hn[m], td = hd[m];
+      hn[m] = hn[i]; hd[m] = hd[i]; hn[i] = tn; hd[i] = td; i = m;
+    }
+    return top;
+  };
+  push(a, 0);
+  while (hs) {
+    const u = pop();
+    if (seen[u]) continue;                          // lazy deletion: stale heap entry
+    seen[u] = 1;
+    if (u === b) break;
+    for (const [v, w] of adj[u]) {
+      const nd = dist[u] + w;
+      if (nd < dist[v]) { dist[v] = nd; prev[v] = u; push(v, nd); }
+    }
+  }
+  if (!isFinite(dist[b])) return null;
+  const path = []; for (let v = b; v >= 0; v = prev[v]) path.push(M.ids[v]);
+  return { ids: path.reverse(), cost: dist[b] };
+}
+// pilot 13574
+function vmMarkFrom() {
+  const t = vmCurrentTrack();
+  const out = document.getElementById('vm-path-out');
+  if (!t) { out.innerHTML = '<div class="vm-empty">Select a track first.</div>'; return; }
+  _vmRouteFrom = t.id;
+  out.innerHTML = `<div class="vm-note">A = <b>${esc(vmName(t.id))}</b>. Now select the destination and hit Route → B.</div>`;
+}
+// pilot 13581
+async function vmRouteTo() {
+  const out = document.getElementById('vm-path-out');
+  const t = vmCurrentTrack();
+  if (!_vmRouteFrom) { out.innerHTML = '<div class="vm-empty">Set A first.</div>'; return; }
+  if (!t) { out.innerHTML = '<div class="vm-empty">Select the destination track.</div>'; return; }
+  // Routing a big Field takes real time. Silence for that long reads as "it's broken",
+  // so say what's happening, show how far along it is, and allow a cancel.
+  const n = vecMatrix().n;
+  const cached = _vecAdjCache && _vecAdjCache.sig === vecMatrix().sig;
+  const tok = cached ? null : startScanProgress(`Mapping ${n.toLocaleString()} tracks…`, 1);
+  out.innerHTML = '<div class="vm-note">Finding the route…</div>';
+  let r;
+  try {
+    r = await vecPathFind(_vmRouteFrom, t.id, 12, p => {
+      updateScanProgress(p, `Mapping ${n.toLocaleString()} tracks… ${Math.round(p*100)}%`, tok);
+    });
+  } finally { if (tok !== null) endScanProgress(tok); }
+  if (tok !== null && isScanCancelled(tok)) { out.innerHTML = '<div class="vm-empty">Cancelled.</div>'; return; }
+  if (!r) { out.innerHTML = '<div class="vm-empty">No route found (try a bigger selection).</div>'; return; }
+  _vmLastHits = r.ids.map(id => ({ id, dist: 0 }));
+  out.innerHTML = `<div class="vm-note"><b>${r.ids.length}</b> steps, total distance ${r.cost.toFixed(2)}</div>`
+    + r.ids.map((id, i) => `<div class="vm-hit" onclick="vmPreview('${id}')"><span class="vm-rank">${i+1}</span><span class="vm-title">${esc(vmName(id))}</span></div>`).join('')
+    + `<button class="btn-sm vm-add" onclick="vmAddHitsToPlaylist()">＋ Add route to playlist</button>`;
+}
+
+// ── Boot wiring the first lift missed (Open Key labels, tooltips, ⌘, for Settings, drawer size) ──
+// pilot 6100
+CAMELOT.forEach(c => { c.open = ((c.pos - 8 + 12) % 12) + 1; });   // Camelot pos -> Open Key pos
+// pilot 8138
+(function setupCustomTooltips() {
+  if (document.getElementById('custom-tooltip')) return;
+  const tip = document.createElement('div');
+  tip.id = 'custom-tooltip';
+  document.body.appendChild(tip);
+
+  let showTimer = null;
+  let currentEl = null;
+  let pendingEl = null;
+
+  function position(e) {
+    const pad = 14;
+    const x = e.clientX, y = e.clientY;
+    // Measure after content is set
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = x + pad, top = y + pad;
+    if (left + w > window.innerWidth  - 8) left = x - w - pad;
+    if (top  + h > window.innerHeight - 8) top  = y - h - pad;
+    if (left < 8) left = 8;
+    if (top  < 8) top  = 8;
+    tip.style.left = left + 'px';
+    tip.style.top  = top  + 'px';
+  }
+
+  function show(el, e) {
+    if (document.body.classList.contains('tt-off')) return;
+    const text = el.getAttribute('title');
+    if (!text) return;
+    // Suppress native browser tooltip for the duration of our display
+    el.setAttribute('data-tt-cache', text);
+    el.removeAttribute('title');
+    tip.textContent = text;
+    // Force layout to measure before positioning
+    tip.style.left = '-9999px';
+    tip.style.top  = '-9999px';
+    tip.classList.add('visible');
+    position(e);
+    currentEl = el;
+  }
+
+  function hide() {
+    tip.classList.remove('visible');
+    if (currentEl && currentEl.hasAttribute('data-tt-cache')) {
+      currentEl.setAttribute('title', currentEl.getAttribute('data-tt-cache'));
+      currentEl.removeAttribute('data-tt-cache');
+    }
+    currentEl = null;
+  }
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('[title]');
+    if (!el || el === currentEl) return;
+    if (currentEl) hide();
+    pendingEl = el;
+    clearTimeout(showTimer);
+    showTimer = setTimeout(() => {
+      if (pendingEl === el) show(el, e);
+    }, 250);
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (currentEl && tip.classList.contains('visible')) position(e);
+  });
+
+  document.addEventListener('mouseout', e => {
+    clearTimeout(showTimer);
+    pendingEl = null;
+    hide();
+  });
+
+  // Hide on scroll / wheel / key — feels stale otherwise
+  window.addEventListener('scroll', hide, { passive: true, capture: true });
+  window.addEventListener('keydown', hide);
+  document.addEventListener('mousedown', hide);
+})();
+// pilot 10779
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+    e.preventDefault();
+    const m = document.getElementById('settings-modal');
+    if (m && m.style.display === 'block') closeSettings(); else openSettings();
+  }
+});
+// pilot 10858
+(function applySavedDrawerScale() {
+  // Migration: the setting used to be stored as cw-scale-pct when it was wheel-only.
+  const apply = () => setDrawerScale(
+    localStorage.getItem('drawer-scale-pct') || localStorage.getItem('cw-scale-pct') || 100);
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', apply, { once: true });
+  else apply();
+})();
+
+// pilot 8358 (Repair refresh dropped) — closing the Fields picker commits what was ticked.
+function closeFieldPicker() {
+  document.getElementById('field-picker').style.display = 'none';
+  if (_fpStaged) {
+    const changed = _fpStaged.size !== viewedCatalogs.size
+                 || [..._fpStaged].some(sl => !viewedCatalogs.has(sl));
+    if (changed) {
+      viewedCatalogs = new Set(_fpStaged);
+      try { localStorage.setItem('viewed-catalogs', JSON.stringify([...viewedCatalogs])); } catch (_) {}
+      renderCombineChips();
+      loadCatalog();
+    }
+    _fpStaged = null;
+  }
+}
+
+// Inline on*="" handlers and generated markup call these by global name.
+Object.assign(window, { closeFieldPicker, updateScanProgress, vecPathFind, vmMarkFrom, vmRouteTo, openSettings, closeSettings, setDrawerScale, setFilterFade, setAppSkin, setFog, setFieldSkin, saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
+
+export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation, fmtTime, activePlaylistSlug, addTrackToActivePlaylist, allPlaylists, audioPlayById, audioStop, matrixCommitIdx, refreshPlaylistPanel, setAnchorTrack, anchorTrackId, vecMatrix, vecDist2, _vecCamPos, VEC_DIMS, vecKNN, vecArith, vecParseArith, vecPathFind, vecPathStats };

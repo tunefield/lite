@@ -2,6 +2,10 @@
 import { catalog, allCatalogs, loadCatalogMeta, loadCatalog } from './field.js';
 import { analyseBoot } from './analyse.js';
 import './list.js';
+import './export.js';
+import './feedback.js';
+import './queue.js';
+import './tools.js';
 
 const TABS = ['analyse', 'neural', 'playlists', 'catalog'];   // repair joins when its module lands
 
@@ -46,6 +50,15 @@ if (tp) document.body.appendChild(tp);
 window.syncTransportPos();
 window.addEventListener('resize', () => window.syncTransportPos());
 document.body.classList.add('sp-open');
+window.setPlaylistTrailMode(1, false);   // pilot applySavedLayout: Pathway button + body classes reflect "show all"
+window._syncEdgeToggles?.();
+// pilot 8431, Lite's popups only: a click outside closes the column and Field pickers.
+document.addEventListener('click', e => {
+  const cp = document.getElementById('col-picker');
+  if (cp?.style.display === 'block' && !cp.contains(e.target) && !e.target.closest('[id$=col-btn]')) window.closeColPicker();
+  const fp = document.getElementById('field-picker');
+  if (fp?.style.display === 'block' && !fp.contains(e.target) && !e.target.closest('[id$=field-btn]')) window.closeFieldPicker?.();
+});
 window.renderPlaybackRangeUI();
 
 await loadCatalogMeta();

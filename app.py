@@ -476,6 +476,28 @@ os.makedirs(LIBRARY_DIR, exist_ok=True)
 os.makedirs(COVERS_DIR, exist_ok=True)
 os.makedirs(PLAYLISTS_DIR, exist_ok=True)
 
+# ── Crash log + first-run timestamps (handover §3 #13, §5.6) ──────────────────
+# faulthandler writes a traceback for hard crashes (SIGSEGV/SIGBUS in a native library)
+# that never reach Python's exception handling; Feedback attaches the tail. The two stamps
+# measure time from first launch to first export — the number the beta is judged on.
+import faulthandler, platform
+os.makedirs(LOGS_DIR, exist_ok=True)
+CRASH_LOG = os.path.join(LOGS_DIR, "crash.log")
+FIRST_LAUNCH_FILE = os.path.join(DATA_DIR, "first_launch")
+FIRST_EXPORT_FILE = os.path.join(DATA_DIR, "first_export")
+try:
+    _crash_fh = open(CRASH_LOG, "a")
+    faulthandler.enable(file=_crash_fh)
+except OSError as _e:
+    print(f"  WARNING: crash log unavailable ({_e})")
+def _stamp_once(path):
+    if not os.path.exists(path):
+        try:
+            with open(path, "w") as f: f.write(datetime.now().isoformat(timespec="seconds"))
+        except OSError:
+            pass
+_stamp_once(FIRST_LAUNCH_FILE)
+
 def migrate_catalog_paths():
     """Rewrite stored library_file values to point at the new data/ locations.
     - Absolute paths that resolve and live under TUNEFIELD_ROOT → relativized
@@ -633,6 +655,34 @@ def usage_events_ingest():
         kept += 1
     return jsonify({"ok": True, "recorded": kept})
 
+
+@app.route("/diagnostics", methods=["GET"])
+def diagnostics():
+    """Everything Feedback attaches: versions, where the data lives, time to first export,
+    and the last 50 lines of the crash log."""
+    def _read(p):
+        try:
+            with open(p) as f: return f.read().strip()
+        except OSError:
+            return None
+    minutes = None
+    first, exported = _read(FIRST_LAUNCH_FILE), _read(FIRST_EXPORT_FILE)
+    if first and exported:
+        try: minutes = round((datetime.fromisoformat(exported) - datetime.fromisoformat(first)).total_seconds() / 60, 1)
+        except ValueError: pass
+    try:
+        with open(CRASH_LOG, errors="replace") as f: crash_tail = "".join(f.readlines()[-50:])
+    except OSError:
+        crash_tail = ""
+    return jsonify({"version": TUNEFIELD_VERSION, "macos": platform.mac_ver()[0] or platform.platform(),
+                    "arch": platform.machine(), "python": platform.python_version(),
+                    "root_mode": TUNEFIELD_ROOT_MODE, "minutes_to_first_export": minutes,
+                    "crash_tail": crash_tail})
+
+@app.route("/diagnostics/first-export", methods=["POST"])
+def diagnostics_first_export():
+    _stamp_once(FIRST_EXPORT_FILE)
+    return jsonify({"ok": True})
 
 @app.route("/usage/export", methods=["GET"])
 def usage_export():
