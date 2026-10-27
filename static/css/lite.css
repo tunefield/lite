@@ -50,3 +50,12 @@
 .list-main { min-width: 0; }
 @media (max-width: 900px) { .list-layout { grid-template-columns: 1fr; } }
 body .list-side .filter-bar .fb-rows > .fb-metrics > .metric-box { flex: none; }   /* its 158px basis is a width in a row; in this column it became a height */
+
+/* Field tab: the 3D Field with the set builder beside it. */
+body #tab-neural.active { display: grid !important; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: stretch; }
+body.on-tab-neural #tab-neural #side-panel { display: flex !important; margin-top: 0; min-height: 0; margin-bottom: 92px; }   /* clears the transport, which is always on */
+.set-builder .sb-head { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 10px 12px 0; color: var(--muted); }
+.set-builder .sb-new { font-weight: 800; }
+.set-builder .sb-hint { margin: 6px 12px; font-size: 11px; color: var(--muted); }
+.set-builder .sp-tracks { flex: 1 1 auto; min-height: 120px; overflow-y: auto; }
+@media (max-width: 900px) { body #tab-neural.active { grid-template-columns: 1fr; } }

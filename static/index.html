@@ -16,6 +16,7 @@
   <nav class="hd-tabs tab-bar">
     <button class="tab-btn" id="tab-analyse-btn" onclick="switchTab('analyse')">Analyse</button>
     <button class="tab-btn" id="tab-neural-btn" onclick="switchTab('neural')">Field <span class="tab-count" id="tab-neural-count">0</span></button>
+    <button class="tab-btn" id="tab-playlists-btn" onclick="switchTab('playlists')">Playlists <span class="tab-count" id="tab-playlists-count">0</span></button>
     <button class="tab-btn" id="tab-catalog-btn" onclick="switchTab('catalog')">List <span class="tab-count" id="tab-catalog-count">0</span></button>
   </nav>
 </header>
@@ -238,6 +239,16 @@
   <div id="catalog-content"></div>
   </div>
  </div>
+</div>
+
+<div class="tab-panel" id="tab-playlists">
+  <div class="pl-toolbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+    <button class="btn-sm sb-new" onclick="newPlaylistPrompt()">＋ New set</button>
+    <span style="flex:1"></span>
+    <span style="font-size:11px;color:var(--muted)" id="pl-compare-status">Drag tracks between sets · Alt+drop to copy · × to remove</span>
+  </div>
+  <div id="playlists-grid" class="pl-grid"></div>
+  <div id="playlists-compare" style="margin-top:24px"></div>
 </div>
 
 <div class="tab-panel" id="tab-neural">
@@ -547,6 +558,29 @@
       </div>
     </div>
   </div>
+  <!-- Set builder: the pilot's Playlist Builder panel without modes or the Explore panel.
+       The Up next queue joins it on Friday. -->
+  <aside id="side-panel" class="sidebar-pane set-builder">
+    <div class="sb-head">Your set</div>
+    <div class="sp-playlist-bar">
+      <select id="sp-playlist-sel" onchange="setActivePlaylist(this.value)" title="Which set is open"></select>
+      <button class="btn-sm sb-new" onclick="newPlaylistPrompt()">＋ New set</button>
+      <button class="btn-icon" onclick="renamePlaylistPrompt()" title="Rename this set">✎</button>
+      <button class="btn-icon btn-icon-danger" onclick="deletePlaylistPrompt()" title="Delete this set">×</button>
+    </div>
+    <div class="sp-stats">
+      <span><span class="sp-stat-val" id="sp-count">0</span> tracks</span>
+      <span><span class="sp-stat-val" id="sp-duration">0:00</span> total</span>
+      <span id="sp-snapshots-label" hidden></span>
+      <button class="sp-clear-btn" id="sp-clear-btn" onclick="clearPlaylistPrompt()" style="margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer" title="Remove every track from this set">Clear</button>
+    </div>
+    <div class="sp-tracks" id="sp-tracks" ondragover="spTrackDragOver(event)" ondrop="spTrackDrop(event)"></div>
+    <p class="sb-hint">Double-click a track in the Field to add it. Drag to reorder. Press ▶ to play the set.</p>
+    <div class="sp-footer">
+      <button class="sp-undo" id="sp-undo" onclick="undoLastAdd()">↶ Undo</button>
+      <button class="sp-lock" id="sp-lock" onclick="toggleLock()">Lock</button>
+    </div>
+  </aside>
 </div>
 
 <!-- ── PLAYLISTS TAB ── -->

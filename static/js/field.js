@@ -2,14 +2,9 @@
 // "// pilot N" marks each statement's source line. Handover §7, §9.
 
 // Owned by modules not written yet (list, playlists, transport, repair); no-ops until they land.
-function adoptPlaylistStrays() {}
-function audioPlayById() {}
-function matrixCommitIdx() {}
 function renderCatalog() { window.listRenderCatalog?.(); }   // the List tab owns the table
 function renderRepair() {}
-function returnToAnchor() {}
 function setMode() {}
-function syncTransportPos() {}
 
 // pilot 5641
 const MOOD_COLOR = { euphoric:'#ffd700', intense:'#ff4444', upbeat:'#44dd88', melancholic:'#4488ff' };
@@ -758,7 +753,7 @@ function ghostsInteractive() {
   // GONE), or pathway SOLO is isolating the route, where off-route is likewise gone.
   return filterFade > 0.005 && !(typeof playlistTrailMode !== 'undefined'
     && playlistTrailMode === TRAIL_SOLO
-    && typeof _trailIdSet !== 'undefined' && _trailIdSet && _trailIdSet.size > 0);
+    && typeof _trailIdSet !== 'undefined' && _trailIdSet && _trailIdSet.size > 1);
 }
 // pilot 11047
 try {
@@ -2275,11 +2270,7 @@ const TRAIL_ALL = 1, TRAIL_SOLO = 2;
 // pilot 14637
 const TRAIL_CYCLE = [TRAIL_SOLO, TRAIL_ALL];
 // pilot 14642
-let playlistTrailMode = (() => {
-  const m = localStorage.getItem('playlist-trail-mode');
-  if (m !== null) { const n = parseInt(m, 10); return (n === 2 || n === 3) ? n : 1; }
-  return 1;
-})();
+let playlistTrailMode = TRAIL_ALL;   // Lite: every launch shows the whole Field; SOLO is per session
 // pilot 14647
 let playlistTrailVisible = playlistTrailMode > 0;
 // pilot 14648
@@ -2537,7 +2528,7 @@ async function initNeural() {
       if (Math.hypot(dx, dy) <= CLICK_DRAG_PX) return;                 // still a click, not a drag yet
       _flyDragArmed = false;                                           // gesture has resolved
       const isScrub = neuralScrubMode || (neuralScrubArmed && dy >= dx);
-      if (!isScrub && typeof currentMode !== 'undefined' && currentMode === 'playback' && flyActive && typeof setFly === 'function') setFly(false);
+      if (!isScrub && _pbSequencing && flyActive && typeof setFly === 'function') setFly(false);
       // Same gesture reads as leaving a FOCUS position: manually orbiting away means the
       // user is done with the close-up mode — the button un-lights with it.
       if (!isScrub && typeof focusFrameOn !== 'undefined' && focusFrameOn
@@ -2984,7 +2975,9 @@ function pbCameraTick() {
   // playlist's anchor ring on boot and on every axis change, and a ring alone would send the
   // camera diving into a silent field (review, 2026-09-17). Pause keeps the id; Stop clears it.
   const live = typeof audioCurrentId !== 'undefined' && !!audioCurrentId;
-  const want = ((typeof currentMode !== 'undefined' && currentMode === 'playback') && flyActive)
+  // Lite: the camera follows whenever a set is playing (was Play mode only); grabbing the
+  // view hands it back (setFly(false) in the pointer handlers).
+  const want = (_pbSequencing && flyActive && live && !!hasNode)
             || (exploreFlyOn() && live && !!hasNode);
   // Release leaves minDistance low so the camera is not snapped outward (see pbCameraStop);
   // the floor follows the user back out to its normal value and never pushes the view.
@@ -3121,7 +3114,7 @@ function enterFPS() {
   // Crosshair is the cursor now — point the hover raycast at screen centre.
   if (window.__neuralSetMouseNDC) window.__neuralSetMouseNDC(0, 0);
   // Cinematic camera hands over, exactly like grabbing the view with the mouse.
-  if (typeof currentMode !== 'undefined' && currentMode === 'playback' && flyActive && typeof setFly === 'function') setFly(false);
+  if (_pbSequencing && flyActive && typeof setFly === 'function') setFly(false);
   // Same hand-over for Explore's Focus pilot — otherwise Focus stays armed through the flight
   // and leaving FPS yanks the camera straight back to the playing node.
   // (Raw condition, not exploreFlyOn(): that is false by definition once fpsActive is set above.)
@@ -4459,7 +4452,7 @@ function neuralSyncColors() {
 function neuralSyncAlpha() {
   if (!neuralInstLayers.length) return;
   const _soloOn = (typeof playlistTrailMode !== 'undefined') && playlistTrailMode === TRAIL_SOLO
-                  && _trailIdSet && _trailIdSet.size > 0;
+                  && _trailIdSet && _trailIdSet.size > 1;
   let anyFaded = false;
   for (const L of neuralInstLayers) {
     const arr = L.aOpacity.array;
@@ -5235,7 +5228,7 @@ function rebuildGraph() {
   // SOLO must survive a REBUILD too: without this, adding a track, changing an axis or any
   // other rebuildGraph reverted SOLO to ALL silently (review, 2026-08-27).
   const _solo2 = (typeof playlistTrailMode !== 'undefined') && playlistTrailMode === TRAIL_SOLO
-                 && _routeIds2.length > 0;
+                 && _routeIds2.length > 1;
   const nodeVisible = (id) => keepIds.has(id)
     || (_solo2 ? false
               : (playbackIds ? playbackIds.has(id) : (!filteredIds || filteredIds.has(id))));
@@ -5696,7 +5689,7 @@ function updateMatrixVisibility() {
   // SOLO (pathway state 2): keepIds already holds every pathway track (plus the playing /
   // anchored one), so "only the pathway" is simply "keepIds and nothing else".
   const solo = (typeof playlistTrailMode !== 'undefined') && playlistTrailMode === TRAIL_SOLO
-               && _routeIds.length > 0;
+               && _routeIds.length > 1;   // Lite: a 0–1 track set never isolates (beta8 #4: "Field went empty")
   const nodeVisible = (id) => !!(id && keepIds.has(id))
     || (solo ? false
              : (playbackIds ? !!(id && playbackIds.has(id)) : (!filteredIds || (id && filteredIds.has(id)))));
@@ -6747,7 +6740,3083 @@ function markFieldStale(opts) {
   }
 }
 
-// Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, adoptPlaylistStrays, audioPlayById, matrixCommitIdx, renderCatalog, renderRepair, returnToAnchor, setMode, syncTransportPos });
+// ── Transport, sets and playlists (pilot; they write shared playback and playlist state) ──
+// pilot 7504
+let _adoptInFlight = null;
+// pilot 7505
+async function adoptPlaylistStrays() {
+  // Serialised: loadCatalog() and refreshPlaylistPanel() can both reach here, and two
+  // concurrent runs each snapshot `have` BEFORE either pushes — so both decide the same
+  // track is missing and both add it. That duplicated every stray (7 entries for 3 tracks
+  // in the first test). One in-flight promise, plus a re-check at push time.
+  if (_adoptInFlight) return _adoptInFlight;
+  _adoptInFlight = (async () => {
+  if (typeof activePlaylist === 'undefined' || !activePlaylist || !activePlaylist.tracks?.length) return false;
+  const have = new Set(catalog.map(e => e.id));
+  const want = new Set(activePlaylist.tracks.map(t => t.track_id).filter(id => id && !have.has(id)));
+  if (!want.size) return false;
+  const others = (allCatalogs || []).map(c => c.slug).filter(sl => !viewedCatalogs.has(sl));
+  if (!others.length) return false;
+  let added = 0;
+  for (const slug of others) {
+    if (!want.size) break;
+    let entries;
+    try {
+      const res = await fetch(`/catalog?cat=${encodeURIComponent(slug)}`);
+      if (!res.ok) continue;
+      entries = await res.json();
+    } catch (_) { continue; }
+    for (const e of entries) {
+      if (!want.has(e.id)) continue;
+      want.delete(e.id);
+      if (catalog.some(x => x.id === e.id)) continue;   // re-check: catalog may have moved
+      e._cat = slug;
+      e._guest = true;          // in the field because a playlist asked for it, not the chips
+      catalog.push(e); added++;
+    }
+  }
+  if (added) {
+    // Force the next field build to rebuild rather than take the visibility-only fast path.
+    window._neuralCatalogSig = null;
+    if (typeof showToast === 'function') {
+      showToast(`${added} playlist track${added === 1 ? '' : 's'} pulled in from other Fields`, { subtle: true });
+    }
+  }
+  return added > 0;
+  })();
+  try { return await _adoptInFlight; } finally { _adoptInFlight = null; }
+}
+// pilot 8580
+function trackDisplayName(e) {
+  const p = trackArtistTitle(e);
+  return p.artist ? `${p.artist} — ${p.title}` : p.title;
+}
+// pilot 8586
+function xResolveEnt(x) {
+  return { filename: x.filename, data: { original_filename: x.original_filename,
+           metadata: { artist: x.artist, title: x.title } } };
+}
+// pilot 11370
+function audioFadeIn(ms)  { _fadingOut = false; globalAudio.volume = 0; audioFade(volTarget(), ms); }
+// pilot 11380
+function setVolume(v, opts) {
+  const f = Math.max(0, Math.min(1, parseFloat(v)));
+  if (!isFinite(f)) return;
+  tfVolume = f;
+  // Touching the knob unmutes — dragging a muted dial and hearing nothing reads as broken.
+  if (tfMuted && f > 0 && !(opts && opts.keepMute)) tfMuted = false;
+  // Apply now, unless a fade-OUT is running: that one is racing a preview-window end and
+  // must be allowed to reach silence. A fade-IN is only 80 ms, so the user's hand wins.
+  // Only a fade-out that is actually RUNNING may hold the knob off — an armed flag whose
+  // timer already finished (or never fired: the user seeked back) must not leave the dial
+  // writing the ring and localStorage while the audio ignores it (review, 2026-08-28).
+  if (!(_fadingOut && _fadeTimer)) {
+    if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null; }
+    _fadingOut = false;
+    globalAudio.volume = volTarget();
+  }
+  try {
+    localStorage.setItem('tf-volume', String(tfVolume));
+    localStorage.setItem('tf-muted', tfMuted ? '1' : '0');
+  } catch (_) {}
+  syncVolumeDial();
+}
+// pilot 11411
+function syncVolumeDial() {
+  const inp = document.getElementById('n-volume');
+  const arc = document.getElementById('nt-vol-arc');
+  const dial = document.getElementById('nt-vol-dial');
+  if (inp) inp.value = Math.round(tfVolume * 100);
+  if (dial) dial.classList.toggle('is-muted', tfMuted);
+  if (!arc) return;
+  const C = 163.4, sweep = 0.75;            // 2*pi*r with r=26; -135deg .. +135deg
+  const t = tfMuted ? 0 : Math.max(0, Math.min(1, tfVolume));
+  arc.style.strokeDashoffset = String(C * (1 - t * sweep));
+  if (dial) {
+    dial.title = tfMuted ? 'Muted — click to unmute'
+      : `Volume ${Math.round(tfVolume * 100)}% — drag UP louder, DOWN quieter. Scroll works too. Click to mute.`;
+  }
+}
+// pilot 11427
+(function wireVolumeDial() {
+  const wire = () => {
+    const d = document.getElementById('nt-vol-dial');
+    if (!d) return;
+    globalAudio.volume = volTarget();     // restore the saved level before anything plays
+    syncVolumeDial();
+    // Same vertical drag as the SPREAD dial. A click (no meaningful travel) falls through
+    // to mute — hence the moved/elapsed guard, so a small adjusting nudge never mutes.
+    d.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      const startY = ev.clientY, startV = tfVolume, t0 = performance.now();
+      const PX_FOR_FULL_RANGE = 160;
+      let moved = false;
+      d.setPointerCapture(ev.pointerId);
+      const move = e2 => {
+        if (Math.abs(e2.clientY - startY) > 3) moved = true;
+        if (!moved) return;
+        setVolume(startV + (startY - e2.clientY) / PX_FOR_FULL_RANGE);
+        e2.preventDefault();
+      };
+      const up = () => {
+        d.removeEventListener('pointermove', move);
+        d.removeEventListener('pointerup', up);
+        d.removeEventListener('pointercancel', up);
+        if (!moved && performance.now() - t0 < 400) toggleMute();
+      };
+      d.addEventListener('pointermove', move);
+      d.addEventListener('pointerup', up);
+      d.addEventListener('pointercancel', up);
+      ev.preventDefault();
+    });
+    d.addEventListener('wheel', ev => {
+      ev.preventDefault();
+      setVolume(tfVolume + (ev.deltaY < 0 ? 0.05 : -0.05));
+    }, { passive: false });
+  };
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', wire, { once: true });
+  else wire();
+})();
+// pilot 11487
+globalAudio.addEventListener('timeupdate', () => {
+  if (!audioCurrentId || !globalAudio.duration) return;
+  const pctNum = globalAudio.currentTime / globalAudio.duration * 100;
+  const fill = document.getElementById(`progf-${audioCurrentId}`);
+  if (fill) fill.style.width = pctNum.toFixed(1) + '%';
+  // Keep the transport progress fill + time label in sync
+  if (typeof updateTransport === 'function') {
+    if (typeof updateDialProgress === 'function') updateDialProgress(pctNum);
+    const meta = document.getElementById('nt-info-meta');
+    if (meta && document.body.classList.contains('transport-on')) {
+      const tracks  = activePlaylist?.tracks || [];
+      const curId   = audioCurrentId || anchorTrackId();
+      const trackI  = curId ? tracks.findIndex(t => t.track_id === curId) : -1;
+      const posLabel = (trackI >= 0 && tracks.length) ? `Track ${trackI+1} / ${tracks.length}` : '';
+      meta.textContent = [posLabel, `${fmtTime(globalAudio.currentTime)} / ${fmtTime(globalAudio.duration)}`].filter(Boolean).join(' · ');
+    }
+  }
+  // Preview-window end marker (semantics reworked 2026-07-24, Mark's spec):
+  //   · Normal use (Explore / Record): the marker is NOT observed — the track simply plays
+  //     on to its natural end. No loop back to the window start, no jump to the anchor.
+  //   · Playback: crossing the marker advances to the next playlist track. With no
+  //     window set (all segments off → end = 100), tracks play to their natural end
+  //     and the advance happens on 'ended' instead.
+  // "Crossing" = playback passes the end % from inside the window — a deliberate seek
+  // beyond the window (allowed by the combined seek bar) plays on from there.
+  // Lite: the window is honoured everywhere, not only while a set plays (beta8 #5 — a Field
+  // preview played the whole track). Playing a set advances at the marker; a preview stops.
+  const windowArmed = !_pbCurrentFull
+                      && typeof playbackRange !== 'undefined' && playbackRange.end < 100;
+  const crossedEnd = windowArmed && _pbLastPct < playbackRange.end && pctNum >= playbackRange.end;
+  // Pre-emptive fade-out in the final ~150 ms before the window end, so the jump to the
+  // next track is a soft cut rather than a pop. Only while the marker is actually armed;
+  // fires once per approach (reset by the next cut-in's audioFadeIn).
+  if (windowArmed && !_fadingOut) {
+    const endT = globalAudio.duration * playbackRange.end / 100;
+    if (globalAudio.currentTime >= endT - PREVIEW_FADE_MS / 1000 && globalAudio.currentTime < endT) {
+      _fadingOut = true;
+      audioFadeOut();
+    }
+  }
+  _pbLastPct = pctNum;
+  if (crossedEnd) { if (_pbSequencing) advanceToNextTrack(); else audioStop({ keepAnchor: true }); }
+});
+// pilot 11529
+globalAudio.addEventListener('ended', () => {
+  const finished = audioCurrentId;
+  audioStop({ keepAnchor: true });
+  // FLOW owns the advance in Explore while it is running. A track played to its natural
+  // end is the strongest positive signal there is, so it also feeds the fingerprint.
+  if (typeof flowOn !== 'undefined' && flowOn) {
+    if (finished) flowFeedback(finished, 'finish');
+    flowAdvance();
+    return;
+  }
+  // Playback mode / a playlist sequence auto-advances through the list. The follower launches
+  // with the preview window like any other track (the "plays in FULL after a natural end"
+  // rule is gone — it read as the selector being ignored; Mark, 2026-09-02).
+  if (currentMode === 'playback' || _pbSequencing) { advanceToNextTrack(); return; }
+  // Preview finished → return to anchor; anchor finished → stop
+  if (finished !== anchorTrackId() && anchorTrackId()) {
+    audioPlayById(anchorTrackId(), { keepAnchor: true });
+  }
+});
+// pilot 11557
+function audioStop(opts) {
+  // An explicit Stop (the ⏹ buttons / Esc call audioStop() with NO args) ends any playlist
+  // auto-sequence. Internal stops — the one inside audioPlayById before each track, and the one
+  // in the 'ended' handler before an auto-advance — always pass an opts object, so they leave
+  // sequencing armed and the chain keeps rolling.
+  const _userStop = (opts === undefined);
+  opts = opts || {};
+  if (_userStop) { _pbSequencing = false; _pbSeqIdx = -1; _pbNextFull = false; }
+  if (audioCurrentId) {
+    globalAudio.pause();
+    const btn  = document.getElementById(`play-${audioCurrentId}`);
+    const fill = document.getElementById(`progf-${audioCurrentId}`);
+    if (btn)  { btn.textContent = '▶'; btn.classList.remove('playing'); }
+    if (fill) fill.style.width = '0%';
+  }
+  audioCurrentId = null;
+  neuralPlayingIdx = -1;  // no audio → no progress arc anywhere
+  if (!opts.keepAnchor) clearAnchorVisuals();
+  // keepIds shrank (no playing track any more) — re-derive node visibility so a track
+  // that was only visible because it was playing folds back under the filters.
+  // deferVisibility: internal callers (audioPlayById / audioSeek) re-run the pass
+  // themselves a moment later — skipping it here halves the work per track change.
+  if (!opts.deferVisibility && typeof updateMatrixVisibility === 'function') updateMatrixVisibility();
+  updateMatrixStopBtn();
+}
+// pilot 11583
+function clearAnchorVisuals() {
+  if (typeof neuralRingIdx === 'undefined') return;
+  neuralRingIdx = -1;
+  if (neuralRing && neuralScene) { neuralScene.remove(neuralRing); neuralRing.geometry?.dispose?.(); neuralRing.material?.dispose?.(); neuralRing = null; }
+  if (neuralProgressRing && neuralScene) {
+    neuralScene.remove(neuralProgressRing);
+    neuralProgressRing.traverse?.(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+    neuralProgressRing = null;
+  }
+  if (neuralPreviewRing && neuralScene) {
+    neuralScene.remove(neuralPreviewRing);
+    neuralPreviewRing.children.forEach(c => c.geometry?.dispose?.());
+    neuralPreviewRing.children[0]?.material?.dispose?.();   // both strokes share one material
+    neuralPreviewRing = null;
+  }
+  if (typeof refreshNeuralEdgeHighlight === 'function') refreshNeuralEdgeHighlight();
+}
+// pilot 11601
+function returnToAnchor() {
+  const aid = anchorTrackId();
+  if (!aid) return;
+  audioPlayById(aid, { keepAnchor: true });
+  // Resume the anchor at the PREVIEW-slider start position rather than from 0 so the user
+  // lands inside the meaningful segment they configured for previews. If the anchor's already
+  // the same id and the audio is still loaded, jump immediately; otherwise wait one cycle
+  // for metadata so duration is known.
+  const seekToStart = () => {
+    const start = (playbackRange?.start || 0) / 100;
+    if (start > 0 && globalAudio.duration) {
+      tfSeekTo(globalAudio.duration * start);
+    }
+  };
+  if (globalAudio.readyState >= 1 && globalAudio.duration) {
+    seekToStart();
+  } else {
+    const onMeta = () => {
+      globalAudio.removeEventListener('loadedmetadata', onMeta);
+      seekToStart();
+    };
+    globalAudio.addEventListener('loadedmetadata', onMeta);
+  }
+}
+// pilot 11626
+function updateMatrixStopBtn() {
+  // The big transport bar now owns the Stop affordance whenever it's visible. The small
+  // toolbar stop button only re-appears when audio is playing without the transport.
+  if (typeof updateTransport === 'function') updateTransport();
+  const btn = document.getElementById('matrix-stop-btn');
+  if (btn) {
+    const transportOn = document.body.classList.contains('transport-on');
+    btn.style.display = (audioCurrentId && !transportOn) ? 'inline-block' : 'none';
+  }
+}
+// pilot 11637
+document.addEventListener('keydown', e => {
+  // Escape while flying first-person just leaves FPS mode (the browser drops the pointer
+  // lock on Esc anyway) — it must NOT also stop the music.
+  if (e.key === 'Escape' && typeof fpsActive !== 'undefined' && fpsActive) { exitFPS(); return; }
+  // Escape with the keyboard-help sheet open only dismisses the sheet (the kb-nav listener,
+  // registered after this one, does the closing) — it must NOT also stop/redirect audio.
+  if (e.key === 'Escape') {
+    const help = document.getElementById('kbnav-help-modal');
+    if (help && getComputedStyle(help).display !== 'none') return;
+    // Esc closes the small floating panels/menus first — and never stops the music
+    // behind an open dialog (the big modals have their own × / Cancel buttons).
+    const sm = document.getElementById('settings-modal');
+    if (sm && sm.style.display === 'block') { closeSettings(); return; }
+    const fp = document.getElementById('formula-popup');
+    if (fp && fp.style.display === 'flex') { toggleFormulaPanel(); return; }
+    const em = document.getElementById('export-menu');
+    if (em && em.style.display === 'block') { closeExportMenu(); return; }
+    const tm = document.getElementById('tag-manager');
+    if (tm && tm.style.display === 'block') { tm.style.display = 'none'; return; }
+    const arc = document.getElementById('arc-report');
+    if (arc) { arc.remove(); return; }
+    // sb-draw / sb-preview are launched FROM the Set tools box and sit on top of it, so
+    // they must be closed first — Esc was dismissing the box out from under them
+    // (review, 2026-08-27).
+    const sd = document.getElementById('sb-draw');
+    if (sd) { sd.remove(); return; }
+    const sp = document.getElementById('sb-preview');
+    if (sp) { sp.remove(); return; }
+    const stb = document.getElementById('settools-box');
+    if (stb && stb.classList.contains('open')) { closeSetToolsBox(); return; }
+    const cir = document.getElementById('ci-review-modal');
+    if (cir && getComputedStyle(cir).display !== 'none') { cir.style.display = 'none'; return; }
+    if (typeof _kbModalOpen === 'function' && _kbModalOpen()) return;
+  }
+  // Escape — return-to-anchor or full stop. Never while typing (a check-in text
+  // field, a rename box): stopping the music mid-sentence is hostile.
+  if (e.key === 'Escape' && audioCurrentId) {
+    const _ae = document.activeElement;
+    if (_ae && (_ae.tagName === 'INPUT' || _ae.tagName === 'TEXTAREA' || _ae.isContentEditable)) return;
+    if (anchorTrackId() && audioCurrentId !== anchorTrackId()) returnToAnchor();
+    else audioStop();
+    return;
+  }
+  // Space — play / pause from the transport. Only when not focused in an input so we don't
+  // hijack typing in search / tag fields, and never invisibly behind an open modal.
+  if (e.code === 'Space' && document.body.classList.contains('transport-on')) {
+    if (isTypingContext(e.target)) return;
+    if (typeof _kbModalOpen === 'function' && _kbModalOpen()) return;
+    e.preventDefault();
+    togglePlayPause();
+  }
+});
+// pilot 11701
+function syncPlayPauseUI() {
+  if (typeof updateTransport === 'function') updateTransport();
+  // Cheap targeted toggle: just flip the class + icon on the affected pl-trk rows instead
+  // of a full renderPlaylistsTab rebuild on every play/pause event.
+  if (document.getElementById('tab-playlists')?.classList.contains('active')) {
+    document.querySelectorAll('.pl-trk').forEach(row => {
+      const id = row.dataset.trackId;
+      const playing = id === audioCurrentId;
+      row.classList.toggle('pli-playing', playing);
+      const btn = row.querySelector('.pli-prev');
+      if (btn) btn.textContent = playing ? '⏸' : '▶';
+    });
+  }
+  // Side-panel rows — same idea, lives on every tab that shows the playlist builder.
+  document.querySelectorAll('.sp-track').forEach(row => {
+    const id = row.dataset.trackId;
+    const playing = id === audioCurrentId;
+    row.classList.toggle('sp-playing', playing);
+    const btn = row.querySelector('.sp-play');
+    if (btn) { btn.textContent = playing ? '⏸' : '▶'; btn.title = `${playing ? 'Pause' : 'Play / preview'} this track`; }
+  });
+  if (typeof spNoteTrackChange === 'function') spNoteTrackChange();
+}
+// pilot 11724
+globalAudio.addEventListener('play',  syncPlayPauseUI);
+// pilot 11725
+globalAudio.addEventListener('pause', syncPlayPauseUI);
+// pilot 11727
+globalAudio.addEventListener('playing', () => { _pbErrCount = 0; });
+// pilot 11730
+globalAudio.addEventListener('error', () => {
+  if (!audioCurrentId) return;                                   // teardown / empty src, not a track failure
+  if (!(currentMode === 'playback' || _pbSequencing)) {
+    // Outside sequencing this used to return silently — so in Explore and Curate (the
+    // default and the main working mode) a track on an unplugged drive did NOTHING at all:
+    // no sound, no message, the play button just sat there. That is the single likeliest
+    // real-world failure for a DJ, and it read as "the app is broken" (2026-08-29).
+    const e = (typeof catalog !== 'undefined') ? catalog.find(t => t.id === audioCurrentId) : null;
+    syncPlayPauseUI();
+    showToast(`Can't play ${e?.filename ? '“' + e.filename + '”' : 'that track'} — the file didn't load. If it lives on an external drive, check the drive is connected.`);
+    return;
+  }
+  if (++_pbErrCount > 25) { _pbErrCount = 0; _pbSequencing = false; _pbSeqIdx = -1; audioStop({ keepAnchor: true }); showToast('Stopped — track audio unavailable'); return; }
+  advanceToNextTrack();
+});
+// pilot 11746
+globalAudio.addEventListener('play',  () => { if (typeof syncCamelotCurrent === 'function') syncCamelotCurrent(); });
+// pilot 11747
+globalAudio.addEventListener('ended', () => { if (typeof syncCamelotCurrent === 'function') syncCamelotCurrent(); });
+// pilot 11749
+function audioPlayById(id, opts) {
+  opts = opts || {};
+  // Does THIS track ignore the preview window? An explicit opts.fullTrack wins; otherwise inherit
+  // the pending "natural-end follower" flag set by the 'ended' handler (consumed here).
+  // Only an EXPLICIT opts.fullTrack ignores the window. The old "natural-end follower
+  // plays in full, and so does its follower" inheritance (_pbNextFull) made a window
+  // ending at 100% disable the selector for the rest of the sequence (2026-09-02).
+  _pbCurrentFull = !!opts.fullTrack;
+  _pbNextFull = false;
+  audioStop({ keepAnchor: !!opts.keepAnchor, deferVisibility: true });
+  audioCurrentId = id;
+  // In Explore, anything that plays joins the traced path — Flow's picks and your own
+  // clicks alike. Explore has no active playlist to write to; the path IS the record of
+  // where you went (2026-08-26).
+  if (typeof currentMode !== 'undefined' && currentMode === 'explore'
+      && typeof exploreTrailPush === 'function') {
+    exploreTrailPush(id);
+    // Playing ANY track in Explore starts Flow — clicking a node is a way of saying
+    // "start here", not "play one record and stop" (Mark, 2026-08-27). And because the
+    // choice is a new starting point, the upcoming five are re-picked FROM it: pick a
+    // track by hand and the queue follows you rather than carrying on from where the
+    // algorithm was. Suppressed while stepping backward through the path, which is
+    // navigation, not a new choice.
+    if (!_flowSuppressRepick) {
+      if (typeof flowOn !== 'undefined' && !flowOn && typeof flowToggle === 'function') flowToggle();
+      if (typeof flowPickNext === 'function') {
+        flowQueue = [];
+        let from = id;
+        for (let k = 0; k < FLOW_LOOKAHEAD; k++) {
+          const nx = flowPickNext(from, k + 1);
+          if (!nx) break;
+          flowQueue.push(nx); from = nx;
+        }
+      }
+    }
+  }
+  // The now-playing card and the path highlight follow the audio, whatever started it.
+  if (typeof flowRenderPath === 'function') flowRenderPath();
+  globalAudio.src = `/catalog/${id}/stream`;
+  audioFadeIn();          // start silent + ramp — de-clicks the track cut-in
+  // .catch: a play() promise rejects with AbortError if a pause lands before it settles
+  // — routine when Flow starts a track and a mode switch stops it a frame later.
+  globalAudio.play().catch(() => {});
+  // Sync the playing-arc marker so the progress ring lands on whichever node is producing audio
+  if (typeof neuralNodeData !== 'undefined') {
+    neuralPlayingIdx = neuralNodeData.findIndex(nd => nd.catalogId === id);
+  }
+  // keepIds grew (this track is now playing) — if it was filter-hidden, surface it.
+  if (typeof updateMatrixVisibility === 'function') updateMatrixVisibility();
+  updateMatrixStopBtn();
+}
+// pilot 11828
+function audioSeek(id, e) {
+  e.stopPropagation();
+  if (audioCurrentId !== id) {
+    // Capture the bar geometry + click X synchronously — e.currentTarget is nulled once the
+    // event finishes dispatching, so reading it inside the async metadata callback threw.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX;
+    // keepAnchor: seeking into a different row is a preview action — it must not destroy
+    // the committed anchor ring (audioStop() without the flag cleared it).
+    audioStop({ keepAnchor: true, deferVisibility: true });
+    audioCurrentId = id;
+    globalAudio.src = `/catalog/${id}/stream`;
+    const btn = document.getElementById(`play-${id}`);
+    if (btn) { btn.textContent = '⏸'; btn.classList.add('playing'); }
+    // Keep the 3D visuals in sync like audioPlayById does — progress dial + keep-visible.
+    if (typeof neuralNodeData !== 'undefined') {
+      neuralPlayingIdx = neuralNodeData.findIndex(nd => nd.catalogId === id);
+    }
+    if (typeof updateMatrixVisibility === 'function') updateMatrixVisibility();
+    audioFadeIn();
+    globalAudio.addEventListener('loadedmetadata', () => {
+      tfSeekTo(((clickX - rect.left) / rect.width) * globalAudio.duration);
+      audioFadeIn();          // de-click the landing point
+      globalAudio.play().catch(() => {});
+    }, { once: true });
+    updateMatrixStopBtn();
+    return;
+  }
+  if (globalAudio.duration) {
+    const r = e.currentTarget.getBoundingClientRect();
+    tfSeekTo(((e.clientX - r.left) / r.width) * globalAudio.duration);
+    audioFadeIn();
+  }
+}
+// pilot 12852
+function vecDist2(M, a, b) {
+  const d = M.d; let s = 0;
+  for (let j = 0; j < d; j++) { const dv = M.mat[a * d + j] - M.mat[b * d + j]; s += dv * dv; }
+  return s;
+}
+// pilot 12982
+function vecPathStats(ids) {
+  const M = vecMatrix();
+  const rows = ids.map(id => M.idx.get(id)).filter(i => i !== undefined);
+  if (rows.length < 2) return null;
+  const steps = [];
+  for (let i = 1; i < rows.length; i++) steps.push(Math.sqrt(vecDist2(M, rows[i-1], rows[i])));
+  const byCat = new Map(catalog.map(t => [t.id, t]));
+  const ene = ids.map(id => byCat.get(id)?.data?.energy?.level ?? 0);
+  const mean = steps.reduce((a,b)=>a+b,0) / steps.length;
+  const worst = steps.reduce((m,s,i) => s > steps[m] ? i : m, 0);
+  return { steps, mean, max: Math.max(...steps), worstAt: worst, energy: ene,
+           rise: ene.length > 1 ? ene[ene.length-1] - ene[0] : 0 };
+}
+// pilot 13616
+const SB_CURVES = [
+  ['flat',  'Flat — steady level',          (t,i,c)=>0.6],
+  ['build', 'Build — steady climb',         (t,i,c)=>0.25+0.65*t],
+  ['cool',  'Cool-down — steady descent',   (t,i,c)=>0.9-0.65*t],
+  ['peak',  'Peak — rise then release',     (t,i,c)=>0.25+0.65*Math.sin(Math.PI*t)],
+  ['valley','Valley — dip then return',     (t,i,c)=>0.9-0.65*Math.sin(Math.PI*t)],
+  ['wave',  'Waves — cycles of Cycle tracks',(t,i,c)=>0.55+0.35*Math.sin(2*Math.PI*i/Math.max(2,c))],
+  ['burn',  'Slow burn — restrained for most of the night, explosive late  (0.25 + 0.65·t^2.2)',
+            (t,i,c)=>0.25+0.65*Math.pow(t,2.2)],
+  ['prime', 'Prime time — fast rise, long plateau up top, graceful last-tracks dip',
+            (t,i,c)=>0.3+0.6*Math.min(1,t*4)-0.35*Math.max(0,(t-0.85)*4)],
+  ['roll',  'Rolling build — a steady climb that breathes in Cycle-track waves  (0.25 + 0.5·t + 0.12·sin(2π·i/cyc))',
+            (t,i,c)=>0.25+0.5*t+0.12*Math.sin(2*Math.PI*i/Math.max(2,c))],
+  ['saw',   'Tension & release — ramps up over each Cycle, then drops and rebuilds',
+            (t,i,c)=>{const cc=Math.max(2,c); return 0.3+0.55*((i/cc)-Math.floor(i/cc));}],
+  ['false', 'False ending — big peak around two-thirds in, a dive, then one last surge',
+            (t,i,c)=>t<0.66 ? 0.28+0.62*Math.sin(Math.PI*0.5*t/0.66)
+                   : t<0.82 ? 0.9-3.4*(t-0.66)
+                   : 0.36+0.54*Math.sin(Math.PI*(t-0.82)/0.36)],
+];
+// pilot 14030
+let _sbDragSet = null;
+// pilot 14157
+let _arcCurve = 'none';
+// pilot 14165
+async function vmSetArcFor(slug) {
+  try {
+    if (slug && slug !== activePlaylistSlug) await setActivePlaylist(slug);
+    const pl = allPlaylists.find(p => p.slug === slug);
+    const name = pl ? (pl.name || slug) : slug;
+    const ids = (activePlaylist?.tracks || []).map(t => t.track_id);
+    if (ids.length < 2) { showToast(`“${name}” needs at least 2 tracks to analyse`); return; }
+    const st = vecPathStats(ids);
+    if (!st) { showToast('Those tracks aren\'t in the current Field selection'); return; }
+    vmShowArcReport(name, ids, st, slug);
+  } catch (e) { showToast('Could not analyse that playlist'); }
+}
+// pilot 14188
+function _reorderCost(M, a, b) { return Math.sqrt(Math.max(0, vecDist2(M, a, b))); }
+// pilot 14190
+function computeSmoothOrder(ids, curveKey) {
+  const M = vecMatrix();
+  const rows = ids.map(id => M.idx.get(id));
+  if (rows.some(r => r === undefined) || rows.length < 3) return null;
+  const n = rows.length;
+  const byCat = new Map(catalog.map(t => [t.id, t]));
+  const ene = ids.map(id => byCat.get(id)?.data?.energy?.level ?? 0.5);
+  const curve = (curveKey && curveKey !== 'none') ? SB_CURVES.find(c => c[0] === curveKey) : null;
+  const curveFn = curve ? curve[2] : null;
+  const target = i => curveFn ? curveFn(n < 2 ? 0 : i / (n - 1), i, Math.max(2, Math.round(n / 4))) : null;
+  const posCost = (slot, idx) => {
+    const t = target(slot);
+    return t === null ? 0 : Math.abs(ene[idx] - t) * 1.5;
+  };
 
-export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation };
+  // 1. greedy nearest-neighbour from the pinned opener
+  const used = new Array(n).fill(false);
+  const order = [0]; used[0] = true;
+  for (let slot = 1; slot < n; slot++) {
+    let best = -1, bestC = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (used[j]) continue;
+      const c = _reorderCost(M, rows[order[slot - 1]], rows[j]) + posCost(slot, j);
+      if (c < bestC) { bestC = c; best = j; }
+    }
+    if (best < 0) break;
+    order.push(best); used[best] = true;
+  }
+
+  // 2. 2-opt: reverse any segment that shortens the whole path. Bounded so a 300-track
+  //    playlist cannot lock the UI — this runs on the main thread.
+  const total = (ord) => {
+    let c = 0;
+    for (let i = 1; i < ord.length; i++) c += _reorderCost(M, rows[ord[i - 1]], rows[ord[i]]) + posCost(i, ord[i]);
+    return c;
+  };
+  let cur = total(order);
+  const MAX_PASSES = n > 120 ? 1 : 4;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let improved = false;
+    for (let i = 1; i < n - 1; i++) {
+      for (let k = i + 1; k < n; k++) {
+        const cand = order.slice(0, i).concat(order.slice(i, k + 1).reverse(), order.slice(k + 1));
+        const c = total(cand);
+        if (c < cur - 1e-9) { order.splice(0, n, ...cand); cur = c; improved = true; }
+      }
+    }
+    if (!improved) break;
+  }
+  return order;
+}
+// pilot 14245
+async function plApplyOrder(slug, order) {
+  const r = await fetch(`/playlists/${slug}/tracks`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (r.status === 423) { showToast('Playlist is locked'); return false; }
+  if (!r.ok) { const e = await r.json().catch(() => ({})); showToast(e.error || 'Reorder failed'); return false; }
+  return true;
+}
+// pilot 14255
+async function plReorderSmooth(slug) {
+  const sel = document.getElementById('arc-curve');
+  const curveKey = sel ? sel.value : _arcCurve;
+  _arcCurve = curveKey;                  // survives the panel rebuild at the end of this function
+  try {
+    if (slug && slug !== activePlaylistSlug) await setActivePlaylist(slug);
+    const ids = (activePlaylist?.tracks || []).map(t => t.track_id);
+    if (ids.length < 3) { showToast('Needs at least 3 tracks to reorder'); return; }
+    const before = vecPathStats(ids);
+    const order = computeSmoothOrder(ids, curveKey);
+    if (!order) { showToast('Those tracks aren\'t all in the current Field selection'); return; }
+    const after = vecPathStats(order.map(i => ids[i]));
+    if (!after || !before) { showToast('Could not measure the new order'); return; }
+    // Refuse to make it worse. Greedy+2-opt normally wins, but if a curve constraint
+    // fights the distance term it can lose — and silently degrading a DJ's running
+    // order would be the worst possible outcome here.
+    if (after.mean >= before.mean * 0.999 && curveKey === 'none') {
+      showToast('Already about as smooth as it gets — left it alone');
+      return;
+    }
+    if (!await plApplyOrder(slug, order)) return;
+    await refreshPlaylistPanel();
+    // refreshPlaylistPanel only redraws the Field tab's side panel (and only when it's
+    // visible). Reached from a card on the PLAYLISTS tab, the new order was saved and the
+    // journey report redrew with the new curve — but the cards kept the old running order
+    // until you left the tab and came back, so it looked like nothing happened (Mark,
+    // 2026-09-25). Same guard the other mutation paths use (see the drag-drop handler).
+    if (document.body.classList.contains('on-tab-playlists') && typeof renderPlaylistsTab === 'function') await renderPlaylistsTab();
+    const pct = Math.round((1 - after.mean / (before.mean || 1)) * 100);
+    showToast(`Reordered — average step ${pct > 0 ? pct + '% smaller' : 'reshaped to the curve'}`, 5000);
+    if (typeof featUse === 'function') featUse('playlist_reorder');
+    const rep = document.getElementById('arc-report');
+    if (rep) { rep.remove(); vmSetArcFor(slug); }     // redraw the report on the new order
+  } catch (e) { showToast('Reorder failed: ' + (e.message || e)); }
+}
+// pilot 14296
+function vmShowArcReport(name, ids, st, slugForReorder) {
+  slugForReorder = slugForReorder || activePlaylistSlug || '';
+  document.getElementById('arc-report')?.remove();
+  const byCat = new Map(catalog.map(t => [t.id, t]));
+  const rows = ids.map(id => byCat.get(id)).filter(Boolean);
+  const W = 420, H = 62, PAD = 5;
+  const ene = st.energy;
+  const lo = Math.min(...ene), hi = Math.max(...ene), span = (hi - lo) || 1;
+  const px = i => PAD + (W - 2*PAD) * (ene.length < 2 ? 0.5 : i / (ene.length - 1));
+  const py = v => H - PAD - (H - 2*PAD) * ((v - lo) / span);
+  const pts = ene.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+  const area = `${PAD},${H-PAD} ${pts} ${(W-PAD)},${H-PAD}`;
+
+  // Harmonic sanity of each transition: adjacent Camelot positions (or the same) mix.
+  let inKey = 0, keyed = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const a = _vecCamPos(rows[i-1].data), b = _vecCamPos(rows[i].data);
+    if (!a || !b) continue;
+    keyed++;
+    const d = Math.min((a - b + 12) % 12, (b - a + 12) % 12);
+    if (d <= 1) inKey++;
+  }
+  const bpms = rows.map(r => r.data?.rhythm?.bpm).filter(Number.isFinite);
+  const bpmLo = bpms.length ? Math.min(...bpms) : null, bpmHi = bpms.length ? Math.max(...bpms) : null;
+  const secs = rows.reduce((a, r) => a + (r.data?.metadata?.duration_sec || 0), 0);
+  const hrs = Math.floor(secs/3600), mins = Math.round((secs%3600)/60);
+  const worstA = rows[st.worstAt], worstB = rows[st.worstAt + 1];
+  // Steps are feature distances; scale to the set's own mean so "smooth" is relative to
+  // this set rather than an absolute nobody can interpret.
+  const smooth = Math.max(0, Math.min(100, Math.round(100 * (1 - (st.mean / (st.max || 1))))));
+
+  const el = document.createElement('div');
+  el.id = 'arc-report';
+  el.innerHTML = `
+    <div class="arc-head">
+      <span class="arc-name">${esc(name)}</span>
+      <button class="cp-close" onclick="document.getElementById('arc-report').remove()" title="Close (Esc)">×</button>
+    </div>
+    <div class="arc-body">
+      <div class="arc-label">Energy across the set</div>
+      <svg class="arc-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <polygon points="${area}" fill="var(--accent)" opacity=".13"/>
+        <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="${px(0)}" cy="${py(ene[0])}" r="3" fill="var(--accent)"/>
+        <circle cx="${px(ene.length-1)}" cy="${py(ene[ene.length-1])}" r="3" fill="var(--accent)"/>
+      </svg>
+      <div class="arc-grid">
+        <div class="arc-cell"><span class="arc-k">Tracks</span><span class="arc-v">${rows.length}</span></div>
+        <div class="arc-cell"><span class="arc-k">Running time</span><span class="arc-v">${hrs ? hrs+'h ' : ''}${mins}m</span></div>
+        <div class="arc-cell"><span class="arc-k">Loudness, start → end</span><span class="arc-v">${st.rise >= 0 ? '+' : ''}${(st.rise*100).toFixed(0)}%</span></div>
+        <div class="arc-cell"><span class="arc-k">Tempo range</span><span class="arc-v">${bpmLo ? Math.round(bpmLo)+'–'+Math.round(bpmHi)+' BPM' : '—'}</span></div>
+        <div class="arc-cell"><span class="arc-k">Harmonic changes</span><span class="arc-v">${keyed ? inKey+' of '+keyed : '—'}</span></div>
+        <div class="arc-cell"><span class="arc-k">Evenness of steps</span><span class="arc-v">${smooth}%</span></div>
+      </div>
+      <div class="arc-fix">
+        <span class="arc-k">Fix the running order</span>
+        <div class="arc-fix-row">
+          <select id="arc-curve" class="flow-path-sel" onchange="_arcCurve = this.value"
+                  title="Shape the energy as well as smoothing the steps">
+            <option value="none"${_arcCurve === 'none' ? ' selected' : ''}>Smoothest path</option>
+            ${SB_CURVES.map(([k, tip]) => `<option value="${esc(k)}"${_arcCurve === k ? ' selected' : ''} title="${esc(tip)}">${esc(k)}</option>`).join('')}
+          </select>
+          <button class="flow-btn" onclick="plReorderSmooth('${esc(slugForReorder)}')" title="Rewrite this playlist into that order now — same tracks, nothing added or dropped, one Undo away.">Reorder playlist</button>
+        </div>
+        <div class="arc-note">Applies straight to <strong>${esc(name)}</strong> — same tracks in a better order, nothing added or dropped, the opener stays put, and ↶ Undo puts it back.</div>
+      </div>
+      <div class="arc-worst">
+        <span class="arc-k">Roughest transition</span>
+        <div class="arc-worst-t">${esc((worstA?.filename || '?').slice(0, 42))}<br><span class="arc-arrow">↓</span> ${esc((worstB?.filename || '?').slice(0, 42))}</div>
+        <div class="arc-note">That step is ${(st.max / (st.mean || 1)).toFixed(1)}× the average — the one worth listening to before you play it out.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+}
+// pilot 15238
+function neuralFlyTo(idx) {
+  if (idx<0||idx>=neuralMeshes.length||!neuralControls) return;
+  const p=neuralMeshes[idx].position;
+  neuralLerpFX=neuralControls.target.x; neuralLerpFY=neuralControls.target.y; neuralLerpFZ=neuralControls.target.z;
+  neuralLerpTX=p.x; neuralLerpTY=p.y; neuralLerpTZ=p.z;
+  neuralLerpCam=false;   // plain retarget — the camera-position channel stays parked
+  neuralLerpT=0;
+  // Start audio first — audioStop inside audioPlayById clears any prior ring/idx,
+  // so we set the new ring AFTER playback starts.
+  const nd=neuralNodeData[idx];
+  if (nd.catalogId) audioPlayById(nd.catalogId);
+  neuralRingIdx=idx;
+  if (!neuralRing) {
+    const T=neuralThree;
+    const geo=new T.RingGeometry(1,1.45,64);
+    const mat=new T.MeshBasicMaterial({color:0x4A3FBF,side:T.DoubleSide,transparent:true,opacity:0.85,depthTest:false});
+    neuralRing=new T.Mesh(geo,mat); neuralScene.add(neuralRing);
+  }
+  refreshNeuralEdgeHighlight();
+  // ◎ Focus (reworked 2026-08-03): no field re-distribution — the VIEW simply jumps
+  // in close to the newly committed node. Overrides the plain retarget above with a
+  // combined target + camera flight.
+  if (typeof focusFrameOn !== 'undefined' && focusFrameOn
+      && !(typeof exploreFlyOn === 'function' && exploreFlyOn())) neuralFocusJump(idx);
+}
+// pilot 19325
+let allPlaylists  = [];      // [{slug, name, locked, count, ...}]
+// pilot 19326
+let activePlaylistSlug = null;
+// pilot 19330
+function formatDuration(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
+}
+// pilot 19366
+function exploreTrailSave() {
+  try { localStorage.setItem('explore-trail', JSON.stringify(exploreTrail)); } catch (_) {}
+}
+// pilot 19376
+let _flowSuppressTrail = false;
+// pilot 19377
+let _flowSuppressRepick = false;
+// pilot 19378
+const EXPLORE_TRAIL_CAP = 300;
+// pilot 19379
+function exploreTrailPush(id) {
+  if (!id || _flowSuppressTrail) return;
+  if (exploreTrail[exploreTrail.length - 1] === id) return;   // repeats of one track aren't a journey
+  exploreTrail.push(id);
+  if (exploreTrail.length > EXPLORE_TRAIL_CAP) exploreTrail = exploreTrail.slice(-EXPLORE_TRAIL_CAP);
+  exploreTrailSave();
+  flowRenderPath();
+  if (typeof rebuildPlaylistTrail === 'function') rebuildPlaylistTrail();
+}
+// pilot 19407
+const TF_UNDO_MAX = 20;
+// pilot 19408
+let _tfUndo = [];
+// pilot 19410
+function tfUndoPush(label, run, check) {
+  _tfUndo.push({ label, run, check, at: Date.now() });
+  if (_tfUndo.length > TF_UNDO_MAX) _tfUndo.shift();
+  tfUndoSync();
+}
+// pilot 19415
+function _tfUndoTop() {
+  while (_tfUndo.length) {
+    const e = _tfUndo[_tfUndo.length - 1];
+    if (!e.check || e.check()) return e;
+    _tfUndo.pop();          // no longer undoable — drop it and look further back
+  }
+  return null;
+}
+// pilot 19423
+function tfUndoSync() {
+  const b = document.getElementById('global-undo-btn');
+  if (!b) return;
+  const top = _tfUndoTop();
+  b.disabled = !top;
+  b.title = top ? `Undo: ${top.label}` : 'Nothing to undo';
+}
+// pilot 19430
+async function tfUndoRun() {
+  const top = _tfUndoTop();
+  if (!top) { showToast('Nothing to undo'); return; }
+  _tfUndo.pop();
+  tfUndoSync();
+  try { await top.run(); }
+  catch (e) { showToast('Undo failed: ' + (e?.message || e)); }
+  tfUndoSync();
+}
+// pilot 19439
+(function syncUndoAtBoot() {
+  const go = () => tfUndoSync();
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', go, { once: true });
+  else go();
+})();
+// pilot 19509
+let flowOn = false;
+// pilot 19510
+let flowQueue = [];          // upcoming catalog ids
+// pilot 19520
+let flowPrint = (() => {
+  try { return JSON.parse(localStorage.getItem('flow-print') || '{}'); } catch (_) { return {}; }
+})();
+// pilot 19523
+const FLOW_PRINT_CAP = 0.6;      // hard bound on any single learned weight
+// pilot 19524
+const FLOW_PRINT_RATE = 0.06;    // per event
+// pilot 19529
+function flowSavePrint() {
+  try { localStorage.setItem('flow-print', JSON.stringify(flowPrint)); } catch (_) {}
+}
+// pilot 19620
+function _flowMetric(d, name) {
+  const m = VEC_DIMS.find(x => x.name === name);
+  const v = m ? m.get(d) : NaN;
+  return Number.isFinite(v) ? v : NaN;
+}
+// pilot 19813
+function flowFeedback(id, kind) {
+  const e = (catalog || []).find(x => x.id === id);
+  if (!e || !e.data) return;
+  const dir = kind === 'skip' ? -1 : 1;
+  for (const m of VEC_DIMS) {
+    const v = _flowMetric(e.data, m.name);
+    if (!Number.isFinite(v)) continue;
+    const cur = flowPrint[m.name] || 0;
+    const next = cur + dir * FLOW_PRINT_RATE * (v - 0.5) * 2;
+    flowPrint[m.name] = Math.max(-FLOW_PRINT_CAP, Math.min(FLOW_PRINT_CAP, next));
+  }
+  flowSavePrint();
+}
+// pilot 20036
+const FLOW_LOOKAHEAD = 5;      // upcoming tracks kept visible, always
+// pilot 20384
+let playbackRange = (() => {
+  const def = { start: 0, end: 100 };
+  try {
+    const r = Object.assign({}, def, JSON.parse(localStorage.getItem('pb-range') || '{}'));
+    // Clamp to sane numeric bounds so a hand-edited / corrupt value can't break the slider.
+    const clamp = (v, d) => (Number.isFinite(+v) ? Math.max(0, Math.min(100, +v)) : d);
+    let s = clamp(r.start, 0), e = clamp(r.end, 100);
+    if (s > e) [s, e] = [0, 100];
+    return { start: s, end: e };
+  } catch { return def; }
+})();
+// pilot 20421
+function _pbSeqPos(seq) {
+  const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
+  const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
+  if (_pbSeqIdx >= 0 && _pbSeqIdx < seq.ids.length && seq.ids[_pbSeqIdx] === cur) return _pbSeqIdx;
+  return cur ? seq.ids.indexOf(cur) : -1;
+}
+// pilot 20443
+const NTD_C_PROG = 2 * Math.PI * 27;
+// pilot 20534
+(function wirePreviewDial() {
+  const wire = () => {
+    const svg = document.getElementById('nt-dial-svg');
+    if (!svg) return;
+    ntdBuildSegs();
+    ntdRenderSegs();
+    let mode = null, anchor = -1, moved = false, intentOn = false, base = null;
+    // Double-click ISOLATES a segment (Mark, 2026-08-21). Detected by hand rather than
+    // with a `dblclick` listener so the SECOND click isolates instead of running another
+    // toggle first. The FIRST click's toggle still lands and is then overwritten — that is
+    // deliberate: the alternative is holding every single click for ~350ms to see whether
+    // a second one follows, which would make the primary gesture feel broken. Isolating is
+    // idempotent (it sets the run outright), so whatever click one did is irrelevant.
+    let lastClickSeg = -1, lastClickAt = 0;
+    const NTD_DBL_MS = 350;
+    const polar = e => {
+      const r = svg.getBoundingClientRect();
+      const scale = (r.width || 96) / 96;
+      const dx = e.clientX - (r.left + r.width / 2);
+      const dy = e.clientY - (r.top + r.height / 2);
+      return { pct: ((Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360) / 3.6,
+               dist: Math.hypot(dx, dy) / scale };
+    };
+    const segAt  = p => Math.max(0, Math.min(NTD_SEGS - 1, Math.floor(p.pct / NTD_SEG_STEP)));
+    const segLit = i => { const mid = (i + 0.5) * NTD_SEG_STEP;
+                          return mid >= playbackRange.start && mid <= playbackRange.end; };
+    // Flip [x..y] to intentOn against the run snapshot taken at pointerdown — the
+    // snapshot is what makes live drag-painting stable instead of self-compounding.
+    const applyToggle = (x, y) => {
+      if (x > y) [x, y] = [y, x];
+      const [a, b] = base;
+      if (intentOn) { ntdApplyRun(Math.min(a, x), Math.max(b, y)); return; }
+      if (x <= a && y >= b) {          // switched the whole run off → back to full track
+        playbackRange.start = 0; playbackRange.end = 100;
+        savePlaybackRange(); renderPlaybackRangeUI(); return;
+      }
+      if (x > a && y < b) {            // interior cut — keep the longer side
+        const lLen = x - a, rLen = b - y;
+        return lLen >= rLen ? ntdApplyRun(a, x - 1) : ntdApplyRun(y + 1, b);
+      }
+      return x <= a ? ntdApplyRun(y + 1, b) : ntdApplyRun(a, x - 1);
+    };
+    svg.addEventListener('pointerdown', e => {
+      const p = polar(e);
+      moved = false;
+      if (p.dist > 45) return;           // outside the dial face — not ours (the
+                                         // visible arc ends at 42.5, so 2.5px of
+                                         // forgiveness remains before the 48 edge).
+      if (p.dist <= 31) { mode = 'seek'; lastClickSeg = -1; }
+      else {
+        mode = 'segs'; anchor = segAt(p);
+        intentOn = !segLit(anchor);
+        base = ntdSegRun();             // full track reads as [0, 23]
+      }
+      svg.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
+    });
+    svg.addEventListener('pointermove', e => {
+      if (mode !== 'segs') return;
+      // Unwrap relative to the anchor: a drag from seg 22 to seg 1 crosses 12 o'clock
+      // and must saturate at 23, not paint the long way round through 1..22.
+      let cur = segAt(polar(e));
+      const d = ((cur - anchor + NTD_SEGS * 1.5) % NTD_SEGS) - NTD_SEGS / 2;
+      cur = Math.max(0, Math.min(NTD_SEGS - 1, anchor + d));
+      if (!moved && cur === anchor) return;
+      moved = true;
+      lastClickSeg = -1;
+      applyToggle(anchor, cur);
+    });
+    const end = e => {
+      if (!mode) return;
+      // A CANCELLED press (edge-swipe, scroll takeover, palm rejection) is not a
+      // gesture: no toggle, no seek, and it must not arm or consume the double-click
+      // pair — a cancellation could otherwise silently isolate the run (review,
+      // 2026-08-21; also fixes the pre-existing seek-on-cancel quirk).
+      if (e.type === 'pointercancel') {
+        mode = null; lastClickSeg = -1;
+        svg.releasePointerCapture?.(e.pointerId);
+        return;
+      }
+      const wasSeek = (mode === 'seek'), wasClick = (mode === 'segs' && !moved);
+      mode = null;
+      svg.releasePointerCapture?.(e.pointerId);
+      if (wasSeek) { ntDialSeek(polar(e).pct); return; }
+      if (!wasClick) return;
+      const now = performance.now();
+      if (anchor === lastClickSeg && now - lastClickAt < NTD_DBL_MS) {
+        lastClickSeg = -1; lastClickAt = 0;   // a third click opens a fresh pair
+        ntdApplyRun(anchor, anchor);          // ISOLATE — collapse the run to this segment
+      } else {
+        lastClickSeg = anchor; lastClickAt = now;
+        applyToggle(anchor, anchor);
+      }
+    };
+    svg.addEventListener('pointerup', end);
+    svg.addEventListener('pointercancel', end);
+  };
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', wire, { once: true });
+  else wire();
+})();
+// pilot 20635
+function updateDialProgress(pct) {
+  const p = document.getElementById('ntd-prog');
+  if (p) p.setAttribute('stroke-dasharray',
+    `${(Math.max(0, Math.min(100, pct)) / 100 * NTD_C_PROG).toFixed(2)} ${NTD_C_PROG.toFixed(2)}`);
+}
+// pilot 20659
+function shouldApplyPreviewWindow() {
+  // The preview window is a GLOBAL launch setting (Mark, 2026-09-02): every launch honours
+  // it, in every mode, anchor or not. It used to be skipped for the committed anchor in
+  // Curate — and a playlist sequence commits each track it advances to, so every
+  // auto-advanced track started at 0:00 with the selector "ignored". Switching all
+  // segments off is the one way to get the full track (start 0 → nothing to seek).
+  return true;
+}
+// pilot 20681
+globalAudio.addEventListener('loadedmetadata', applyPlaybackRangeStart);
+// pilot 20685
+function playbackSequence() {
+  if (activePlaylist?.tracks?.length) {
+    return { ids: activePlaylist.tracks.map(t => t.track_id), source: 'playlist' };
+  }
+  if (typeof getFilteredCatalog === 'function') {
+    const f = getFilteredCatalog();
+    if (f && f.length) return { ids: f.map(e => e.id), source: 'filtered' };
+  }
+  if (typeof catalog !== 'undefined' && catalog?.length) {
+    const ids = catalog.filter(e => e.data).map(e => e.id);
+    if (ids.length) return { ids, source: 'catalog' };
+  }
+  return { ids: [], source: 'none' };
+}
+// pilot 20703
+const PLAY_MODES = ['standard', 'repeat-all', 'repeat-one', 'shuffle'];
+// pilot 20704
+let playMode = (() => { const v = localStorage.getItem('play-mode'); return PLAY_MODES.includes(v) ? v : 'standard'; })();
+// pilot 20705
+let _shuffleBag = [];        // indices not yet played this pass — every track once before any repeat
+// pilot 20706
+let _shuffleKey = '';        // the sequence the bag was built for; a new list refills it
+// pilot 20713
+(function applySavedPlayMode() {
+  const apply = () => setPlayMode(playMode);
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', apply, { once: true });
+  else apply();
+})();
+// pilot 20720
+function _shuffleNext(seq, cur) {
+  const key = seq.source + ':' + seq.ids.length + ':' + (seq.ids[0] || '');
+  if (key !== _shuffleKey || !_shuffleBag.length) {
+    _shuffleKey = key;
+    _shuffleBag = seq.ids.map((_, i) => i).filter(i => i !== cur);
+    if (!_shuffleBag.length) _shuffleBag = seq.ids.map((_, i) => i);
+  }
+  const at = Math.floor(Math.random() * _shuffleBag.length);
+  return _shuffleBag.splice(at, 1)[0];
+}
+// pilot 20734
+function ntNext() {
+  if (typeof flowOn !== 'undefined' && flowOn) {
+    // Skipping forward PLAYS THE NEXT QUEUED TRACK. It used to rebuild the whole queue
+    // first, so the five tracks you could see were replaced the instant you skipped —
+    // the list never played through (Mark, 2026-08-27). The skip still teaches the
+    // fingerprint; that shows up in the NEXT track appended, not by discarding the
+    // ones already promised.
+    if (typeof audioCurrentId !== 'undefined' && audioCurrentId) flowFeedback(audioCurrentId, 'skip');
+    // If the cursor is behind the end of the path (the user stepped back), forward
+    // should walk the path again rather than jumping to the queue.
+    const at = exploreTrail.lastIndexOf(audioCurrentId);
+    if (at >= 0 && at < exploreTrail.length - 1) {
+      const fwd = exploreTrail[at + 1];
+      _flowSuppressTrail = true; _flowSuppressRepick = true;
+      audioPlayById(fwd, { keepAnchor: true });
+      _flowSuppressTrail = false; _flowSuppressRepick = false;
+      if (typeof flowRenderPath === 'function') flowRenderPath();
+      return;
+    }
+    flowAdvance();
+    return;
+  }
+  advanceToNextTrack();
+}
+// pilot 20759
+async function advanceToNextTrack() {
+  // Transport-bar "Next" works whenever there's something to walk through —
+  // active playlist, the currently-filtered library view, or the full catalog.
+  const seq = playbackSequence();
+  if (!seq.ids.length) {
+    showToast('Nothing to play — add a Field or activate a playlist');
+    return;
+  }
+  const i = _pbSeqPos(seq);
+
+  // Repeat one — never leave the track; restart it and carry on.
+  if (playMode === 'repeat-one' && audioCurrentId) {
+    if (typeof tfSeekTo === 'function') tfSeekTo(0); else globalAudio.currentTime = 0;
+    if (globalAudio.paused) globalAudio.play().catch(() => {});
+    updateTransport();
+    return;
+  }
+
+  let nextIdx = (playMode === 'shuffle') ? _shuffleNext(seq, i) : i + 1;
+  let next = seq.ids[nextIdx];
+  if (!next) {
+    // End of the list. Straight-through stops here; the looping modes wrap around.
+    if (playMode === 'repeat-all' || playMode === 'shuffle') {
+      nextIdx = (playMode === 'shuffle') ? _shuffleNext(seq, -1) : 0;
+      next = seq.ids[nextIdx];
+    }
+    if (!next) {
+      _pbSequencing = false; _pbSeqIdx = -1;   // reached the end of the list — sequence complete
+      _pbNextFull = false;   // 'ended' armed this for a follower that never came — a later
+                             // unrelated launch must not inherit the full-play flag
+      audioStop({ keepAnchor: true });
+      showToast(seq.source === 'playlist' ? 'End of playlist' : 'End of list');
+      updateTransport();
+      return;
+    }
+  }
+  _pbSeqIdx = nextIdx;
+  if (typeof neuralNodeData !== 'undefined' && neuralNodeData.length) {
+    const nodeIdx = neuralNodeData.findIndex(nd => nd.catalogId === next);
+    if (nodeIdx >= 0) { await matrixCommitIdx(nodeIdx, { force: true }); updateTransport(); return; }
+  }
+  audioPlayById(next, { keepAnchor: true });
+  if (seq.source === 'playlist') await setAnchorTrack(next);
+  updateTransport();
+}
+// pilot 20805
+async function previousTrack() {
+  // If we're past 3s into the current track, "prev" restarts it (DJ standard) — works
+  // regardless of whether a playlist is active.
+  if (globalAudio.currentTime > 3 && audioCurrentId) {
+    tfSeekTo(0);
+    if (globalAudio.paused) globalAudio.play().catch(() => {});
+    updateTransport();
+    return;
+  }
+  // EXPLORE walks YOUR PATH, not a playlist — there isn't one. Without this, prev could
+  // only ever rewind the current track, because playbackSequence() had nothing to step
+  // through (Mark, 2026-08-27).
+  if (typeof currentMode !== 'undefined' && currentMode === 'explore'
+      && typeof exploreTrail !== 'undefined' && exploreTrail.length) {
+    const at = exploreTrail.lastIndexOf(audioCurrentId);
+    const back = at > 0 ? exploreTrail[at - 1] : null;
+    if (back) {
+      // Stepping back must NOT re-append: the path is a record of where you went, and
+      // walking it should move a cursor, not rewrite history.
+      _flowSuppressTrail = true; _flowSuppressRepick = true;
+      audioPlayById(back, { keepAnchor: true });
+      _flowSuppressTrail = false; _flowSuppressRepick = false;
+      if (typeof flowRenderPath === 'function') flowRenderPath();
+      updateTransport();
+      return;
+    }
+    if (audioCurrentId) tfSeekTo(0);
+    showToast('Start of your path');
+    updateTransport();
+    return;
+  }
+  const seq = playbackSequence();
+  if (!seq.ids.length) {
+    showToast('Nothing to play — add a Field or activate a playlist');
+    return;
+  }
+  const i    = _pbSeqPos(seq);
+  const prev = seq.ids[i - 1];
+  if (!prev) {
+    if (audioCurrentId) tfSeekTo(0);
+    showToast(seq.source === 'playlist' ? 'Start of playlist' : 'Start of list');
+    updateTransport();
+    return;
+  }
+  _pbSeqIdx = i - 1;
+  if (typeof neuralNodeData !== 'undefined' && neuralNodeData.length) {
+    const nodeIdx = neuralNodeData.findIndex(nd => nd.catalogId === prev);
+    if (nodeIdx >= 0) { await matrixCommitIdx(nodeIdx, { force: true }); updateTransport(); return; }
+  }
+  audioPlayById(prev, { keepAnchor: true });
+  if (seq.source === 'playlist') await setAnchorTrack(prev);
+  updateTransport();
+}
+// pilot 20863
+function togglePlayPause() {
+  // EXPLORE: press play and Flow runs. There is no separate Flow button any more — a
+  // second play control beside the transport's was confusing (Mark, 2026-08-27), and in
+  // a listening mode "play" can only sensibly mean "start playing my library".
+  if (typeof currentMode !== 'undefined' && currentMode === 'explore') {
+    if (typeof flowOn !== 'undefined' && flowOn && !globalAudio.paused) {
+      globalAudio.pause(); updateTransport(); return;      // pause without ending the run
+    }
+    if (typeof flowOn !== 'undefined' && !flowOn) {
+      if (typeof flowRebuildQueue === 'function' && !flowQueue.length) flowRebuildQueue();
+      flowToggle();                                        // sets flowOn + the state label
+      flowAdvance();                                       // ...and actually starts one
+      updateTransport();
+      return;
+    }
+    if (audioCurrentId && globalAudio.paused) { globalAudio.play().catch(() => {}); updateTransport(); return; }
+  }
+  // If nothing's loaded but we're in a playlist, kick off the first / anchor track.
+  if (!audioCurrentId) {
+    const start = anchorTrackId() || activePlaylist?.tracks?.[0]?.track_id;
+    if (!start) { showToast('Add tracks to a set first — double-click any track in the Field'); return; }
+    // Transport play with an active playlist → sequence through it (Mark's spec).
+    if (activePlaylist?.tracks?.length) {
+      _pbSequencing = true; _pbErrCount = 0;
+      _pbSeqIdx = activePlaylist.tracks.findIndex(t => t.track_id === start);
+      setFly(true, { persist: false });   // Lite: pressing Play is what Play mode was — the camera flies
+    }
+    if (typeof neuralNodeData !== 'undefined' && neuralNodeData.length) {
+      const nodeIdx = neuralNodeData.findIndex(nd => nd.catalogId === start);
+      if (nodeIdx >= 0) { matrixCommitIdx(nodeIdx, { force: true }).then(updateTransport); return; }
+    }
+    audioPlayById(start, { keepAnchor: true });
+    updateTransport();
+    return;
+  }
+  if (globalAudio.paused) {
+    // Resume — restore volume in case a pre-end fade-out left it low, and fade the
+    // resume in so it isn't a pop either.
+    if (globalAudio.volume < volTarget() - 0.001) audioFadeIn();
+    globalAudio.play().catch(() => {});
+  } else {
+    globalAudio.pause();
+  }
+  updateTransport();
+}
+// pilot 20918
+function updateTransport() {
+  const el = document.getElementById('neural-transport');
+  if (!el) return;
+  // Visible whenever Playback mode is on (transport is the primary interface there) OR
+  // audio is playing in any mode.
+  const wantShow = currentMode === 'playback' || !!audioCurrentId;
+  const wasShown = document.body.classList.contains('transport-on');
+  document.body.classList.toggle('transport-on', wantShow);
+  // Appearing mid-session (first play on a scrolling tab) is not a resize or a tab switch,
+  // so nothing else would re-measure the clearance the tabs reserve for it.
+  if (wantShow && !wasShown && typeof syncTransportPos === 'function') syncTransportPos();
+  // Hide the small toolbar stop button when the big transport is up — avoids two stops.
+  const stopBtn = document.getElementById('matrix-stop-btn');
+  if (stopBtn) stopBtn.style.display = (wantShow || !audioCurrentId) ? 'none' : 'inline-block';
+  if (!wantShow) return;
+  // Title + position-in-playlist
+  const titleEl = document.getElementById('nt-info-title');
+  const metaEl  = document.getElementById('nt-info-meta');
+  // Write the transport title, scrolling it only when it doesn't fit. Measured with the
+  // span's scrollWidth against the box — cheap, and it re-measures per track because the
+  // same box holds names of wildly different lengths.
+  const setNtTitle = (txt) => {
+    if (!titleEl) return;
+    if (titleEl._mqText === txt) return;          // same track — don't restart the animation
+    titleEl._mqText = txt;
+    titleEl.textContent = '';
+    const span = document.createElement('span');
+    span.textContent = txt;
+    titleEl.appendChild(span);
+    titleEl.classList.remove('marquee');
+    // Measure after layout; overflow is span width vs the clipping box.
+    requestAnimationFrame(() => {
+      const over = span.scrollWidth - titleEl.clientWidth;
+      if (over > 4) {
+        titleEl.style.setProperty('--mq-shift', (-over - 6) + 'px');
+        // Pace it by distance so long names don't crawl and short ones don't dart.
+        titleEl.style.setProperty('--mq-dur', Math.min(26, Math.max(9, 8 + over / 18)).toFixed(1) + 's');
+        titleEl.classList.add('marquee');
+      }
+    });
+  };
+  const playBtn = document.getElementById('nt-play');
+  const prevBtn = document.getElementById('nt-prev');
+  const nextBtn = document.getElementById('nt-next');
+  const stopT   = document.getElementById('nt-stop');
+
+  const tracks  = activePlaylist?.tracks || [];
+  const curId   = audioCurrentId || anchorTrackId();
+  const trackI  = curId ? tracks.findIndex(t => t.track_id === curId) : -1;
+
+  // Title from catalog lookup if we have one
+  // (setNtTitle below wraps the text and starts the marquee only if it overflows)
+  let title = '(no track loaded)';
+  if (curId && typeof catalog !== 'undefined') {
+    const ent = catalog.find(e => e.id === curId);
+    if (ent) title = trackDisplayName(ent) || '—';
+  }
+  setNtTitle(title);
+
+  // Position metadata
+  const playing = audioCurrentId && !globalAudio.paused;
+  const dur = globalAudio.duration || 0;
+  const cur = globalAudio.currentTime || 0;
+  const posLabel = (trackI >= 0 && tracks.length) ? `Track ${trackI+1} / ${tracks.length}` : '';
+  const timeLabel = audioCurrentId ? `${fmtTime(cur)} / ${fmtTime(dur)}` : '';
+  metaEl.textContent = [posLabel, timeLabel].filter(Boolean).join(' · ');
+
+  // Play button is now a pure play/pause control (mode switching lives in the
+  // Playlist Builder) — show ⏸ whenever audio is actually playing, any mode.
+  playBtn.textContent = playing ? '⏸' : '▶';
+  // Prev/Next walk playbackSequence() (playlist → filtered library → catalog), so base
+  // their disabled state on the ACTUAL sequence, not just the playlist. Prev is also
+  // enabled whenever audio is loaded — it restarts the current track (DJ standard).
+  const seq = (typeof playbackSequence === 'function') ? playbackSequence() : { ids: [] };
+  const seqI = curId ? seq.ids.indexOf(curId) : -1;
+  prevBtn.disabled = !audioCurrentId && seqI <= 0;
+  nextBtn.disabled = !seq.ids.length || (seqI >= 0 && seqI >= seq.ids.length - 1);
+  stopT.disabled   = !audioCurrentId;
+
+  // Progress — the dial's inner arc (the linear strip was removed 2026-08-03)
+  const pct = dur > 0 ? (cur / dur) * 100 : 0;
+  if (typeof updateDialProgress === 'function') updateDialProgress(audioCurrentId ? pct : 0);
+}
+// pilot 21002
+async function refreshPlaylistPanel() {
+  try {
+    const r    = await fetch('/playlists');
+    const data = await r.json();
+    allPlaylists = data.playlists || [];
+    activePlaylistSlug = data.active_slug || null;
+    const plCount = document.getElementById('tab-playlists-count');
+    if (plCount) plCount.textContent = allPlaylists.length;
+    // #side-panel is hidden globally — only refresh its DOM when it's actually rendered.
+    const sp = document.getElementById('side-panel');
+    const panelVisible = sp && getComputedStyle(sp).display !== 'none';
+    if (panelVisible) renderPlaylistSelect();
+    if (activePlaylistSlug) {
+      const r2 = await fetch(`/playlists/${activePlaylistSlug}`);
+      activePlaylist = r2.ok ? await r2.json() : null;
+    } else {
+      activePlaylist = null;
+    }
+    if (panelVisible) renderPlaylistContent();
+    // Pull in any playlist track whose Field isn't currently shown, BEFORE deriving
+    // visibility — otherwise those tracks have no node to keep visible in the first place.
+    if (typeof adoptPlaylistStrays === 'function') {
+      const gained = await adoptPlaylistStrays();
+      if (gained && typeof rebuildGraph === 'function' && typeof neuralActive !== 'undefined' && neuralActive) rebuildGraph();
+    }
+    // Playlist membership feeds the visible-node keep-set in TWO ways now: in Playback the
+    // visible set IS the pathway, and outside it pathway members override filters while the
+    // trail shows. Re-derive visibility FIRST, then lay the trail over the updated field.
+    if (typeof updateMatrixVisibility === 'function') updateMatrixVisibility();
+    if (typeof rebuildPlaylistTrail === 'function') rebuildPlaylistTrail();
+  } catch (e) {
+    console.error('refreshPlaylistPanel', e);
+  }
+}
+// pilot 21035
+function renderPlaylistSelect() {
+  const sel = document.getElementById('sp-playlist-sel');
+  if (!allPlaylists.length) {
+    sel.innerHTML = '<option value="">— no playlists —</option>';
+    return;
+  }
+  // When nothing is active (e.g. just after a delete) show an explicit placeholder so the
+  // builder reads as empty rather than silently adopting another playlist.
+  const placeholder = activePlaylistSlug ? '' : '<option value="" selected>— select a playlist —</option>';
+  sel.innerHTML = placeholder + allPlaylists.map(p =>
+    `<option value="${esc(p.slug)}" ${p.slug===activePlaylistSlug?'selected':''}>${esc(p.name)} (${p.count})${p.locked?' 🔒':''}</option>`
+  ).join('');
+}
+// pilot 21054
+const _xcatCache = new Map();
+// pilot 21057
+const _xcatUnchecked = new Set();
+// pilot 21058
+let _xcatPending = false, _xcatCooldown = 0;
+// pilot 21059
+function _xcatResolve(ids) {
+  if (_xcatPending || !ids.length || Date.now() < _xcatCooldown) return;
+  _xcatPending = true;
+  fetch('/tracks/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                             body: JSON.stringify({ ids: [...new Set(ids)] }) })
+    .then(r => { if (!r.ok) throw new Error('resolve ' + r.status); return r.json(); })
+    .then(d => {
+      Object.entries(d.found || {}).forEach(([id, info]) => { _xcatCache.set(id, info); _xcatUnchecked.delete(id); });
+      (d.missing || []).forEach(id => { _xcatCache.set(id, null); _xcatUnchecked.delete(id); });
+    })
+    .catch(() => {
+      // A failed lookup is NOT evidence that these tracks are gone. Absent-from-cache
+      // renders as "(missing track)", identical to a file deleted off disk, and the 30s
+      // cooldown makes it retry forever without ever saying why. Mark the ids as
+      // unchecked so the renderer can say "couldn't check" instead of accusing.
+      ids.forEach(id => { if (!_xcatCache.has(id)) _xcatUnchecked.add(id); });
+      _xcatCooldown = Date.now() + 30000;
+    })
+    .finally(() => {
+      _xcatPending = false;
+      if (typeof renderPlaylistContent === 'function') renderPlaylistContent();
+      // The tab renderer refetches every playlist — only re-run it when it's on screen.
+      if (typeof renderPlaylistsTab === 'function' &&
+          document.body.classList.contains('on-tab-playlists')) renderPlaylistsTab();
+    });
+}
+// pilot 21086
+function renderPlaylistContent() {
+  const tracksEl = document.getElementById('sp-tracks');
+  const togCount = document.getElementById('sp-tog-count');
+  const lockBtn  = document.getElementById('sp-lock');
+  const undoBtn  = document.getElementById('sp-undo');
+  const snapLbl  = document.getElementById('sp-snapshots-label');
+
+  if (!activePlaylist) {
+    tracksEl.innerHTML = '<div class="sp-empty">No active playlist.<br>Click ＋ to create one.</div>';
+    document.getElementById('sp-count').textContent    = '0';
+    document.getElementById('sp-duration').textContent = '0:00';
+    togCount.textContent = '0';
+    snapLbl.textContent  = '0 saved';
+    lockBtn.disabled = undoBtn.disabled = true;
+  { const a = document.getElementById('sp-arc'); if (a) a.disabled = true; }
+    return;
+  }
+  const tracks = activePlaylist.tracks || [];
+  const trackMap = new Map(catalog.map(t => [t.id, t]));
+  // Kick off cross-catalog resolution for anything the active catalog doesn't know.
+  _xcatResolve(tracks.filter(t => !trackMap.has(t.track_id) && !_xcatCache.has(t.track_id))
+                     .map(t => t.track_id));
+  let totalSec = 0;
+  // The rebuild replaces the whole list, and a scroll container whose content is replaced
+  // snaps to the top — pressing ▶ on row 17 threw the panel back to row 1 (Mark,
+  // 2026-09-02). Remember where the list was and put it back after the rebuild; the
+  // playing-row follow below then moves it only if the playing track changed.
+  const scroller = _spScroller();
+  const samePlaylist = _spRenderedSlug === activePlaylistSlug;
+  const keepScroll = (scroller && samePlaylist) ? scroller.scrollTop : 0;   // a different playlist opens at the top
+  _spRenderedSlug = activePlaylistSlug;
+  tracksEl.innerHTML = tracks.length ? tracks.map((t, i) => {
+    const ent = trackMap.get(t.track_id);
+    const x   = ent ? undefined : _xcatCache.get(t.track_id);   // foreign-catalog info | null | undefined(resolving)
+    if (ent) totalSec += ent.data?.metadata?.duration_sec || 0;
+    else if (x) totalSec += x.duration_sec || 0;
+    const title = ent ? trackDisplayName(ent)
+                : x   ? trackDisplayName(xResolveEnt(x))
+                : x === null ? '(missing track)'
+                : _xcatPending ? '\u2026'
+                : _xcatUnchecked.has(t.track_id) ? '(couldn\u2019t check \u2014 restart Tunefield)'
+                : '(missing track)';
+    const bpm   = ent?.data?.rhythm?.bpm ? ent.data.rhythm.bpm.toFixed(0) + ' BPM'
+                : x?.bpm                 ? x.bpm.toFixed(0) + ' BPM' : '';
+    const key   = ent?.data?.harmony ? (noteToCamelot(ent.data.harmony.root, ent.data.harmony.mode) || '')
+                : x                  ? (noteToCamelot(x.root, x.mode) || '') : '';
+    const homeBadge = x ? `<span class="sp-cat" title="Lives in the “${esc(x.catalog_name || x.catalog)}” Field — plays fine from here">${esc(x.catalog_name || x.catalog)}</span>` : '';
+    const meta  = [bpm, key].filter(Boolean).join(' · ');
+    const isAnchor = activePlaylist.anchor_track_id === t.track_id;
+    const isPlaying = (typeof audioCurrentId !== 'undefined' && audioCurrentId === t.track_id);
+    return `<div class="sp-track ${isAnchor?'anchor':''} ${isPlaying?'sp-playing':''}" data-idx="${i}" data-track-id="${esc(t.track_id)}"
+        draggable="true" ondragstart="spTrackDragStart(event)" ondragend="spTrackDragEnd(event)"
+        onclick="previewPlaylistTrack('${esc(t.track_id)}', event)"
+        ondblclick="spCommitPlay('${esc(t.track_id)}', event)"
+        title="Drag to reorder · Click to preview · Double-click to make current">
+      <span class="sp-drag" title="Drag to reorder"><svg viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="3" r="1.35"/><circle cx="7.5" cy="3" r="1.35"/><circle cx="2.5" cy="8" r="1.35"/><circle cx="7.5" cy="8" r="1.35"/><circle cx="2.5" cy="13" r="1.35"/><circle cx="7.5" cy="13" r="1.35"/></svg></span>
+      <span class="sp-idx">${i+1}</span>
+      <button class="sp-play" onclick="previewPlaylistTrack('${esc(t.track_id)}', event)" title="${isPlaying?'Pause':'Play / preview'} this track">${isPlaying?'⏸':'▶'}</button>
+      <div class="sp-info">
+        <div class="sp-title">${esc(title)}</div>
+        <div class="sp-meta">${esc(meta)}${homeBadge}</div>
+      </div>
+      <button class="sp-rm" onclick="event.stopPropagation();removeTrackAt(${i})" title="Remove from playlist">×</button>
+    </div>`;
+  }).join('') : '<div class="sp-empty">This set is empty.<br>Double-click a track in the Field to add it.</div>';
+
+  document.getElementById('sp-count').textContent    = tracks.length;
+  document.getElementById('sp-duration').textContent = formatDuration(totalSec);
+  if (togCount) togCount.textContent = tracks.length;   // Lite has no ♪ Playlist toggle
+
+  const snaps = activePlaylist.snapshots?.length || 0;
+  snapLbl.textContent = `${snaps} saved`;
+
+  const locked = activePlaylist.locked;
+  lockBtn.textContent = locked ? '🔓 Unlock' : '🔒 Lock';
+  lockBtn.classList.toggle('locked', !!locked);
+  lockBtn.disabled = false;
+  undoBtn.disabled = locked || snaps === 0;
+  { const a = document.getElementById('sp-arc'); if (a) a.disabled = tracks.length < 2; }
+  if (scroller) { _spOwnUntil = performance.now() + 300; scroller.scrollTop = keepScroll; }   // our scroll, not the user's
+  _spWireGuards();
+  spFollowPlaying();   // fulfils a pending intent, or re-centres a follow this rebuild threw away
+}
+// pilot 21184
+const SP_FOLLOW_TTL = 4000, SP_USER_HOLD = 1500, SP_OWN_SCROLL_MS = 1600;
+// pilot 21185
+let _spFollow = { id: null, at: 0 };            // pending intent (by track id)
+// pilot 21186
+let _spShownKey = null, _spShownAt = 0;         // last ROW we centred (id@index), and when —
+// pilot 21188
+let _spUserT = -1e9, _spOwnUntil = 0, _spRetryT = 0, _spRenderedSlug = null;
+// pilot 21189
+function _spScroller() { return document.getElementById('sp-tracks'); }
+// pilot 21190
+function _spWireGuards() {
+  const el = _spScroller();
+  if (!el || el._spGuarded) return;
+  el._spGuarded = true;
+  const mark = () => { if (performance.now() > _spOwnUntil) _spUserT = performance.now(); };
+  for (const ev of ['wheel', 'touchmove', 'scroll', 'dragstart']) el.addEventListener(ev, mark, { passive: true });
+  el.addEventListener('scrollend', () => { _spOwnUntil = 0; }, { passive: true });
+  // The list gains a box when the panel is shown (mode switch, tab entry) — honour any
+  // intent that was kept while it was hidden.
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (el.clientHeight > 0) spFollowPlaying(); }).observe(el);
+}
+// pilot 21201
+function _spPlayingRow(id) {
+  const rows = document.querySelectorAll('.sp-track');
+  // Duplicates are real (the sequencer stores its POSITION for that reason): the row at the
+  // sequencer's index wins when it holds this track; otherwise the first row that does.
+  const i = (typeof _pbSeqIdx === 'number') ? _pbSeqIdx : -1;
+  if (i >= 0 && rows[i] && rows[i].dataset.trackId === id) return rows[i];
+  for (const r of rows) if (r.dataset.trackId === id) return r;
+  return null;
+}
+// pilot 21210
+function _spRowKey(id, row) {
+  return id + '@' + (row ? [...document.querySelectorAll('.sp-track')].indexOf(row) : '?');
+}
+// pilot 21213
+function _spInView(row, el) {
+  const a = row.getBoundingClientRect(), b = el.getBoundingClientRect();
+  return a.top >= b.top && a.bottom <= b.bottom;
+}
+// pilot 21217
+function spNoteTrackChange() {
+  const id = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
+  if (!id) { _spFollow = { id: null, at: 0 }; return; }
+  const key = _spRowKey(id, _spPlayingRow(id));
+  if (key !== _spShownKey && id !== _spFollow.id) _spFollow = { id, at: performance.now() };
+  spFollowPlaying();
+}
+// pilot 21224
+function spFollowPlaying() {
+  const el = _spScroller();
+  if (!el) return;
+  _spWireGuards();
+  const id = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
+  if (!id) return;
+  const now = performance.now();
+  const pending = _spFollow.id === id && now - _spFollow.at < SP_FOLLOW_TTL;
+  if (!pending && _spFollow.id && now - _spFollow.at >= SP_FOLLOW_TTL) _spFollow = { id: null, at: 0 };
+  const row = _spPlayingRow(id);
+  if (!row || el.clientHeight === 0 || !row.getClientRects().length) return;   // hidden: keep the intent
+  // A rebuild right after a follow replaces the rows and restores the OLD offset — the
+  // follow we just started is gone. If the track we last centred is still playing but its
+  // row is off-screen within moments of that follow, centre it again (instantly).
+  const aborted = !pending && _spShownKey === _spRowKey(id, row) && now - _spShownAt < 2500 && !_spInView(row, el);
+  if (!pending && !aborted) return;
+  const dragging = !!document.querySelector('.sp-track.sp-dragging');
+  if (dragging || now - _spUserT < SP_USER_HOLD) {
+    clearTimeout(_spRetryT);
+    _spRetryT = setTimeout(spFollowPlaying, SP_USER_HOLD + 60);
+    return;
+  }
+  const a = row.getBoundingClientRect(), b = el.getBoundingClientRect();
+  const top = Math.max(0, el.scrollTop + (a.top - b.top) - (el.clientHeight - a.height) / 2);
+  _spOwnUntil = now + SP_OWN_SCROLL_MS;
+  el.scrollTo({ top, behavior: aborted ? 'auto' : 'smooth' });
+  _spShownKey = _spRowKey(id, row); _spShownAt = now;
+  _spFollow = { id: null, at: 0 };
+}
+// pilot 21253
+async function setActivePlaylist(slug) {
+  if (!slug) return;
+  await fetch('/playlists/active', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
+  await refreshPlaylistPanel();
+}
+// pilot 21259
+async function newPlaylistPrompt() {
+  const name = prompt('Name your new set:', `Set ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`);
+  if (!name || !name.trim()) return;
+  const r = await fetch('/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+  if (!r.ok) return showToast('Failed to create playlist');
+  const data = await r.json();
+  await setActivePlaylist(data.slug);
+  // beta8 #3: the set was created but nothing on screen changed. Re-render every view of sets.
+  if (document.getElementById('tab-playlists')?.classList.contains('active')) renderPlaylistsTab();
+  showToast(`Created "${name.trim()}"`);
+}
+// pilot 21269
+async function renamePlaylistPrompt() {
+  if (!activePlaylist) return;
+  const name = prompt('Rename playlist:', activePlaylist.name);
+  if (!name || !name.trim() || name.trim() === activePlaylist.name) return;
+  await fetch(`/playlists/${activePlaylistSlug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+  await refreshPlaylistPanel();
+}
+// pilot 21277
+async function deletePlaylistPrompt() {
+  if (!activePlaylist || !activePlaylistSlug) return;
+  const slug = activePlaylistSlug, name = activePlaylist.name;
+  const r = await fetch(`/playlists/${slug}`, { method: 'DELETE' });
+  if (!r.ok) { showToast('Delete failed'); return; }
+  // Refresh the playlist list, then leave the builder EMPTY (no auto-switch) — all slots cleared
+  // for clarity that the playlist is gone. Undoable via the toast.
+  try { const d = await (await fetch('/playlists')).json(); allPlaylists = d.playlists || []; } catch (_) {}
+  activePlaylistSlug = null; activePlaylist = null;
+  renderPlaylistSelect(); renderPlaylistContent();
+  if (typeof rebuildPlaylistTrail === 'function') rebuildPlaylistTrail();
+  showPlaylistDeleteUndo(slug, name);
+}
+// pilot 21334
+function showPlaylistDeleteUndo(slug, name) {
+  let t = document.getElementById('undo-toast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'undo-toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:96px;z-index:600;display:flex;align-items:center;gap:12px;'
+      + 'pointer-events:auto;background:color-mix(in srgb, var(--surface2) 94%, #000);color:var(--text);'
+      + 'padding:8px 10px 8px 14px;border-radius:0;font-size:12.5px;font-weight:600;'
+      + 'box-shadow:3px 3px 0 var(--scrim), 0 0 0 1px var(--border);'
+      + 'opacity:0;transform:translateX(-50%) translateY(6px);transition:opacity .18s ease, transform .18s ease';
+    document.body.appendChild(t);
+  }
+  t.innerHTML = `<span>Deleted “${esc(name)}”</span>`
+    + `<button class="undo-btn" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:4px 12px;font-weight:800;font-size:11px;letter-spacing:.3px;text-transform:uppercase;cursor:pointer">Undo</button>`;
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)'; });
+  const hide = () => {
+    t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(6px)';
+    t.style.pointerEvents = 'none';           // a faded toast must not eat clicks…
+    setTimeout(() => t.remove(), 200);        // …and must leave the DOM once faded
+  };
+  clearTimeout(t._tid);
+  t._tid = setTimeout(hide, 8000);
+  t.querySelector('.undo-btn').onclick = async () => {
+    clearTimeout(t._tid); hide();
+    await _undoPlaylistDelete(slug);
+  };
+  tfUndoPush(`deleting “${name}”`, () => _undoPlaylistDelete(slug));
+}
+// pilot 21361
+async function _undoPlaylistDelete(slug) {
+  const r = await fetch(`/playlists/${slug}/restore`, { method: 'POST' });
+  if (!r.ok) { showToast('Could not undo — the playlist may have been recreated'); return; }
+  await refreshPlaylistPanel();
+  if (typeof renderPlaylistsTab === 'function') await renderPlaylistsTab();
+  showToast('Playlist restored', { subtle: true });
+}
+// pilot 21369
+async function toggleLock() {
+  if (!activePlaylist) return;
+  const next = !activePlaylist.locked;
+  await fetch(`/playlists/${activePlaylistSlug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locked: next }) });
+  await refreshPlaylistPanel();
+}
+// pilot 21376
+async function addTrackToActivePlaylist(trackId, sourceMode, atIndex) {
+  if (!activePlaylistSlug) {
+    // Curate with no playlist open (Mark, 2026-08-28): the FIRST add is the moment the
+    // set begins — auto-create one, prompting for its name, then carry on with the add.
+    // Cancelling the prompt cancels the add (the old "create a playlist first" nudge).
+    const name = prompt('Name your new playlist:', 'New set');
+    if (name === null) { showToast('Create a playlist first'); return false; }
+    try {
+      const r0 = await fetch('/playlists', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: (name || 'New set').trim() || 'New set' }) });
+      const j0 = await r0.json();
+      if (!r0.ok || j0.error) throw new Error(j0.error || ('HTTP ' + r0.status));
+      await setActivePlaylist(j0.slug);
+      showToast(`Playlist “${j0.name || name}” created`, { subtle: true });
+    } catch (e) {
+      showToast('Could not create a playlist: ' + (e.message || e));
+      return false;
+    }
+  }
+  const body = { track_id: trackId, source_mode: sourceMode || currentMode };
+  if (Number.isInteger(atIndex) && atIndex >= 0) body.at_index = atIndex;   // insert vs append
+  const r = await fetch(`/playlists/${activePlaylistSlug}/tracks`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 423) { showToast('Playlist is locked — unlock to add tracks'); return false; }
+  if (!r.ok) { showToast('Failed to add track'); return false; }
+  await refreshPlaylistPanel();
+  return true;
+}
+// pilot 21408
+async function removeTrackAt(idx) {
+  if (!activePlaylist || activePlaylist.locked) return;
+  const r = await fetch(`/playlists/${activePlaylistSlug}/tracks/${idx}`, { method: 'DELETE' });
+  if (r.status === 423) return showToast('Playlist is locked');
+  if (!r.ok) return showToast('Failed to remove track');
+  await refreshPlaylistPanel();
+}
+// pilot 21426
+async function undoLastAdd() {
+  if (!activePlaylist || !activePlaylist.snapshots?.length) {
+    showToast('Nothing to undo');
+    return;
+  }
+  // Re-entrancy guard — a double-click would fire two reverts back-to-back.
+  if (undoLastAdd._busy) return;
+  undoLastAdd._busy = true;
+  try {
+    // No confirm dialog — auto-snapshots make every action cheap to reverse.
+    // Empty body = server undo mode: reverts to the newest snapshot that DIFFERS from
+    // the current state (and doesn't push a pre-revert snapshot), so repeated Undo
+    // walks back through history instead of ping-ponging redo/undo.
+    const r = await fetch(`/playlists/${activePlaylistSlug}/revert`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.status === 423) return showToast('Playlist is locked');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return showToast(err.error || 'Undo failed');
+    }
+    await refreshPlaylistPanel();
+    if (typeof featUse === 'function') featUse('playlist_undo');
+    tfUndoSync();
+    showToast('Undone');
+  } finally {
+    undoLastAdd._busy = false;
+  }
+}
+// pilot 21454
+async function clearPlaylistPrompt() {
+  if (!activePlaylist) return;
+  if (activePlaylist.locked) return showToast('Playlist is locked');
+  const n = activePlaylist.tracks?.length || 0;
+  if (n === 0) return showToast('Playlist is already empty');
+  // 2-step confirm: typed acknowledgement
+  const first = confirm(`Remove all ${n} tracks from "${activePlaylist.name}"?\n\nOne Undo click restores all of them.`);
+  if (!first) return;
+  const second = prompt(`This will empty "${activePlaylist.name}". Type CLEAR to confirm:`);
+  if (second !== 'CLEAR') { showToast('Cancelled'); return; }
+  // Single bulk-clear endpoint snapshots once then truncates — a single Undo restores all.
+  await fetch(`/playlists/${activePlaylistSlug}/tracks`, { method: 'DELETE' });
+  await refreshPlaylistPanel();
+  showToast(`Cleared ${n} track${n===1?'':'s'} (Undo to restore)`);
+}
+// pilot 21474
+async function setAnchorTrack(trackId) {
+  if (!activePlaylistSlug) return;
+  await fetch(`/playlists/${activePlaylistSlug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anchor_track_id: trackId }) });
+  if (activePlaylist) activePlaylist.anchor_track_id = trackId;
+  renderPlaylistContent();
+}
+// pilot 21623
+async function matrixCommitIdx(idx, opts) {
+  opts = opts || {};
+  if (idx < 0 || !neuralMeshes[idx]) return;
+  const nd = neuralNodeData[idx];
+  const trackId = nd?.catalogId;
+  if (!trackId) return;
+  // Record-mode insert point: remember where the playhead is (current anchor) BEFORE we
+  // re-anchor onto the new track, so a learn-mode add can slot in right AFTER it.
+  const prevAnchorId = activePlaylist?.anchor_track_id || null;
+  // neuralFlyTo handles camera, audio, ring, edges
+  neuralFlyTo(idx);
+  // Camelot wheel follows the new anchor. In a compat mode (Safe/Wider/+Mood/All) re-centre
+  // the compatible-key set on the selected track's key — exactly as if its key were clicked on
+  // the wheel — so the wheel highlight + list filter track the selection. In Manual we only
+  // move the "you are here" marker.
+  if (typeof camelotCompatMode !== 'undefined' && camelotCompatMode !== 'off') {
+    const cam = nd.camelot
+             || (typeof currentAnchorCamelotKey === 'function' ? currentAnchorCamelotKey() : null);
+    if (cam) {
+      activeFilters._anchor = cam;
+      activeFilters.keys = compatKeys(cam);
+      updateKeyCount();
+      renderCamelotWheel();        // re-renders selected keys + re-marks cam-current
+      syncKeyViewToFilter();
+      applyFilters();
+    } else if (typeof syncCamelotCurrent === 'function') {
+      syncCamelotCurrent();        // track has no known key — just move the marker
+    }
+  } else if (typeof syncCamelotCurrent === 'function') {
+    syncCamelotCurrent();
+  }
+  // Persist anchor on the active playlist (server)
+  if (activePlaylistSlug) await setAnchorTrack(trackId);
+  // Mode-specific commit action — immediate, no time gate. ONLY for a genuine user commit (a
+  // field dbl/shift-click). Transport skip and playlist auto-advance pass opts.force and must
+  // NEVER re-add the track (Record/Learn) or log an explore hit — otherwise sequencing through a
+  // playlist in Record mode would keep re-appending its own tracks.
+  if (!opts.force && currentMode === 'learn') {
+    // Insert AFTER the current playback point (previous anchor) so the pathway grows from where
+    // you are; append when there's no anchor position yet. refreshPlaylistPanel() re-renders the
+    // pathway trail so the insertion is visualised immediately.
+    let atIndex;
+    if (prevAnchorId && activePlaylist?.tracks) {
+      const pos = activePlaylist.tracks.findIndex(t => t.track_id === prevAnchorId);
+      if (pos >= 0) atIndex = pos + 1;
+    }
+    const ok = await addTrackToActivePlaylist(trackId, 'learn', atIndex);
+    if (ok) showToast('Added to playlist', { subtle: true });
+  } else if (!opts.force && currentMode === 'explore') {
+    fetch('/explore-log', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: trackId, mode: 'explore', played_sec: 0 }),
+    });
+  }
+  // playback / force: just play, no add, no log
+}
+// pilot 21681
+const plTab = {
+  open: new Set(),       // slugs currently expanded
+  selected: new Set(),   // slugs ticked for compare
+  details: new Map(),    // slug → full playlist data (lazy-fetched)
+};
+// pilot 21689
+function playlistHue(slug) {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = ((h * 31) + slug.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+// pilot 21697
+function previewPlaylistTrack(trackId, ev) {
+  if (ev) ev.stopPropagation();
+  if (audioCurrentId === trackId) {
+    // Same track → pause/resume toggle. Pausing must NOT end the sequence (leave it armed).
+    if (globalAudio.paused) globalAudio.play().catch(() => {});
+    else                    globalAudio.pause();
+  } else {
+    // The per-track ▶ button in the playlist starts sequencing FROM this track: play it for the
+    // preview-window duration, then auto-advance through the rest of the list (Mark's spec).
+    // The clicked ROW index (not indexOf) seeds the sequence position, so pressing ▶ on the
+    // second copy of a duplicated track continues from THERE, not from the first copy.
+    _pbSequencing = true; _pbErrCount = 0;
+    let _si = +(ev?.target?.closest?.('[data-idx]')?.dataset?.idx ?? -1);
+    if (!(activePlaylist?.tracks?.[_si]?.track_id === trackId))
+      _si = activePlaylist?.tracks?.findIndex(t => t.track_id === trackId) ?? -1;
+    _pbSeqIdx = _si;
+    audioPlayById(trackId, { keepAnchor: true });
+  }
+  // Cheap targeted refresh — let syncPlayPauseUI flip the row classes via globalAudio events.
+  if (typeof syncPlayPauseUI === 'function') setTimeout(syncPlayPauseUI, 0);
+  // No rebuilds here any more (2026-09-02): syncPlayPauseUI flips the ▶/⏸ state in place on
+  // BOTH the side panel and the Playlists tab, and a rebuild is exactly what threw each
+  // scrolling list back to the top on every ▶ — the tab's card lists scroll too.
+}
+// pilot 21724
+async function spCommitPlay(trackId, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (!trackId) return;
+  // A play button IN the playlist arms sequencing — play this track for the preview-window
+  // duration, then auto-advance to the next, through to the end (any mode; see _pbSequencing).
+  _pbSequencing = true; _pbErrCount = 0;
+  {
+    let _si = +(ev?.target?.closest?.('[data-idx]')?.dataset?.idx ?? -1);
+    if (!(activePlaylist?.tracks?.[_si]?.track_id === trackId))
+      _si = activePlaylist?.tracks?.findIndex(t => t.track_id === trackId) ?? -1;
+    _pbSeqIdx = _si;
+  }
+  await setAnchorTrack(trackId);
+  audioPlayById(trackId, { keepAnchor: true });
+  if (typeof neuralNodeData !== 'undefined' && neuralNodeData.length) {
+    const idx = neuralNodeData.findIndex(nd => nd.catalogId === trackId);
+    if (idx >= 0 && typeof neuralFlyTo === 'function') neuralFlyTo(idx);
+  }
+  if (typeof renderPlaylistContent === 'function') setTimeout(renderPlaylistContent, 20);
+}
+// pilot 21747
+let _plZoom = (() => { const v = parseFloat(localStorage.getItem('pl-zoom')); return (v >= 0.5 && v <= 1.5) ? v : 1; })();
+// pilot 21748
+function applyPlZoom() {
+  const g = document.getElementById('playlists-grid');
+  if (g) g.style.setProperty('--pl-zoom', _plZoom);
+  const o = document.getElementById('pl-zoom-val');
+  if (o) o.textContent = Math.round(_plZoom * 100) + '%';
+}
+// pilot 21754
+function setPlZoom(dir) {
+  _plZoom = Math.max(0.5, Math.min(1.5, Math.round((_plZoom + dir * 0.25) * 100) / 100));
+  try { localStorage.setItem('pl-zoom', String(_plZoom)); } catch (_) {}
+  applyPlZoom();
+}
+// pilot 21759
+(function applyPlZoomAtBoot() {
+  if (true /* module: runs before DOMContentLoaded */) document.addEventListener('DOMContentLoaded', applyPlZoom, { once: true });
+  else applyPlZoom();
+})();
+// pilot 21764
+async function renderPlaylistsTab() {
+  // Ensure data is fresh
+  let data;
+  try {
+    const r = await fetch('/playlists');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    data = await r.json();
+  } catch (e) {
+    showToast('Could not load playlists: ' + (e.message || e));
+    return;
+  }
+  allPlaylists       = data.playlists || [];
+  activePlaylistSlug = data.active_slug || null;
+  document.getElementById('tab-playlists-count').textContent = allPlaylists.length;
+
+  const grid = document.getElementById('playlists-grid');
+  if (!allPlaylists.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--muted)">No playlists yet. Click ＋ New to create one.</div>';
+    document.getElementById('playlists-compare').innerHTML = '';
+    renderExploreSessions();
+    return;
+  }
+
+  // Pre-fetch full data for every playlist so we always render the inline track lists
+  const plFailed = new Set();
+  await Promise.all(allPlaylists.map(async p => {
+    try {
+      const r2 = await fetch(`/playlists/${p.slug}`);
+      if (r2.ok) { plTab.details.set(p.slug, await r2.json()); plFailed.delete(p.slug); }
+      else plFailed.add(p.slug);
+    } catch (_) { plFailed.add(p.slug); }
+  }));
+  if (plFailed.size) showToast(plFailed.size === 1
+    ? 'One playlist could not be read \u2014 it is not empty. Try restarting Tunefield.'
+    : plFailed.size + ' playlists could not be read \u2014 they are not empty. Try restarting Tunefield.');
+
+  const trackMap = new Map(catalog.map(t => [t.id, t]));
+  // Cross-catalog names here too — one resolve call covers every card's foreign tracks.
+  _xcatResolve(allPlaylists.flatMap(p => (plTab.details.get(p.slug)?.tracks || []))
+    .filter(t => !trackMap.has(t.track_id) && !_xcatCache.has(t.track_id)).map(t => t.track_id));
+  grid.innerHTML = allPlaylists.map(p => {
+    const pl       = plTab.details.get(p.slug);
+    const isActive = p.slug === activePlaylistSlug;
+    const unread   = plFailed.has(p.slug) && !pl;   // couldn't read \u2260 empty
+    const tracks   = pl?.tracks || [];
+    let totalSec = 0;
+    for (const t of tracks) { const ent = trackMap.get(t.track_id); const x = ent ? null : _xcatCache.get(t.track_id);
+      totalSec += ent ? (ent.data?.metadata?.duration_sec || 0) : (x?.duration_sec || 0); }
+    const rows = tracks.map((t, i) => {
+      const ent = trackMap.get(t.track_id);
+      const x   = ent ? undefined : _xcatCache.get(t.track_id);
+      const title = ent ? trackDisplayName(ent)
+                  : x   ? trackDisplayName(xResolveEnt(x))
+                  : x === null ? '(missing)' : _xcatPending ? '…' : '(missing)';
+      const bpm   = ent?.data?.rhythm?.bpm ? ent.data.rhythm.bpm.toFixed(0) + ' BPM'
+                  : x?.bpm                 ? x.bpm.toFixed(0) + ' BPM' : '';
+      const key   = ent?.data?.harmony ? (noteToCamelot(ent.data.harmony.root, ent.data.harmony.mode) || '')
+                  : x                  ? (noteToCamelot(x.root, x.mode) || '') : '';
+      const meta  = [bpm, key].filter(Boolean).join(' · ') + (x ? ` · ${x.catalog_name || x.catalog}` : '');
+      const isPlaying = (audioCurrentId === t.track_id);
+      return `<div class="pl-trk ${isPlaying?'pli-playing':''}" draggable="true"
+        data-slug="${esc(p.slug)}" data-idx="${i}" data-track-id="${esc(t.track_id)}"
+        ondragstart="onTrackDragStart(event)"
+        ondragover="onTrackDragOver(event)"
+        ondragleave="onTrackDragLeave(event)"
+        ondrop="onTrackDrop(event)"
+        ondragend="onTrackDragEnd(event)"
+        title="Drag to reorder or move to another playlist · Hold Alt while dropping to copy">
+        <span class="pli-grip">⋮⋮</span>
+        <span class="pli-idx">${i+1}</span>
+        <button class="pli-prev" onclick="previewPlaylistTrack('${esc(t.track_id)}', event)" title="Preview this track (Esc to stop)">${isPlaying?'⏸':'▶'}</button>
+        <span class="pli-title" title="${esc(title)}">${esc(title)}</span>
+        <span class="pli-meta">${esc(meta)}</span>
+        <button class="pli-rm" onclick="removePlaylistTrack('${esc(p.slug)}', ${i})" title="Remove from this playlist">×</button>
+      </div>`;
+    }).join('') || (unread
+      // Not a drop target while unread: dropping here would append to what the client
+      // thinks is an empty list, against server state that still holds the originals.
+      ? '<div class="pl-trk-empty pl-trk-unread">Couldn\u2019t read this playlist \u2014 it is not empty. Restart Tunefield.</div>'
+      : '<div class="pl-trk-empty" ondragover="onTrackDragOver(event)" ondrop="onTrackDrop(event)">Empty \u2014 drop tracks here</div>');
+
+    return `<div class="pl-card editable ${isActive?'active':''}" data-slug="${esc(p.slug)}" style="--pl-hue:${playlistHue(p.slug)}">
+      <div class="pl-card-head">
+        <span class="pl-card-name" ondblclick="renamePlaylistById('${esc(p.slug)}')" title="Double-click to rename">${esc(p.name)}</span>
+        ${isActive ? '<span class="pl-card-badge active-pl">ACTIVE</span>' : ''}
+        ${p.locked ? '<span class="pl-card-badge" title="Locked">🔒</span>' : ''}
+        <button class="pl-arc-btn" onclick="vmSetArcFor('${esc(p.slug)}')" title="Read this playlist as a journey: its energy shape, the average step between tracks, and where the roughest jump sits.">Analyse my set</button>
+      </div>
+      <div class="pl-card-stats">
+        <span><span class="v">${tracks.length}</span> tracks</span>
+        <span><span class="v">${formatDuration(totalSec)}</span></span>
+      </div>
+      <div class="pl-card-tracks open" data-slug="${esc(p.slug)}"
+           ondragover="onTrackDragOver(event)" ondrop="onTrackDrop(event)">${rows}</div>
+      <div class="pl-card-actions">
+        <button onclick="activatePlaylist('${esc(p.slug)}')" ${isActive?'disabled style="opacity:.4"':''}>Set active</button>
+        <button onclick="duplicatePlaylist('${esc(p.slug)}')">Duplicate</button>
+        <button onclick="renamePlaylistById('${esc(p.slug)}')">Rename</button>
+        <button onclick="toggleLockById('${esc(p.slug)}')">${p.locked?'Unlock':'Lock'}</button>
+        <button class="danger" onclick="deletePlaylistById('${esc(p.slug)}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Drop status text + clear out the old compare view (now obsolete)
+  const status = document.getElementById('pl-compare-status');
+  if (status) status.textContent = 'Drag tracks between cards · Alt+drop to copy · × to remove';
+  const compare = document.getElementById('playlists-compare');
+  if (compare) compare.innerHTML = '';
+  renderExploreSessions();
+  refreshSnapshotsPane();
+}
+// pilot 21935
+let plDrag = null;   // { fromSlug, fromIdx, trackId }
+// pilot 21937
+function onTrackDragStart(ev) {
+  const el = ev.currentTarget;
+  plDrag = {
+    fromSlug: el.dataset.slug,
+    fromIdx:  parseInt(el.dataset.idx, 10),
+    trackId:  el.dataset.trackId,
+  };
+  ev.dataTransfer.effectAllowed = 'copyMove';
+  ev.dataTransfer.setData('text/plain', plDrag.trackId);
+  el.classList.add('dragging');
+}
+// pilot 21948
+function onTrackDragOver(ev) {
+  if (!plDrag) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = ev.altKey ? 'copy' : 'move';
+  const row = ev.target.closest('.pl-trk');
+  // Track-level: show a "drop above this row" indicator
+  document.querySelectorAll('.pl-trk.drop-above').forEach(r => r.classList.remove('drop-above'));
+  if (row) row.classList.add('drop-above');
+  // Card-level: highlight the receiving track list
+  const card = ev.target.closest('.pl-card-tracks');
+  document.querySelectorAll('.pl-card-tracks.drop-target').forEach(t => t.classList.remove('drop-target'));
+  if (card) card.classList.add('drop-target');
+}
+// pilot 21961
+function onTrackDragLeave(ev) {
+  const row = ev.target.closest('.pl-trk');
+  if (row) row.classList.remove('drop-above');
+}
+// pilot 21965
+async function onTrackDrop(ev) {
+  ev.preventDefault();
+  ev.stopPropagation();  // stop bubbling so we don't run the parent-card drop after the row drop
+  document.querySelectorAll('.pl-trk.drop-above').forEach(r => r.classList.remove('drop-above'));
+  document.querySelectorAll('.pl-card-tracks.drop-target').forEach(t => t.classList.remove('drop-target'));
+  if (!plDrag) return;
+  // Capture drag state into a local — `dragend` fires synchronously after this handler
+  // returns, clearing plDrag before our awaits resume.
+  const drag   = plDrag;
+  const isCopy = ev.altKey;
+  const tracksEl = ev.target.closest('.pl-card-tracks');
+  if (!tracksEl) return;
+  const toSlug = tracksEl.dataset.slug;
+  const row    = ev.target.closest('.pl-trk');
+  let toIdx = tracksEl.querySelectorAll('.pl-trk').length;
+  if (row) toIdx = parseInt(row.dataset.idx, 10);
+  const same = (toSlug === drag.fromSlug);
+  try {
+    if (same && !isCopy) {
+      // Reorder within the same playlist
+      const pl = plTab.details.get(toSlug);
+      if (!pl) return;
+      const n = pl.tracks.length;
+      const order = Array.from({length:n}, (_, i) => i);
+      const [moved] = order.splice(drag.fromIdx, 1);
+      let insertAt = toIdx;
+      if (toIdx > drag.fromIdx) insertAt = toIdx - 1;
+      order.splice(insertAt, 0, moved);
+      const r = await fetch(`/playlists/${toSlug}/tracks`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order }) });
+      if (r.status === 423) { showToast('Playlist is locked'); return; }
+      if (!r.ok) { const err = await r.json().catch(() => ({})); showToast(err.error || 'Reorder failed'); return; }
+    } else {
+      // Insert into destination — and CHECK the response before touching the source.
+      // A locked target answers 423; deleting from the source after an ignored failure
+      // silently loses the track (the exact mistake the lock exists to prevent).
+      const r = await fetch(`/playlists/${toSlug}/tracks`, { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ track_id: drag.trackId, source_mode: isCopy ? 'copy' : 'move', at_index: toIdx }) });
+      if (r.status === 423) { showToast('Playlist is locked'); return; }
+      if (!r.ok) { const err = await r.json().catch(() => ({})); showToast(err.error || 'Move failed'); return; }
+      if (!isCopy) {
+        const rd = await fetch(`/playlists/${drag.fromSlug}/tracks/${drag.fromIdx}`, { method:'DELETE' });
+        if (!rd.ok) {
+          // Insert succeeded but source removal failed → it's a copy, not a move.
+          await refreshPlaylistPanel();
+          await renderPlaylistsTab();
+          showToast(rd.status === 423 ? 'Source playlist is locked — track copied instead'
+                                      : 'Copied — could not remove from source');
+          return;
+        }
+      }
+    }
+    await refreshPlaylistPanel();
+    await renderPlaylistsTab();
+    showToast(isCopy ? 'Copied' : same ? 'Reordered' : 'Moved');
+  } catch (e) {
+    showToast('Drop failed: ' + (e.message || e));
+  }
+}
+// pilot 22023
+function onTrackDragEnd(_ev) {
+  document.querySelectorAll('.pl-trk.dragging').forEach(r => r.classList.remove('dragging'));
+  document.querySelectorAll('.pl-trk.drop-above').forEach(r => r.classList.remove('drop-above'));
+  document.querySelectorAll('.pl-card-tracks.drop-target').forEach(t => t.classList.remove('drop-target'));
+  plDrag = null;
+}
+// pilot 22033
+let spDrag = null;   // { fromIdx, trackId }
+// pilot 22034
+function spTrackDragStart(ev) {
+  const el = ev.currentTarget;
+  spDrag = { fromIdx: parseInt(el.dataset.idx, 10), trackId: el.dataset.trackId };
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', spDrag.trackId || '');
+  el.classList.add('sp-dragging');
+}
+// pilot 22041
+function spTrackDragOver(ev) {
+  if (!spDrag && !_sbDragSet) return;   // internal reorder OR an incoming set drag
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  const row = ev.target.closest('.sp-track');
+  document.querySelectorAll('.sp-track.sp-drop-above').forEach(r => r.classList.remove('sp-drop-above'));
+  // spDrag is null during an incoming SET drag — every row is then a valid target.
+  if (row && (!spDrag || parseInt(row.dataset.idx, 10) !== spDrag.fromIdx)) row.classList.add('sp-drop-above');
+}
+// pilot 22050
+async function spTrackDrop(ev) {
+  ev.preventDefault();
+  document.querySelectorAll('.sp-track.sp-drop-above').forEach(r => r.classList.remove('sp-drop-above'));
+  // An entire previewed SET dropped in from the Set-Tools preview: insert every track
+  // at the drop row, in order. The server's at_index does the splicing; each add is
+  // individually snapshotted, so Undo walks the insertion back one track at a time.
+  if (_sbDragSet && !spDrag) {
+    const ids = _sbDragSet; _sbDragSet = null;
+    if (!activePlaylistSlug || !activePlaylist) { showToast('No active playlist to drop into'); return; }
+    const row = ev.target.closest('.sp-track');
+    const n = (activePlaylist.tracks || []).length;
+    const toIdx = row ? parseInt(row.dataset.idx, 10) : n;   // no row under cursor → end
+    let added = 0, locked = false;
+    for (const id of ids) {
+      const r = await fetch(`/playlists/${activePlaylistSlug}/tracks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_id: id, source_mode: 'learn', at_index: toIdx + added }),
+      });
+      if (r.status === 423) { locked = true; break; }
+      if (r.ok) added++;
+    }
+    await refreshPlaylistPanel();
+    document.getElementById('sb-preview')?.remove();
+    showToast(locked ? `Playlist is locked — ${added} of ${ids.length} inserted before the lock refused the rest`
+                     : `${added} track${added === 1 ? '' : 's'} inserted at position ${toIdx + 1}`);
+    return;
+  }
+  const drag = spDrag;   // dragend clears spDrag after this returns
+  if (!drag || !activePlaylistSlug || !activePlaylist) return;
+  const n = (activePlaylist.tracks || []).length;
+  const row = ev.target.closest('.sp-track');
+  const toIdx = row ? parseInt(row.dataset.idx, 10) : n;   // no row under cursor → drop at end
+  const order = Array.from({ length: n }, (_, i) => i);
+  const [moved] = order.splice(drag.fromIdx, 1);
+  order.splice(toIdx > drag.fromIdx ? toIdx - 1 : toIdx, 0, moved);
+  if (order.every((v, i) => v === i)) return;   // no-op — landed back in place
+  try {
+    const r = await fetch(`/playlists/${activePlaylistSlug}/tracks`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }),
+    });
+    if (r.status === 423) { showToast('Playlist is locked'); return; }
+    if (!r.ok) { const err = await r.json().catch(() => ({})); showToast(err.error || 'Reorder failed'); return; }
+    await refreshPlaylistPanel();          // re-renders the queue AND rebuilds the pathway trail
+    showToast('Reordered', { subtle: true });
+  } catch (e) {
+    showToast('Reorder failed: ' + (e.message || e));
+  }
+}
+// pilot 22098
+function spTrackDragEnd(_ev) {
+  document.querySelectorAll('.sp-track.sp-dragging').forEach(r => r.classList.remove('sp-dragging'));
+  document.querySelectorAll('.sp-track.sp-drop-above').forEach(r => r.classList.remove('sp-drop-above'));
+  spDrag = null;
+}
+// pilot 22104
+async function removePlaylistTrack(slug, idx) {
+  const r = await fetch(`/playlists/${slug}/tracks/${idx}`, { method:'DELETE' });
+  if (r.status === 423) return showToast('Playlist is locked');
+  if (!r.ok) return showToast('Remove failed');
+  await refreshPlaylistPanel();
+  await renderPlaylistsTab();
+}
+// pilot 22203
+async function activatePlaylist(slug) {
+  await setActivePlaylist(slug);
+  await renderPlaylistsTab();
+}
+// pilot 22208
+async function renamePlaylistById(slug) {
+  const cur = allPlaylists.find(p => p.slug === slug);
+  if (!cur) return;
+  const name = prompt('Rename playlist:', cur.name);
+  if (!name || !name.trim() || name.trim() === cur.name) return;
+  await fetch(`/playlists/${slug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+  plTab.details.delete(slug);
+  await refreshPlaylistPanel();
+  await renderPlaylistsTab();
+}
+// pilot 22219
+async function toggleLockById(slug) {
+  const cur = allPlaylists.find(p => p.slug === slug);
+  if (!cur) return;
+  await fetch(`/playlists/${slug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locked: !cur.locked }) });
+  plTab.details.delete(slug);
+  await refreshPlaylistPanel();
+  await renderPlaylistsTab();
+}
+// pilot 22228
+async function deletePlaylistById(slug) {
+  const cur = allPlaylists.find(p => p.slug === slug);
+  if (!cur) return;
+  const name = cur.name;
+  const r = await fetch(`/playlists/${slug}`, { method: 'DELETE' });
+  if (!r.ok) { showToast('Delete failed'); return; }
+  plTab.open.delete(slug);
+  plTab.selected.delete(slug);
+  plTab.details.delete(slug);
+  await refreshPlaylistPanel();
+  await renderPlaylistsTab();          // the card block is completely erased
+  showPlaylistDeleteUndo(slug, name);  // undoable
+}
+// pilot 22242
+async function duplicatePlaylist(slug) {
+  const cur = allPlaylists.find(p => p.slug === slug);
+  if (!cur) return;
+  // Make sure we have full data
+  let pl = plTab.details.get(slug);
+  if (!pl) { const r = await fetch(`/playlists/${slug}`); pl = await r.json(); plTab.details.set(slug, pl); }
+  const newName = `${cur.name} (copy)`;
+  const r = await fetch('/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName }) });
+  if (!r.ok) return showToast('Duplicate failed');
+  const created = await r.json();
+  let copied = 0, failed = 0;
+  for (const t of pl.tracks) {
+    try {
+      const tr = await fetch(`/playlists/${created.slug}/tracks`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_id: t.track_id, source_mode: t.source_mode || 'learn' }) });
+      if (tr.ok) copied++; else failed++;
+    } catch (_) { failed++; }
+  }
+  await renderPlaylistsTab();
+  // Report the true outcome — a partial failure must not masquerade as full success.
+  showToast(failed ? `Duplicated "${newName}" — ${copied} of ${pl.tracks.length} tracks (${failed} failed)`
+                   : `Duplicated as "${newName}"`);
+}
+// pilot 22302
+function syncTransportPos() {
+  const tp = document.getElementById('neural-transport');
+  if (!tp) return;
+  // A hidden window reports innerHeight 0 and garbage rects — never write from one;
+  // the visibility/resize hooks re-derive the moment it can actually be seen.
+  if (!innerHeight || innerHeight < 200) return;
+  // Follow an anchor ONLY on the Field tab, where the point is to sit just under the canvas
+  // rather than over it. Everywhere else, pin to the viewport.
+  //
+  // It used to fall back to the active panel's .tab-main on every other tab, and that is a
+  // CONTENT box, not a viewport box. On Playlists with a few cards it is far shorter than
+  // the window — 764px inside 1100 — so the capsule tracked the end of the content and
+  // floated 298px up the page (Mark, 2026-09-20). List got away with it only because its
+  // virtualised table is 1.5 MILLION px tall, which drove the same formula negative and hit
+  // the 22px floor by accident.
+  const onField = !!document.querySelector('#tab-neural.active');
+  const anchor = onField ? document.querySelector('#tab-neural.active .neural-canvas-wrap') : null;
+  let b = 22;
+  if (anchor) {
+    const r = anchor.getBoundingClientRect();
+    if (r.height > 100 && r.bottom > 100) b = Math.max(22, Math.round(innerHeight - r.bottom + 20));
+  }
+  tp.style.bottom = b + 'px';
+  // Publish the room the capsule actually takes, so scrolling tabs can clear it. Measured,
+  // not guessed: the play DIAL protrudes above the bar (margin:-22px), so the bar's own
+  // height is short of the truth — List and Playlists reserved 96px for a control that
+  // reaches 121px up the screen, and Analyse and Repair reserved nothing at all, leaving
+  // their last rows stranded under it (Mark, 2026-09-20).
+  requestAnimationFrame(() => {
+    const r = tp.getBoundingClientRect();
+    if (!r.height) return;                       // hidden: leave the last good value in place
+    const dial = document.getElementById('nt-dial');
+    const top = Math.min(r.top, dial ? dial.getBoundingClientRect().top : r.top);
+    // Clamp: a measurement taken mid-layout (during a tab switch, before the panel has
+    // settled) once read 688px, and a bad value would sit there as dead space until the
+    // next measurement. The capsule can never legitimately need more than a third of the
+    // viewport.
+    const raw = Math.max(0, Math.round(innerHeight - top)) + 16;   // + breathing room
+    const clear = Math.min(raw, Math.round(innerHeight * 0.33));
+    document.documentElement.style.setProperty('--transport-clear', clear + 'px');
+  });
+}
+
+// ── Preview segment dial, mute, fades (pilot) ──
+// pilot 11371
+function audioFadeOut(ms) { audioFade(0, ms); }
+// pilot 11402
+function toggleMute() {
+  tfMuted = !tfMuted;
+  // Muting at zero would unmute into silence, so give it something to come back to.
+  if (!tfMuted && tfVolume <= 0) tfVolume = 0.5;
+  setVolume(tfVolume, { keepMute: true });
+}
+// pilot 20395
+function savePlaybackRange() { localStorage.setItem('pb-range', JSON.stringify(playbackRange)); }
+// pilot 20434
+function ntDialSeek(pct) {
+  if (!audioCurrentId || !globalAudio.duration) return;
+  pct = Math.max(0, Math.min(100, pct));
+  tfSeekTo(pct / 100 * globalAudio.duration);   // tfSeekTo → a seek is never a "crossing"
+  audioFadeIn();                                 // de-click the seek landing point
+  _pbCurrentFull = false;                        // manual scrub overrides full-play → windowed again
+}
+// pilot 20442
+const NTD_C_WIN  = 2 * Math.PI * 44;   // thin true-range arc, outside the segment band
+// pilot 20449
+const NTD_SEGS = 24, NTD_SEG_STEP = 100 / NTD_SEGS;
+// pilot 20450
+function ntdBuildSegs() {
+  const g = document.getElementById('ntd-segs');
+  if (!g || g.childElementCount) return;
+  const R = 37, GAP = 1.6;               // degrees of breathing room between arcs
+  const arc = (a0, a1) => {
+    const p0 = [48 + R * Math.cos(a0 * Math.PI / 180), 48 + R * Math.sin(a0 * Math.PI / 180)];
+    const p1 = [48 + R * Math.cos(a1 * Math.PI / 180), 48 + R * Math.sin(a1 * Math.PI / 180)];
+    return `M ${p0[0].toFixed(2)} ${p0[1].toFixed(2)} A ${R} ${R} 0 0 1 ${p1[0].toFixed(2)} ${p1[1].toFixed(2)}`;
+  };
+  let html = '';
+  for (let i = 0; i < NTD_SEGS; i++) {
+    const a0 = i * 15 + GAP / 2, a1 = (i + 1) * 15 - GAP / 2;   // group is pre-rotated -90°
+    html += `<path class="ntd-seg" data-seg="${i}" d="${arc(a0, a1)}"/>`;
+  }
+  g.innerHTML = html;
+}
+// pilot 20468
+function ntdRenderSegs() {
+  const g = document.getElementById('ntd-segs');
+  if (!g) return;
+  const { start, end } = playbackRange;
+  g.querySelectorAll('.ntd-seg').forEach(p => {
+    const mid = (+p.dataset.seg + 0.5) * NTD_SEG_STEP;
+    p.classList.toggle('on', mid >= start && mid <= end);
+  });
+}
+// pilot 20477
+function ntdSegRun() {
+  // Current run in segment indices, derived from MIDPOINTS — exactly the rule the
+  // display (ntdRenderSegs) uses. The old floor/ceil read drifted one segment against
+  // ntdApplyRun's one-decimal writes for two-thirds of positions, so most toggle-offs
+  // trimmed or teleported the wrong segment (review, 2026-08-12; verified round-trip
+  // for all 300 possible runs after this change).
+  const clamp = v => Math.max(0, Math.min(NTD_SEGS - 1, v));
+  const a = clamp(Math.ceil(playbackRange.start / NTD_SEG_STEP - 0.5));
+  const b = Math.max(a, clamp(Math.floor(playbackRange.end / NTD_SEG_STEP - 0.5)));
+  return [a, b];
+}
+// pilot 20488
+function ntdApplyRun(a, b) {
+  if (a > b) [a, b] = [b, a];
+  // One decimal keeps runs aligned to true 1/24 boundaries (100/24 = 4.1666…);
+  // Math.round here would drift the stored range half a percent off the lit segments.
+  playbackRange.start = Math.round(a * NTD_SEG_STEP * 10) / 10;
+  playbackRange.end   = Math.round((b + 1) * NTD_SEG_STEP * 10) / 10;
+  savePlaybackRange();
+  renderPlaybackRangeUI();
+}
+// pilot 20497
+function renderPlaybackRangeUI() {
+  // Synced views of the shared playbackRange: the Playlist Builder mirror's dual
+  // slider (sp2-*), the transport's DIAL + seek-strip band + % label. The transport's
+  // dual thumbs were retired 2026-08-03 — the dial is the editor there.
+  for (const [sid, eid, vid] of [['sp2-range-start','sp2-range-end','sp2-pb-vals']]) {
+    const s = document.getElementById(sid);
+    const e = document.getElementById(eid);
+    if (!s || !e) continue;
+    s.value = playbackRange.start; e.value = playbackRange.end;
+    const v = document.getElementById(vid);
+    if (v) v.textContent = `${playbackRange.start}% – ${playbackRange.end}%`;
+    // Drive the wrapper gradient so the active range is highlighted between the thumbs
+    const wrap = s.closest('.sp-range-wrap');
+    if (wrap) {
+      wrap.style.setProperty('--fill-from', playbackRange.start + '%');
+      wrap.style.setProperty('--fill-to',   playbackRange.end   + '%');
+    }
+  }
+  // Dial window arc — 12 o'clock is 0% (the SVG group is pre-rotated -90°).
+  const win = document.getElementById('ntd-window');
+  if (win) {
+    const from = playbackRange.start, to = playbackRange.end;
+    const len = (to - from) / 100 * NTD_C_WIN;
+    win.setAttribute('stroke-dasharray', `${len.toFixed(2)} ${NTD_C_WIN.toFixed(2)}`);
+    win.setAttribute('stroke-dashoffset', (-(from / 100 * NTD_C_WIN)).toFixed(2));
+  }
+  ntdRenderSegs();
+}
+// pilot 20667
+function applyPlaybackRangeStart() {
+  // Fresh track → reset the crossing tracker so a stale % from the previous track
+  // can't suppress (or falsely trigger) the end-of-window cutoff.
+  _pbLastPct = 0;
+  if (_pbCurrentFull || !shouldApplyPreviewWindow() || !globalAudio.duration) return;   // full track → no window seek
+  if (playbackRange.start > 0) {
+    globalAudio.currentTime = globalAudio.duration * (playbackRange.start / 100);
+    _pbLastPct = playbackRange.start;
+    // The seek to the window start lands mid-waveform — fade in over it. audioFadeIn
+    // resets to 0 first, so even if the track's own cut-in fade already reached full
+    // volume, this masks the pop from THIS seek (the preview-selector cut-in).
+    audioFadeIn();
+  }
+}
+// pilot 20707
+function setPlayMode(m) {
+  playMode = PLAY_MODES.includes(m) ? m : 'standard';
+  try { localStorage.setItem('play-mode', playMode); } catch (_) {}
+  _shuffleBag = [];          // switching mode restarts the shuffle pass
+  document.querySelectorAll('.sp-playmode').forEach(g => g.dataset.mode = playMode);
+}
+
+// pilot 20908
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  // Hour-long mixes render 1:15:30 (matching formatDuration) instead of 75:30.
+  const h = Math.floor(m / 60);
+  return h ? `${h}:${String(m % 60).padStart(2,'0')}:${s.toString().padStart(2,'0')}`
+           : `${m}:${s.toString().padStart(2,'0')}`;
+}
+// Cut with the modes (Explore / Flow / snapshots list); the queue replaces Flow. No-ops until then.
+function flowAdvance() {}
+function flowToggle() {}
+function flowPickNext() { return null; }
+function flowRenderPath() {}
+function flowRebuildQueue() {}
+function renderExploreSessions() {}
+function refreshSnapshotsPane() {}
+// Owned by modules not written yet (settings, export, the vector buttons).
+function closeSettings() { window.settingsClose?.(); }
+function closeExportMenu() { window.exportMenuClose?.(); }
+function closeSetToolsBox() {}
+
+// ── List row menu (writes playlist state) ──
+// pilot 21519
+async function rowCtxMenu(e, id) {
+  e.preventDefault(); e.stopPropagation();
+  const m = document.getElementById('row-ctx-menu');
+  if (!m) return;
+  try {
+    const d = await (await fetch('/playlists')).json();
+    allPlaylists = d.playlists || [];
+    activePlaylistSlug = d.active_slug || activePlaylistSlug;
+  } catch (_) {}   // offline / race: fall through with whatever list we last had
+  m.textContent = '';
+  const ent = (typeof catalog !== 'undefined' && catalog.find) ? catalog.find(c => c.id === id) : null;
+  if (ent && ent.filename) {
+    const t = document.createElement('div');
+    t.className = 'rcm-track'; t.textContent = ent.filename; t.title = ent.filename;
+    m.appendChild(t);
+  }
+  const h = document.createElement('div');
+  h.className = 'rcm-h'; h.textContent = 'Add to playlist';
+  m.appendChild(h);
+  const list = document.createElement('div');
+  list.className = 'rcm-list';
+  if (!allPlaylists.length) {
+    const em = document.createElement('div');
+    em.className = 'rcm-empty';
+    em.textContent = 'No playlists yet — create one on the Playlists tab.';
+    list.appendChild(em);
+  } else {
+    for (const pl of allPlaylists) {
+      const b = document.createElement('button');
+      b.className = 'rcm-item';
+      const nm = document.createElement('span');
+      nm.className = 'rcm-name';
+      nm.textContent = (pl.slug === activePlaylistSlug ? '● ' : '') + (pl.name || pl.slug);
+      const n = document.createElement('span');
+      n.className = 'rcm-n';
+      n.textContent = pl.locked ? '🔒' : String(pl.count ?? pl.tracks?.length ?? '');
+      b.append(nm, n);
+      if (pl.locked) { b.disabled = true; b.title = 'This playlist is locked'; }
+      else b.addEventListener('click', () => rowCtxAdd(pl.slug, id, pl.name || pl.slug));
+      list.appendChild(b);
+    }
+  }
+  m.appendChild(list);
+  // Show, then clamp to the viewport (measure only after display:block).
+  m.style.display = 'block';
+  const pad = 8;
+  m.style.left = Math.max(pad, Math.min(e.clientX, window.innerWidth  - m.offsetWidth  - pad)) + 'px';
+  m.style.top  = Math.max(pad, Math.min(e.clientY, window.innerHeight - m.offsetHeight - pad)) + 'px';
+  window.addEventListener('pointerdown', _rcmAway, true);
+  window.addEventListener('keydown', _rcmKey, true);
+  window.addEventListener('scroll', closeRowCtxMenu, true);
+  window.addEventListener('resize', closeRowCtxMenu);
+}
+// pilot 21582
+async function rowCtxAdd(slug, id, name) {
+  closeRowCtxMenu();
+  try {
+    const r = await fetch(`/playlists/${slug}/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: id, source_mode: 'learn' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 423) { showToast(`“${name}” is locked`); return; }
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    showToast(`Added to “${name}” — ${j.count} track${j.count === 1 ? '' : 's'}`);
+    if (typeof featUse === 'function') featUse('row_add_to_playlist');
+    // Panel DOM is hidden on List (its guard skips rendering) but this still updates
+    // allPlaylists/activePlaylist, the pathway trail and node visibility.
+    refreshPlaylistPanel();
+  } catch (e2) { showToast('Add failed: ' + (e2.message || e2)); }
+}
+
+// ── Row menu dismissal ──
+// pilot 21572
+function closeRowCtxMenu() {
+  const m = document.getElementById('row-ctx-menu');
+  if (m) m.style.display = 'none';
+  window.removeEventListener('pointerdown', _rcmAway, true);
+  window.removeEventListener('keydown', _rcmKey, true);
+  window.removeEventListener('scroll', closeRowCtxMenu, true);
+  window.removeEventListener('resize', closeRowCtxMenu);
+}
+// pilot 21580
+function _rcmAway(e) { if (!e.target.closest('#row-ctx-menu')) closeRowCtxMenu(); }
+// pilot 21581
+function _rcmKey(e)  { if (e.key === 'Escape') { e.stopPropagation(); closeRowCtxMenu(); } }
+
+// ── Handlers the Field's generated markup calls by name (vector panel, legend, views, set builder) ──
+// pilot 5787
+function saveGenreGroups(groups) {
+  try { localStorage.setItem('genre-groups', JSON.stringify(groups)); } catch (_) {}
+}
+// pilot 5798
+function toggleGenreGroup(groupName) {
+  const groups = loadGenreGroups();
+  const grp = groups.find(g => g.name === groupName);
+  if (!grp) return;
+  const members = genreGroupMembers(grp);
+  if (!members.length) return showToast(`No genres in "${groupName}" match this library`);
+  const lowMembers = members.map(m => m.toLowerCase());
+  const allOn = lowMembers.every(m => activeFilters.genres.has(m));
+  if (allOn) lowMembers.forEach(m => activeFilters.genres.delete(m));
+  else       lowMembers.forEach(m => activeFilters.genres.add(m));
+  if (typeof updateNeuralLegend === 'function') {
+    const cK = document.getElementById('n-color')?.value || 'mood';
+    if (cK === 'genre') updateNeuralLegend('genre');
+  }
+  applyFilters();
+}
+// pilot 5814
+function toggleGenreFilter(genre) {
+  const g = (genre || '').toLowerCase();
+  if (!g) return;
+  if (activeFilters.genres.has(g)) activeFilters.genres.delete(g);
+  else activeFilters.genres.add(g);
+  if (typeof updateNeuralLegend === 'function') {
+    const cK = document.getElementById('n-color')?.value || 'mood';
+    if (cK === 'genre') updateNeuralLegend('genre');
+  }
+  applyFilters();
+}
+// pilot 5825
+function addGenreGroupPrompt() {
+  const name = (prompt('New genre group name (e.g. "Soul / R&B")') || '').trim();
+  if (!name) return;
+  const kwRaw = (prompt(`Keywords for "${name}" — comma-separated. A genre matches when its name contains any keyword as a substring.\nExample for Soul: soul, motown, rnb, r&b`) || '').trim();
+  if (!kwRaw) return;
+  const keywords = kwRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (!keywords.length) return;
+  const groups = loadGenreGroups();
+  if (groups.some(g => g.name.toLowerCase() === name.toLowerCase())) {
+    return showToast(`Group "${name}" already exists`);
+  }
+  groups.push({ name, keywords });
+  saveGenreGroups(groups);
+  showToast(`Added group "${name}" (${keywords.length} keyword${keywords.length===1?'':'s'})`);
+  if (typeof updateNeuralLegend === 'function') {
+    const cK = document.getElementById('n-color')?.value || 'mood';
+    if (cK === 'genre') updateNeuralLegend('genre');
+  }
+}
+// pilot 12358
+function saveFormulaPatch() {
+  const text = document.getElementById('formula-input').value.trim();
+  if (!text) return showToast('Nothing to save — write a formula first');
+  const name = prompt('Patch name:');
+  if (!name || !name.trim()) return;
+  const existed = _formulaPatches().some(p => p.name === name.trim());
+  const ps = _formulaPatches().filter(p => p.name !== name.trim());
+  ps.push({name: name.trim(), text});
+  localStorage.setItem('formula-patches', JSON.stringify(ps));
+  renderFormulaPatches();
+  showToast(existed ? `Updated “${name.trim()}”` : `Saved “${name.trim()}”`, { subtle: true });
+}
+// pilot 12539
+function setVecWeight(group, v) {
+  _weightEvent(group);
+  vecWeights[group] = Math.max(0, Math.min(2, parseFloat(v) || 0));
+  try { localStorage.setItem('vec-weights', JSON.stringify(vecWeights)); } catch (_) {}
+  _vecCache = null;                       // weights change the geometry → rebuild
+  const lbl = document.getElementById('vw-' + group + '-val');
+  if (lbl) lbl.textContent = vecWeights[group].toFixed(2).replace(/0$/, '');
+}
+// pilot 12629
+function deleteFieldView(name) {
+  _viewsStore(_viewsLoad().filter(v => v.name !== name));
+  renderFieldViews();
+}
+// pilot 12633
+function exportFieldView(name) {
+  const v = _viewsLoad().find(x => x.name === name);
+  if (!v) return;
+  const blob = new Blob([JSON.stringify(v, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name.replace(/[^\w\-]+/g, '_')}.tfview.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+// pilot 12717
+let _weightEvT = null;
+// pilot 12718
+function _weightEvent(group) {
+  // Slider drags fire per-pixel — one event per settled gesture is the honest count.
+  clearTimeout(_weightEvT);
+  _weightEvT = setTimeout(() => fieldEvent('weight_change',
+    { group, to: Math.round((vecWeights[group] ?? 1) * 100) / 100 }), 800);
+}
+// pilot 12858
+function vecKNN(trackId, k = 10) {
+  const M = vecMatrix();
+  const a = M.idx.get(trackId);
+  if (a === undefined) return [];
+  const out = [];
+  for (let i = 0; i < M.n; i++) {
+    if (i === a) continue;
+    out.push({ id: M.ids[i], dist: Math.sqrt(vecDist2(M, a, i)) });
+  }
+  out.sort((x, y) => x.dist - y.dist);
+  return out.slice(0, k);
+}
+// pilot 12920
+function vecKMeans(k = 8, iters = 40) {
+  const M = vecMatrix();
+  if (M.n < k) return null;
+  const d = M.d;
+  // k-means++ seeding with a FIXED-SEED LCG: deterministic (same library → same
+  // clusters) but properly D²-weighted. Pure farthest-point seeding looks
+  // deterministic-and-clever but always grabs the extreme outliers, which produced
+  // 1-track "clusters" (measured, 2026-08-04).
+  const cent = new Float64Array(k * d);
+  let _rs = 0x2f6e2b1;
+  const rnd = () => ((_rs = (_rs * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  for (let j = 0; j < d; j++) cent[j] = M.mat[j];
+  const d2 = new Float64Array(M.n).fill(Infinity);
+  for (let c = 1; c < k; c++) {
+    let total = 0;
+    for (let i = 0; i < M.n; i++) {
+      let s = 0; for (let j = 0; j < d; j++) { const dv = M.mat[i*d+j] - cent[(c-1)*d+j]; s += dv*dv; }
+      if (s < d2[i]) d2[i] = s;
+      total += d2[i];
+    }
+    let target = rnd() * total, pick = M.n - 1;
+    for (let i = 0; i < M.n; i++) { target -= d2[i]; if (target <= 0) { pick = i; break; } }
+    for (let j = 0; j < d; j++) cent[c*d+j] = M.mat[pick*d+j];
+  }
+  const assign = new Int32Array(M.n).fill(-1);
+  for (let it = 0; it < iters; it++) {
+    let moved = 0;
+    for (let i = 0; i < M.n; i++) {
+      let bc = 0, bd = Infinity;
+      for (let c = 0; c < k; c++) {
+        let s = 0; for (let j = 0; j < d; j++) { const dv = M.mat[i*d+j] - cent[c*d+j]; s += dv*dv; }
+        if (s < bd) { bd = s; bc = c; }
+      }
+      if (assign[i] !== bc) { assign[i] = bc; moved++; }
+    }
+    if (!moved && it) break;
+    const sums = new Float64Array(k * d), counts = new Int32Array(k);
+    for (let i = 0; i < M.n; i++) {
+      const c = assign[i]; counts[c]++;
+      for (let j = 0; j < d; j++) sums[c*d+j] += M.mat[i*d+j];
+    }
+    for (let c = 0; c < k; c++) if (counts[c]) for (let j = 0; j < d; j++) cent[c*d+j] = sums[c*d+j] / counts[c];
+  }
+  // Label each cluster by the genre most common inside it — "does the maths
+  // rediscover the genre labels?" is the whole point of this tool.
+  const byCat = new Map(catalog.map(t => [t.id, t]));
+  const labels = [];
+  for (let c = 0; c < k; c++) {
+    const tally = new Map();
+    for (let i = 0; i < M.n; i++) if (assign[i] === c) {
+      const g = (byCat.get(M.ids[i])?.genre || '').trim() || '—';
+      tally.set(g, (tally.get(g) || 0) + 1);
+    }
+    const top = [...tally.entries()].sort((a,b) => b[1]-a[1])[0];
+    const size = [...tally.values()].reduce((a,b)=>a+b,0);
+    labels.push({ genre: top ? top[0] : '—', purity: top && size ? top[1]/size : 0, size });
+  }
+  return { ids: M.ids, assign, k, labels };
+}
+// pilot 13007
+const _yieldChan = (typeof MessageChannel !== 'undefined') ? new MessageChannel() : null;
+// pilot 13008
+let _yieldQueue = [];
+// pilot 13010
+function _yieldToBrowser() {
+  if (!_yieldChan) return new Promise(r => setTimeout(r, 0));
+  return new Promise(r => { _yieldQueue.push(r); _yieldChan.port2.postMessage(0); });
+}
+// pilot 13017
+async function vecAdjacency(M, kN, onProgress) {
+  if (_vecAdjCache && _vecAdjCache.sig === M.sig && _vecAdjCache.k === kN)
+    return _vecAdjCache.adj;
+  const d = M.d, mat = M.mat, adj = [];
+  const bj = new Int32Array(kN), bd = new Float64Array(kN);
+  // Work per slice is SLICE*n distance computations. Measured on this machine at ~12M
+  // of those per second, so the divisor sets the block length: 6e5 lands each slice near
+  // 50 ms — under the ~100 ms where interaction starts to feel stuck, and far enough
+  // above the ~0.1 ms yield cost that the overhead stays in the noise. At 14,694 tracks
+  // that is ~42 rows a slice, ~350 slices, and a click is never more than 50 ms from
+  // being answered.
+  const SLICE = Math.max(8, Math.min(512, Math.round(6e5 / Math.max(1, M.n))));
+  for (let i0 = 0; i0 < M.n; i0 += SLICE) {
+    const end = Math.min(M.n, i0 + SLICE);
+    for (let i = i0; i < end; i++) {
+      let cnt = 0, worst = Infinity;
+      bd.fill(Infinity);
+      for (let j = 0; j < M.n; j++) {
+        if (j === i) continue;
+        let sd = 0;
+        for (let q = 0; q < d; q++) { const dv = mat[i*d+q] - mat[j*d+q]; sd += dv*dv; if (sd >= worst) break; }
+        if (cnt === kN && sd >= worst) continue;
+        let pos = Math.min(cnt, kN - 1);
+        while (pos > 0 && bd[pos-1] > sd) { bd[pos] = bd[pos-1]; bj[pos] = bj[pos-1]; pos--; }
+        bd[pos] = sd; bj[pos] = j;
+        if (cnt < kN) cnt++;
+        worst = bd[cnt-1];
+      }
+      const row = [];
+      for (let q = 0; q < cnt; q++) row.push([bj[q], Math.sqrt(bd[q])]);
+      adj.push(row);
+    }
+    onProgress?.(end / M.n);
+    if (isScanCancelled({ o:'analyse' })) return null;
+    await _yieldToBrowser();                      // let the browser breathe
+  }
+  _vecAdjCache = { sig: M.sig, k: kN, adj };
+  return adj;
+}
+// pilot 13361
+function vmClampNum(el) {
+  let v = parseInt(el.value, 10);
+  if (!Number.isFinite(v)) v = parseInt(el.defaultValue, 10) || 0;
+  v = Math.max(parseInt(el.min, 10), Math.min(parseInt(el.max, 10), v));
+  el.value = v;
+  try { localStorage.setItem('vm-num-' + el.id, String(v)); } catch (_) {}
+}
+// pilot 13385
+function _vecSnapshotAxes() {
+  if (_vecAxisSnapshot) return;
+  const g = id => document.getElementById(id)?.value;
+  _vecAxisSnapshot = { x:g('nx-axis'), y:g('ny-axis'), z:g('nz-axis'), c:g('n-color'), s:g('n-size') };
+}
+// pilot 13459
+function vmPreview(id) {
+  const idx = neuralNodeData.findIndex(nd => nd.catalogId === id);
+  if (idx >= 0) matrixPreviewIdx(idx); else audioPlayById(id, { keepAnchor: true });
+}
+// pilot 13464
+async function vmAddHitsToPlaylist() {
+  if (!_vmLastHits.length) return;
+  if (!activePlaylistSlug) { showToast('No active playlist — create one first'); return; }
+  let n = 0;
+  for (const h of _vmLastHits) if (await addTrackToActivePlaylist(h.id, 'learn')) n++;
+  showToast(`Added ${n} track${n === 1 ? '' : 's'} to the playlist`);
+  refreshPlaylistPanel();
+}
+// pilot 13473
+function vmFindSimilar() {
+  const t = vmCurrentTrack();
+  const out = document.getElementById('vm-sim-out');
+  if (!t) { out.innerHTML = '<div class="vm-empty">Select a track first (double-click a node).</div>'; return; }
+  const k = Math.max(1, Math.min(100, parseInt(document.getElementById('vm-k').value, 10) || 10));
+  const hits = vecKNN(t.id, k);
+  _vmLastHits = hits;
+  // Publish "distance from this track" as an axis metric so the field can show it too.
+  const map = new Map(); hits.forEach(h => map.set(h.id, h.dist));
+  const M = vecMatrix(), a = M.idx.get(t.id);
+  if (a !== undefined) for (let i = 0; i < M.n; i++) map.set(M.ids[i], Math.sqrt(vecDist2(M, a, i)));
+  _vecComputed.sim = { name: vmName(t.id), map };
+  refreshNeuralAxisSelects();
+  out.innerHTML = `<div class="vm-note">Nearest to <b>${esc(vmName(t.id))}</b></div>`
+    + vmHitList(hits, `<button class="btn-sm vm-add" onclick="vmAddHitsToPlaylist()">＋ Add all to playlist</button>`);
+}
+// pilot 13500
+function vmApplyPCAAxes() {
+  _vecSnapshotAxes();
+  if (typeof clearFormula === 'function' && formulaAxes) clearFormula();
+  document.getElementById('nx-axis').value = 'pca1';
+  document.getElementById('ny-axis').value = 'pca2';
+  document.getElementById('nz-axis').value = 'pca3';
+  rebuildGraph();
+  showToast('Field re-arranged along its own principal components');
+}
+// pilot 13544
+function vmApplyTSNEAxes() {
+  _vecSnapshotAxes();
+  if (typeof clearFormula === 'function' && formulaAxes) clearFormula();
+  document.getElementById('nx-axis').value = 'tsne1';
+  document.getElementById('ny-axis').value = 'tsne2';
+  rebuildGraph();
+  showToast('Field laid out by t-SNE — clusters are genuine neighbourhoods');
+}
+// pilot 13553
+function vmRunClusters(alsoColour) {
+  const out = document.getElementById('vm-clusters-out');
+  const k = Math.max(2, Math.min(32, parseInt(document.getElementById('vm-clusters').value, 10) || 8));
+  const r = vecKMeans(k);
+  if (!r) { out.innerHTML = `<div class="vm-empty">Need at least ${k} tracks.</div>`; return; }
+  _vecComputed.clusters = r;
+  refreshNeuralAxisSelects();
+  const rows = r.labels.map((l, i) =>
+    `<div class="vm-stat"><span>#${i+1} · ${l.size}</span><span>${esc(l.genre)} <b>${Math.round(l.purity*100)}%</b></span></div>`).join('');
+  out.innerHTML = `<div class="vm-note">Found <b>${k}</b> groups. The % is how much of each group shares one genre tag — high means the sound agrees with your labels, low means it found something your tags don't name.</div>`
+    + rows + `<button class="btn-sm vm-add" onclick="vmColourByCluster()" title="Colour every node by the group it belongs to">Colour the field by group</button>`;
+  if (alsoColour) vmColourByCluster();
+}
+// pilot 13566
+function vmColourByCluster() {
+  _vecSnapshotAxes();
+  document.getElementById('n-color').value = 'cluster';
+  rebuildGraph();
+  showToast('Colour = discovered cluster');
+}
+// pilot 13614
+let _sbStart = null, _sbEnd = null, _sbCurve = 'build', _sbResult = null;
+// pilot 13668
+let _sbCustom = null;                                   // { ys:[0..20], gaps:[>=1] }
+// pilot 13674
+function _sbCustomFn() {
+  const c = _sbCustom;
+  if (!c || !c.ys || c.ys.length < 2) return () => 0.5;
+  const total = c.gaps.reduce((a, b) => a + b, 0) || 1;
+  return (t, i) => {
+    let pos = i % total; if (pos < 0) pos += total;
+    let acc = 0;
+    for (let k = 0; k < c.ys.length; k++) {
+      const g = c.gaps[k];
+      if (pos < acc + g) {
+        const a = c.ys[k] / 20, b = c.ys[(k + 1) % c.ys.length] / 20;
+        return a + (b - a) * ((pos - acc) / g);
+      }
+      acc += g;
+    }
+    return c.ys[0] / 20;
+  };
+}
+// pilot 13814
+function sbMarkStart() { const t = vmCurrentTrack(); if (!t) { showToast('Select a track first'); return; } _sbStart = t.id; _sbAnchorsNote(); }
+// pilot 13815
+function sbMarkEnd()   {
+  const t = vmCurrentTrack();
+  if (!t) { showToast('Select a track first'); return; }
+  // Toggle semantics (Mark, 2026-08-26): no End marked = open journey automatically;
+  // pressing End here on the track that IS the End clears it. No separate button.
+  _sbEnd = (t.id === _sbEnd) ? null : t.id;
+  _sbAnchorsNote();
+}
+// pilot 13824
+function _sbAnchorsNote() {
+  const el = document.getElementById('sb-anchors');
+  if (el) el.textContent = `${_sbStart ? vmName(_sbStart) : 'no start'} → ${_sbEnd ? vmName(_sbEnd) : 'open end'}`;
+}
+// pilot 13828
+function sbSetAll() {
+  const el = document.getElementById('sb-n');
+  if (el) el.value = getFilteredCatalog().length;
+}
+// pilot 13836
+function sbCompileCurve(src) {
+  const s0 = String(src || '').toLowerCase();
+  const toks = s0.match(/\d+(?:\.\d+)?(?:e[+-]?\d+)?|[a-z_]+|\*\*|[-+*/%(),.]|\s+/g) || [];
+  if (toks.join('') !== s0) throw new Error('unexpected characters in curve formula');
+  const VARS = new Set(['t','i','n','cyc']);
+  const out = [];
+  for (const tok of toks) {
+    if (/^\s+$/.test(tok)) continue;
+    if (/^[a-z_]+$/.test(tok)) {
+      if (VARS.has(tok)) out.push(`V.${tok}`);
+      else if (FORMULA_FUNCS[tok]) out.push(`F.${tok}`);
+      else if (tok === 'pi') out.push('Math.PI');
+      else if (tok === 'e') out.push('Math.E');
+      else throw new Error(`unknown name "${tok}" — curve formulas know t, i, n, cyc`);
+    } else out.push(tok);
+  }
+  const fn = new Function('V', 'F', `"use strict"; return (${out.join(' ')});`);
+  return (t, i, nn, cyc) => {
+    const v = fn({ t, i, n: nn, cyc }, FORMULA_FUNCS);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.5;
+  };
+}
+// pilot 13860
+function _sbMetricValues(entries, key) {
+  const raw = entries.map(e => {
+    const d = (e && e.data) || {};
+    switch (key) {
+      case 'energy':     return d.energy?.level;
+      case 'dance':      return d.scores?.danceability;
+      case 'brightness': return d.timbre?.brightness;
+      case 'vocals':     return d.content?.voice_presence;
+      case 'rating':     return e ? getRating(e.id) / 5 : NaN;
+      case 'bpm':        { const b = d.rhythm?.bpm; return (b > 0) ? Math.log1p(b) : NaN; }
+      default:           return NaN;
+    }
+  });
+  if (key === 'bpm') {
+    let lo = Infinity, hi = -Infinity;
+    for (const v of raw) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const span = (hi - lo) || 1;
+    return raw.map(v => Number.isFinite(v) ? (v - lo) / span : NaN);
+  }
+  return raw;
+}
+// pilot 13882
+async function sbGenerate() {
+  const out = document.getElementById('vm-sb-out');
+  if (!_sbStart) { out.innerHTML = '<div class="vm-empty">Mark a Start track first — select a track, then press "Start here". (An End is optional.)</div>'; return; }
+  if (_sbEnd && _sbStart === _sbEnd) { out.innerHTML = '<div class="vm-empty">Start and End are the same track.</div>'; return; }
+  const M = vecMatrix();
+  if (!M || M.n < 2) { out.innerHTML = '<div class="vm-empty">Not enough analysed tracks in the current selection.</div>'; return; }
+  const sRow = M.idx.get(_sbStart);
+  const eRow = _sbEnd ? M.idx.get(_sbEnd) : null;   // null = open-ended journey
+  if (sRow === undefined || (_sbEnd && eRow === undefined)) { out.innerHTML = '<div class="vm-empty">Start or End is outside the current Field selection/filters.</div>'; return; }
+
+  const nWant = Math.max(2, Math.min(M.n, parseInt(document.getElementById('sb-n').value, 10) || 20));
+  const cyc   = Math.max(2, parseInt(document.getElementById('sb-interval').value, 10) || 8);
+  const blend = (parseInt(document.getElementById('sb-blend').value, 10) || 50) / 100;
+  const wCoh = 1 - blend, wCurve = blend, wGoal = 0.6;
+  const metricKey = document.getElementById('sb-metric').value;
+
+  let curveFn;
+  if (_sbCurve === 'custom') {
+    if (!_sbCustom) { out.innerHTML = '<div class="vm-empty">No drawn curve yet — press ✎ and draw one.</div>'; return; }
+    curveFn = _sbCustomFn();
+  } else if (_sbCurve === 'formula') {
+    try { curveFn = sbCompileCurve(document.getElementById('sb-formula').value); }
+    catch (err) { out.innerHTML = `<div class="vm-empty">${esc(err.message)}</div>`; return; }
+  } else {
+    const preset = SB_CURVES.find(c => c[0] === _sbCurve)[2];
+    curveFn = (t, i) => preset(t, i, cyc);
+  }
+
+  const entries = getFilteredCatalog();
+  const byId = new Map(entries.map(e => [e.id, e]));
+  const mv = _sbMetricValues(M.ids.map(id => byId.get(id)), metricKey);
+  const mOf = r => Number.isFinite(mv[r]) ? mv[r] : 0.5;
+
+  const adj = await vecAdjacency(M, 12);
+  if (!adj) { out.innerHTML = '<div class="vm-empty">Cancelled.</div>'; return; }
+  let dScale = 0, dCnt = 0;
+  for (let r = 0; r < Math.min(M.n, 400); r++) if (adj[r]?.length) { dScale += adj[r][0][1]; dCnt++; }
+  dScale = (dScale / (dCnt || 1)) || 1;
+  const D0 = eRow !== null ? Math.sqrt(vecDist2(M, sRow, eRow)) : 0;
+
+  const order = mv.map((v, r) => [Number.isFinite(v) ? v : 0.5, r]).sort((a, b) => a[0] - b[0]);
+  const used = new Uint8Array(M.n);
+  used[sRow] = 1;
+  if (eRow !== null) used[eRow] = 1;
+  const path = [sRow];
+  const tok = nWant > 400 ? startScanProgress('Building set', 1) : null;
+
+  const nearTarget = (target, want) => {
+    let lo = 0, hi = order.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (order[mid][0] < target) lo = mid + 1; else hi = mid; }
+    const picks = []; let a = lo - 1, b = lo;
+    while (picks.length < want && (a >= 0 || b < order.length)) {
+      const da = a >= 0 ? Math.abs(order[a][0] - target) : Infinity;
+      const db = b < order.length ? Math.abs(order[b][0] - target) : Infinity;
+      if (da <= db) { if (a >= 0 && !used[order[a][1]]) picks.push(order[a][1]); a--; }
+      else          { if (b < order.length && !used[order[b][1]]) picks.push(order[b][1]); b++; }
+    }
+    return picks;
+  };
+
+  const lastMid = eRow !== null ? nWant - 1 : nWant;   // no forced closer → one more free pick
+  for (let i = 1; i < lastMid; i++) {
+    const prev = path[path.length - 1];
+    const target = curveFn(i / (nWant - 1), i, nWant, cyc);
+    const pool = [];
+    for (const [nr] of (adj[prev] || [])) if (!used[nr]) pool.push(nr);
+    for (const r of nearTarget(target, 24)) pool.push(r);
+    if (!pool.length) break;
+    const rem = nWant - 1 - i;
+    let best = -1, bestScore = Infinity;
+    for (const c of pool) {
+      const dPrev = Math.sqrt(vecDist2(M, prev, c)) / dScale;
+      const dCurve = Math.abs(mOf(c) - target);
+      // Open-ended journey: no destination, no arrival pull — flow and curve decide.
+      const dGoal = eRow !== null
+        ? Math.abs(Math.sqrt(vecDist2(M, c, eRow)) - D0 * (rem / (nWant - 1))) / dScale
+        : 0;
+      const score = wCoh * dPrev + wCurve * 3 * dCurve + wGoal * dGoal;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    if (best < 0) break;
+    used[best] = 1; path.push(best);
+    if (tok) {
+      if (isScanCancelled(tok)) { endScanProgress(tok); out.innerHTML = '<div class="vm-empty">Cancelled.</div>'; return; }
+      if (i % 250 === 0) { updateScanProgress(i / nWant, `Building set ${i}/${nWant}`, tok); await _yieldToBrowser(); }
+    }
+  }
+  if (eRow !== null) path.push(eRow);
+  if (tok) endScanProgress(tok);
+
+  _sbResult = { ids: path.map(r => M.ids[r]),
+                targets: path.map((r, j) => curveFn(j / (path.length - 1), j, path.length, cyc)),
+                actual: path.map(r => mOf(r)), metricKey };
+  sbShowPreview();
+  out.innerHTML = `<div class="vm-note">${path.length} tracks — preview open. <button class="btn-sm" onclick="sbShowPreview()">Reopen preview</button></div>`;
+}
+// pilot 13979
+function sbShowPreview() {
+  if (!_sbResult) return;
+  const { ids, targets, actual, metricKey } = _sbResult;
+  let ov = document.getElementById('sb-preview');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'sb-preview';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:640;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px';
+  const W = 560, H = 120;
+  const px = j => 10 + (W - 20) * j / Math.max(1, ids.length - 1);
+  const py = v => 10 + (H - 20) * (1 - Math.max(0, Math.min(1, v)));
+  const line = targets.map((v, j) => `${px(j).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+  const dots = actual.map((v, j) => `<circle cx="${px(j).toFixed(1)}" cy="${py(v).toFixed(1)}" r="2.4" fill="var(--accent)"/>`).join('');
+  const rows = ids.map((id, j) => `
+    <div class="vm-hit" onclick="vmPreview('${id}')" title="Click to preview">
+      <span class="vm-rank">${j + 1}</span> ${esc(vmName(id))}
+      <span class="vm-dist">${(actual[j] * 100).toFixed(0)}%</span>
+    </div>`).join('');
+  ov.innerHTML = `
+    <div class="fun-panel" style="background:var(--surface);max-width:620px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+        <b>Set preview</b>
+        <span class="vm-note">${ids.length} tracks · curve over ${esc(metricKey)} — line is the target, dots are the tracks</span>
+        <button class="btn-sm" style="margin-left:auto" onclick="document.getElementById('sb-preview').remove()">×</button>
+      </div>
+      <svg width="100%" viewBox="0 0 ${W} ${H}" style="flex:none;border:1px solid var(--border);background:var(--surface2)">
+        <polyline points="${line}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}
+      </svg>
+      <div style="overflow-y:auto;margin:10px 0;flex:1">${rows}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-sm vm-go" onclick="sbSaveAsPlaylist(false)">Save New Playlist</button>
+        <!-- NOT a <button>: WebKit (the native window) refuses to start an HTML5 drag
+             from interactive elements, which is why "Drag To Playlist" did nothing
+             there (Mark, 2026-08-28). A div + -webkit-user-drag:element drags from
+             its entire surface. -->
+        <div class="btn-sm vm-go sb-drag-handle" role="button" tabindex="0" draggable="true"
+             ondragstart="sbDragStart(event)" ondragend="sbDragEnd(event)"
+             title="Drag this whole set — the entire button is the handle — and drop it anywhere in the Builder's playlist; it inserts at the row you drop on">⠿ Drag To Playlist</div>
+        <span class="vm-note" id="sb-save-note"></span>
+      </div>
+    </div>`;
+  ov.addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+}
+// pilot 14031
+function sbDragStart(ev) {
+  if (!_sbResult || !_sbResult.ids.length) { ev.preventDefault(); return; }
+  _sbDragSet = _sbResult.ids.slice();
+  ev.dataTransfer.effectAllowed = 'copy';
+  ev.dataTransfer.setData('text/plain', 'tunefield-set');
+  const ov = document.getElementById('sb-preview');
+  if (ov) { ov.style.pointerEvents = 'none'; ov.style.opacity = '0.12'; }
+  const tracks = document.getElementById('sp-tracks');
+  if (!activePlaylist) showToast('No active playlist in the Builder to drop into');
+  else if (!tracks || tracks.offsetParent === null)
+    showToast('The Builder is hidden in this mode — switch to Curate to drop the set');
+}
+// pilot 14043
+function sbDragEnd() {
+  const ov = document.getElementById('sb-preview');
+  if (ov) { ov.style.pointerEvents = ''; ov.style.opacity = ''; }
+  _sbDragSet = null;
+}
+// pilot 14049
+async function sbSaveAsPlaylist(activate) {
+  if (!_sbResult) return;
+  const note = document.getElementById('sb-save-note');
+  const defName = (_sbEnd
+    ? `Set — ${vmName(_sbResult.ids[0])} → ${vmName(_sbResult.ids[_sbResult.ids.length - 1])}`
+    : `Set — ${vmName(_sbResult.ids[0])} → open journey`).slice(0, 80);
+  const name = prompt('Playlist name:', defName);
+  if (name === null) return;
+  try {
+    const r = await fetch('/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name || defName }) });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+    let added = 0;
+    for (const id of _sbResult.ids) {
+      const ar = await fetch(`/playlists/${j.slug}/tracks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ track_id: id, source_mode: 'learn' }) });
+      if (ar.ok) added++;
+      if (note && added % 25 === 0) note.textContent = `Saving… ${added}/${_sbResult.ids.length}`;
+    }
+    if (activate) await setActivePlaylist(j.slug);
+    else await refreshPlaylistPanel();
+    if (note) note.textContent = `Saved “${j.name || name}” — ${added} tracks${activate ? ', loaded into the Builder' : ''}`;
+    showToast(`Playlist saved: ${added} tracks${activate ? ' — in the Builder now' : ''}`);
+  } catch (e) {
+    if (note) note.textContent = '';
+    showToast('Save failed: ' + (e.message || e));
+  }
+}
+// pilot 14414
+function toggleNeuralLegendFold(ev) {
+  // Interactive children embedded in the title (e.g. the genre "clear" button) must
+  // keep their own behaviour — only plain title/caret clicks fold.
+  if (ev && ev.target !== ev.currentTarget && ev.target.closest('button,a,input')) return;
+  const el = document.getElementById('neural-legend');
+  if (!el) return;
+  const collapsed = !el.classList.contains('collapsed');
+  el.classList.toggle('collapsed', collapsed);
+  try { localStorage.setItem('neural-legend-collapsed', collapsed ? '1' : '0'); } catch (_) {}
+  const caret = el.querySelector('.nl-caret');
+  if (caret) caret.textContent = collapsed ? '▸' : '▾';
+}
+
+// Field background jobs (t-SNE, grouping) keep the pilot's progress-token calls; in Lite they
+// run without the pilot's tab-button progress bar.
+function startScanProgress() { return { abort: new AbortController() }; }
+function updateScanProgress() {}
+function endScanProgress() {}
+function isScanCancelled(tok) { return !!tok?.cancelled; }
+function cancelScan() {}
+
+// Inline on*="" handlers and generated markup call these by global name.
+Object.assign(window, { saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
+
+export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation, fmtTime, activePlaylistSlug, addTrackToActivePlaylist, allPlaylists, audioPlayById, audioStop, matrixCommitIdx, refreshPlaylistPanel, setAnchorTrack };

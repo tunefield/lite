@@ -1,16 +1,11 @@
 // List tab: the sortable table of the Fields in view. Lifted from the pilot (index.html @ 7c8c0e7);
 // "// pilot N" marks each statement's source line. Filters and the key wheel live in field.js
 // (they are the Field's drawers too); this module renders what getFilteredCatalog() returns.
-import { MOOD_COLOR, RATINGS, activeCatalog, activePlaylist, allCatalogs, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalog, catalogColor, currentMode, esc, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, showToast, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation } from './field.js';
+import { MOOD_COLOR, RATINGS, activeCatalog, activePlaylist, activePlaylistSlug, addTrackToActivePlaylist, allCatalogs, allTags, annoPush, applyFilters, audioCurrentId, audioPlayById, audioStop, camelotToOpenKey, catalog, catalogColor, currentMode, esc, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, matrixCommitIdx, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, setAnchorTrack, showToast, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation } from './field.js';
 import { apiJson } from './analyse.js';
 
 // Owned by modules not written yet; they register on window when they land.
-const renderPlaylistContent = (...a) => window.renderPlaylistContent?.(...a);
-const refreshPlaylistPanel = (...a) => window.refreshPlaylistPanel?.(...a);
-const addTrackToActivePlaylist = (...a) => window.addTrackToActivePlaylist?.(...a);
-const audioPlayById = (...a) => window.audioPlayById?.(...a);
-const audioStop = (...a) => window.audioStop?.(...a);
-const matrixCommitIdx = (...a) => window.matrixCommitIdx?.(...a);
+
 
 // pilot 5692
 const COLS = [
@@ -821,17 +816,6 @@ function _fieldUsesRating() {
   try { if (typeof formulaAxes !== 'undefined' && JSON.stringify(formulaAxes || {}).includes('rat')) return true; } catch (_) {}
   return false;
 }
-// pilot 19325
-let allPlaylists  = [];      // [{slug, name, locked, count, ...}]
-// pilot 19326
-let activePlaylistSlug = null;
-// pilot 21474
-async function setAnchorTrack(trackId) {
-  if (!activePlaylistSlug) return;
-  await fetch(`/playlists/${activePlaylistSlug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anchor_track_id: trackId }) });
-  if (activePlaylist) activePlaylist.anchor_track_id = trackId;
-  renderPlaylistContent();
-}
 // pilot 21495
 let tableClickTimer = null;
 // pilot 21496
@@ -851,91 +835,6 @@ function tableRowClick(ctx, id, e) {
 function tableRowDblClick(ctx, id, e) {
   clearTimeout(tableClickTimer);
   tableRowCommit(ctx, id);
-}
-// pilot 21519
-async function rowCtxMenu(e, id) {
-  e.preventDefault(); e.stopPropagation();
-  const m = document.getElementById('row-ctx-menu');
-  if (!m) return;
-  try {
-    const d = await (await fetch('/playlists')).json();
-    allPlaylists = d.playlists || [];
-    activePlaylistSlug = d.active_slug || activePlaylistSlug;
-  } catch (_) {}   // offline / race: fall through with whatever list we last had
-  m.textContent = '';
-  const ent = (typeof catalog !== 'undefined' && catalog.find) ? catalog.find(c => c.id === id) : null;
-  if (ent && ent.filename) {
-    const t = document.createElement('div');
-    t.className = 'rcm-track'; t.textContent = ent.filename; t.title = ent.filename;
-    m.appendChild(t);
-  }
-  const h = document.createElement('div');
-  h.className = 'rcm-h'; h.textContent = 'Add to playlist';
-  m.appendChild(h);
-  const list = document.createElement('div');
-  list.className = 'rcm-list';
-  if (!allPlaylists.length) {
-    const em = document.createElement('div');
-    em.className = 'rcm-empty';
-    em.textContent = 'No playlists yet — create one on the Playlists tab.';
-    list.appendChild(em);
-  } else {
-    for (const pl of allPlaylists) {
-      const b = document.createElement('button');
-      b.className = 'rcm-item';
-      const nm = document.createElement('span');
-      nm.className = 'rcm-name';
-      nm.textContent = (pl.slug === activePlaylistSlug ? '● ' : '') + (pl.name || pl.slug);
-      const n = document.createElement('span');
-      n.className = 'rcm-n';
-      n.textContent = pl.locked ? '🔒' : String(pl.count ?? pl.tracks?.length ?? '');
-      b.append(nm, n);
-      if (pl.locked) { b.disabled = true; b.title = 'This playlist is locked'; }
-      else b.addEventListener('click', () => rowCtxAdd(pl.slug, id, pl.name || pl.slug));
-      list.appendChild(b);
-    }
-  }
-  m.appendChild(list);
-  // Show, then clamp to the viewport (measure only after display:block).
-  m.style.display = 'block';
-  const pad = 8;
-  m.style.left = Math.max(pad, Math.min(e.clientX, window.innerWidth  - m.offsetWidth  - pad)) + 'px';
-  m.style.top  = Math.max(pad, Math.min(e.clientY, window.innerHeight - m.offsetHeight - pad)) + 'px';
-  window.addEventListener('pointerdown', _rcmAway, true);
-  window.addEventListener('keydown', _rcmKey, true);
-  window.addEventListener('scroll', closeRowCtxMenu, true);
-  window.addEventListener('resize', closeRowCtxMenu);
-}
-// pilot 21572
-function closeRowCtxMenu() {
-  const m = document.getElementById('row-ctx-menu');
-  if (m) m.style.display = 'none';
-  window.removeEventListener('pointerdown', _rcmAway, true);
-  window.removeEventListener('keydown', _rcmKey, true);
-  window.removeEventListener('scroll', closeRowCtxMenu, true);
-  window.removeEventListener('resize', closeRowCtxMenu);
-}
-// pilot 21580
-function _rcmAway(e) { if (!e.target.closest('#row-ctx-menu')) closeRowCtxMenu(); }
-// pilot 21581
-function _rcmKey(e)  { if (e.key === 'Escape') { e.stopPropagation(); closeRowCtxMenu(); } }
-// pilot 21582
-async function rowCtxAdd(slug, id, name) {
-  closeRowCtxMenu();
-  try {
-    const r = await fetch(`/playlists/${slug}/tracks`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ track_id: id, source_mode: 'learn' }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 423) { showToast(`“${name}” is locked`); return; }
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    showToast(`Added to “${name}” — ${j.count} track${j.count === 1 ? '' : 's'}`);
-    if (typeof featUse === 'function') featUse('row_add_to_playlist');
-    // Panel DOM is hidden on List (its guard skips rendering) but this still updates
-    // allPlaylists/activePlaylist, the pathway trail and node visibility.
-    refreshPlaylistPanel();
-  } catch (e2) { showToast('Add failed: ' + (e2.message || e2)); }
 }
 // pilot 21599
 async function tableRowCommit(ctx, id) {
@@ -964,4 +863,4 @@ async function tableRowCommit(ctx, id) {
 
 function listForgetExpanded(id) { if (catExpandedId === id) catExpandedId = null; }
 
-Object.assign(window, { listRenderCatalog: renderCatalog, listForgetExpanded, checkScore, saveRating, starWidget, setRating, saveTrackTags, addTagToTrack, removeTag, defaultColVis, saveColVis, saveColWidths, startColResize, orderedCols, colDragStart, colDragOver, colDrop, visibleCols, openColPicker, closeColPicker, toggleCol, colPickerAll, colPickerReset, setCatalogView, renderAnalyse, fmtScanLen, cardsHTML, tableHTML, cellHTML, tblSort, coverFailed, tblExpand, setBpmMul, clearBpm, setKeyStep, clearKey, buildCard, svgGauge, gaugeWrap, timRow, miniBarRow, tblBar, keyPill, formatDur, fmtDate, rescanEntry, saveGenre, audioToggle, _fieldUsesRating, setAnchorTrack, tableRowClick, tableRowDblClick, rowCtxMenu, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxAdd, tableRowCommit });
+Object.assign(window, { listRenderCatalog: renderCatalog, listForgetExpanded, checkScore, saveRating, starWidget, setRating, saveTrackTags, addTagToTrack, removeTag, defaultColVis, saveColVis, saveColWidths, startColResize, orderedCols, colDragStart, colDragOver, colDrop, visibleCols, openColPicker, closeColPicker, toggleCol, colPickerAll, colPickerReset, setCatalogView, renderAnalyse, fmtScanLen, cardsHTML, tableHTML, cellHTML, tblSort, coverFailed, tblExpand, setBpmMul, clearBpm, setKeyStep, clearKey, buildCard, svgGauge, gaugeWrap, timRow, miniBarRow, tblBar, keyPill, formatDur, fmtDate, rescanEntry, saveGenre, audioToggle, _fieldUsesRating, tableRowClick, tableRowDblClick, tableRowCommit });

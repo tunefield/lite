@@ -3,7 +3,7 @@ import { catalog, allCatalogs, loadCatalogMeta, loadCatalog } from './field.js';
 import { analyseBoot } from './analyse.js';
 import './list.js';
 
-const TABS = ['analyse', 'neural', 'catalog'];   // playlists and repair join as their modules land
+const TABS = ['analyse', 'neural', 'playlists', 'catalog'];   // repair joins when its module lands
 
 // One filter bar and one key wheel serve both the Field (in its FILTERS / KEY drawers) and the
 // List (in its sidebar); they move to whichever is showing. Replaces the pilot's
@@ -18,7 +18,7 @@ function moveFilters(name) {
 
 function switchTab(name) {
   if (!TABS.includes(name)) name = 'analyse';
-  if (name !== 'analyse') moveFilters(name);
+  if (name === 'neural' || name === 'catalog') moveFilters(name);
   for (const p of document.querySelectorAll('.tab-panel')) p.classList.toggle('active', p.id === `tab-${name}`);
   for (const b of document.querySelectorAll('.tab-btn')) b.classList.toggle('active', b.id === `tab-${name}-btn`);
   document.body.classList.remove(...TABS.map(t => `on-tab-${t}`));
@@ -26,16 +26,30 @@ function switchTab(name) {
   try { localStorage.setItem('active-tab', name); } catch (_) {}
   const field = document.getElementById('field-empty');
   field.hidden = true;
+  if (name === 'neural') refreshSets();   // the set panel only draws while visible
   window.fieldShow(name === 'neural').then(() => {
     // Never a blank Field: an empty one says so and points at the one thing to do.
     field.hidden = !(name === 'neural' && catalog.length === 0);
   });
   if (name === 'analyse') window.renderLibRoots?.();
   if (name === 'catalog') loadCatalogMeta().then(() => loadCatalog());
+  if (name === 'playlists') refreshSets().then(() => window.renderPlaylistsTab());
 }
 window.switchTab = switchTab;
 
+const refreshSets = () => window.refreshPlaylistPanel();
+
+// The transport is authored inside the Field but lives on the body, so it survives tab
+// switches (pilot initSidePanel).
+const tp = document.getElementById('neural-transport');
+if (tp) document.body.appendChild(tp);
+window.syncTransportPos();
+window.addEventListener('resize', () => window.syncTransportPos());
+document.body.classList.add('sp-open');
+window.renderPlaybackRangeUI();
+
 await loadCatalogMeta();
+await refreshSets();
 const resumeWaiting = await analyseBoot();
 // First launch (or an empty library) opens on Add music; otherwise where you left off.
 const total = allCatalogs.reduce((t, c) => t + (c.count || 0), 0);

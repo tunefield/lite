@@ -4,7 +4,7 @@
 // bottom is Lite's own.
 // Modules talk through window.name?.() (as the pilot's inline handlers do); only the
 // owning module assigns its own state.
-import { catalog, activeCatalog, allCatalogs, loadCatalogMeta, esc, showToast } from './field.js';
+import { catalog, activeCatalog, allCatalogs, loadCatalogMeta, esc, showToast, fmtTime } from './field.js';
 
 // pilot 6555, 6599 — moved here from the Field: this module owns the music folders.
 let libRoots = [];
@@ -479,16 +479,6 @@ async function resumeAnalysisQueue() {
   if (_anActive) { _anPersist(); _anUpdateBar(); return; }
   if (!_anQueue.length) return;
   await _anPump();
-}
-// pilot 20908
-function fmtTime(sec) {
-  if (!isFinite(sec) || sec < 0) sec = 0;
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  // Hour-long mixes render 1:15:30 (matching formatDuration) instead of 75:30.
-  const h = Math.floor(m / 60);
-  return h ? `${h}:${String(m % 60).padStart(2,'0')}:${s.toString().padStart(2,'0')}`
-           : `${m}:${s.toString().padStart(2,'0')}`;
 }
 // ── Lite UI ───────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
