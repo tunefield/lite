@@ -26,6 +26,7 @@ __pycache__/
 *.so
 .venv/
 venv/
+.buildvenv/
 *.egg-info/
 
 # Build output

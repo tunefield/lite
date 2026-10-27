@@ -114,7 +114,7 @@ else
     PORTABLE_DIR="$APP_DIR"
     pass "PORTABLE marker present — data stays in $PORTABLE_DIR"
   else
-    note "no PORTABLE marker — data goes to ~/Library/Application Support/Tunefield"
+    note "no PORTABLE marker — data goes to ~/Library/Application Support/Tunefield Lite"
   fi
 fi
 
@@ -236,8 +236,8 @@ if [ -z "$DATA" ]; then
   if [ -n "$PORTABLE_DIR" ]; then
     DATA="$PORTABLE_DIR/data"
     note "using portable data location: $DATA"
-  elif [ -d "$HOME/Library/Application Support/Tunefield/data" ]; then
-    DATA="$HOME/Library/Application Support/Tunefield/data"
+  elif [ -d "$HOME/Library/Application Support/Tunefield Lite/data" ]; then
+    DATA="$HOME/Library/Application Support/Tunefield Lite/data"
   fi
 fi
 if [ -z "$DATA" ] || [ ! -d "$DATA" ]; then

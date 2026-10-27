@@ -72,12 +72,13 @@ TUNEFIELD_CONFIRM_TOKEN = secrets.token_urlsafe(24)
 #   5. app dir is writable                   → app dir  (plain source checkout, dev)
 #   6. otherwise                             → per-user OS data dir
 def _os_data_dir():
-    """Per-user writable app-data directory, by platform."""
+    """Per-user writable app-data directory, by platform. Lite has its own, so an installed
+    pilot's library (Application Support/Tunefield) is never opened or rewritten by Lite."""
     if sys.platform == "darwin":
-        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Tunefield")
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Tunefield Lite")
     if os.name == "nt":
-        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Tunefield")
-    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share"), "tunefield")
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Tunefield Lite")
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share"), "tunefield-lite")
 
 def _translocated_original(exe_path, mount_text=None):
     """App Translocation: a quarantined bundle launched by double-click runs from a
