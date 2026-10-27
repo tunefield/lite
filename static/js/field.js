@@ -5,9 +5,7 @@
 function adoptPlaylistStrays() {}
 function audioPlayById() {}
 function matrixCommitIdx() {}
-function refreshActiveFilterCount() {}
-function renderCatalog() {}
-function renderFieldChecks() {}
+function renderCatalog() { window.listRenderCatalog?.(); }   // the List tab owns the table
 function renderRepair() {}
 function returnToAnchor() {}
 function setMode() {}
@@ -5945,8 +5943,10 @@ async function renameCatalogPrompt() {
 }
 
 function updateTabCounts() {
-  const n = document.getElementById('tab-neural-count');
-  if (n) n.textContent = catalog.length;
+  for (const id of ['tab-neural-count', 'tab-catalog-count']) {
+    const n = document.getElementById(id);
+    if (n) n.textContent = catalog.length;
+  }
 }
 
 // Called by app.js on every switch to or from the Field tab (was part of the pilot's switchTab).
@@ -5966,7 +5966,788 @@ async function fieldShow(on) {
   window.__syncNeuralSize?.();
 }
 
-// Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, adoptPlaylistStrays, audioPlayById, matrixCommitIdx, refreshActiveFilterCount, renderCatalog, renderFieldChecks, renderRepair, returnToAnchor, setMode, syncTransportPos, updateTabCounts });
+// ── Filters and key wheel (pilot; shared by Field and List) ──
+// pilot 6045
+function renderTagFilterRow() {
+  const row = document.getElementById('tag-filter-row');
+  const fp  = document.getElementById('fp-tags');
+  if (!row || !fp) return;
+  row.style.display = allTags.length ? 'flex' : 'none';
+  fp.innerHTML = allTags.map(t => {
+    const on = activeFilters.tags.has(t.id);
+    return `<span class="filter-pill${on?' active':''}" data-tag-id="${t.id}"
+      style="${on?`background:${t.color};color:#000;border-color:transparent`:`border-color:${t.color};color:${t.color}`}"
+      onclick="toggleTagFilter('${t.id}',this)">${esc(t.name)}</span>`;
+  }).join('');
+}
+// pilot 6057
+function toggleTagFilter(id, el) {
+  if (activeFilters.tags.has(id)) {
+    activeFilters.tags.delete(id);
+    el.classList.remove('active');
+    const t = allTags.find(x => x.id === id);
+    if (t) { el.style.background=''; el.style.color=t.color; el.style.borderColor=t.color; }
+  } else {
+    activeFilters.tags.add(id);
+    el.classList.add('active');
+    const t = allTags.find(x => x.id === id);
+    if (t) { el.style.background=t.color; el.style.color='#000'; el.style.borderColor='transparent'; }
+  }
+  applyFilters();
+}
+// pilot 7658
+function renderFieldChecks() {
+  const build = (src) => (allCatalogs || []).map(c => {
+    const on = src.has(c.slug);
+    return `<label class="fc-row${on ? ' on' : ''}" style="--ch-c:${catalogColor(c.slug)}"
+              title="${on ? 'In view — untick to remove' : 'Tick to add to the combined view'}">
+      <input type="checkbox" ${on ? 'checked' : ''}
+             onchange="toggleViewedCatalog('${esc(c.slug)}', event)">
+      <span class="fc-dot"></span>
+      <span class="fc-name">${esc(c.name)}</span>
+      <span class="fc-count">${c.count ?? ''}</span>
+    </label>`;
+  }).join('') || '<div class="fc-empty">No Fields yet.</div>';
+  // Both surfaces show their own STAGED set while open, the live selection otherwise.
+  const drawer = document.getElementById('field-checks');
+  if (drawer) drawer.innerHTML = build(_fdStaged || viewedCatalogs);
+  const fdApply = document.getElementById('fd-apply');
+  if (fdApply) {
+    const dirty = (typeof _fdDirty === 'function') && _fdDirty();
+    fdApply.classList.toggle('dirty', dirty);
+    fdApply.textContent = dirty ? 'Apply' : 'Applied';
+    fdApply.disabled = !dirty;
+  }
+  const pick = document.getElementById('field-picker-list');
+  if (pick) pick.innerHTML = build(_fpStaged || viewedCatalogs);
+  const n = viewedCatalogs.size;
+  const label = n ? `Fields (${n}) ▾` : 'Fields ▾';
+  ['list-field-btn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.textContent = label;
+  });
+}
+// pilot 7695
+function toggleViewedCatalog(slug, evt) {
+  // Inside the open dropdown picker: stage only — closeFieldPicker() applies.
+  if (_fpStaged && evt && evt.target && evt.target.closest && evt.target.closest('#field-picker')) {
+    if (_fpStaged.has(slug)) _fpStaged.delete(slug); else _fpStaged.add(slug);
+    renderFieldChecks();
+    return;
+  }
+  // Inside the FIELDS drawer: stage only — applyFieldDrawer() (or closing) commits.
+  if (_fdStaged && evt && evt.target && evt.target.closest && evt.target.closest('#fields-drawer')) {
+    if (_fdStaged.has(slug)) _fdStaged.delete(slug); else _fdStaged.add(slug);
+    renderFieldChecks();
+    return;
+  }
+  // A toggle from ANOTHER surface (combine chips, another tab) while the FIELDS drawer sits
+  // open with staged ticks: mirror it, or Apply would silently undo what just happened.
+  if (viewedCatalogs.has(slug)) { viewedCatalogs.delete(slug); if (_fdStaged) _fdStaged.delete(slug); }
+  else { viewedCatalogs.add(slug); if (_fdStaged) _fdStaged.add(slug); }
+  // Persist the selection so a page reload restores the same multi-library view.
+  try { localStorage.setItem('viewed-catalogs', JSON.stringify([...viewedCatalogs])); } catch (_) {}
+  renderCombineChips();
+  loadCatalog();
+  // Repair follows the selection. ON the repair tab renderRepair handles every
+  // state itself (empty-selection message, first scan, stale-scan rescan prompt).
+  // Off-tab, only refresh existing results (never kick off a scan from another tab).
+  if (typeof renderRepair === 'function') {
+    if (document.body.classList.contains('on-tab-repair')) renderRepair();
+    else if (typeof repairData !== 'undefined' && repairData) renderRepair();
+  }
+  // Analyse is destination-driven since 2026-08-24 — it no longer follows viewedCatalogs.
+}
+// pilot 7883
+let _filterDebounceT = null;
+// pilot 7884
+function applyFiltersDebounced() {
+  clearTimeout(_filterDebounceT);
+  _filterDebounceT = setTimeout(() => applyFilters(), 140);
+}
+// pilot 7915
+function refreshActiveFilterCount() {
+  if (typeof activeFilters === 'undefined') return;
+  const f = activeFilters;
+  let n = 0;
+  if (f.bpmMin > 60   || f.bpmMax  < 200)  n++;
+  if (f.danceMin > 0  || f.danceMax  < 100) n++;
+  if (f.energyMin > 0 || f.energyMax < 100) n++;
+  if (f.durMin > 0    || f.durMax  < 900)  n++;
+  if (f.relMin > 1950 || f.relMax < 2027)  n++;   // Released — was missing from the count
+  if (f.moods?.size)   n++;
+  if (f.modes?.size)   n++;
+  if (f.keys?.size)    n++;
+  if (f.tags?.size)    n++;
+  if (f.genres?.size)  n++;   // set from the Neural genre legend — filters the table too
+  if (f.vocals)        n++;
+  const search = document.getElementById('cat-search');
+  if (search && search.value.trim()) n++;
+  // NOT counted: playbackRange (the preview window). It's a PLAYBACK setting and filters
+  // no tracks — counting it made the badge read "1" with every filter cleared (2026-08-04).
+  const badge = document.getElementById('fb-active-count');
+  if (badge) { badge.textContent = n; badge.classList.toggle('show', n > 0); }
+  // Mirror on the ☰ FILTERS drawer tab — visible even while the drawer is closed, so
+  // "why is half my library missing?" is answerable at a glance.
+  const dBadge = document.getElementById('fd-active-count');
+  if (dBadge) { dBadge.textContent = n; dBadge.classList.toggle('show', n > 0); }
+}
+// pilot 7943
+const MULTI_SELECT_GROUPS = new Set(['mood','mode']);
+// pilot 7945
+function togglePill(el, group) {
+  const val = el.dataset.val;
+  if (!MULTI_SELECT_GROUPS.has(group)) {
+    // Single-select (vocals)
+    el.parentElement.querySelectorAll('.filter-pill').forEach(p => {
+      p.classList.remove('active'); p.style.background=''; p.style.color=''; p.style.borderColor='';
+    });
+    el.classList.add('active');
+    activatePillStyle(el);
+    activeFilters.vocals = val;
+  } else {
+    // Multi-select (mood, mode)
+    const filterKey = group + 's'; // 'mood'→'moods', 'mode'→'modes'
+    const allPill = el.parentElement.querySelector('[data-val=""]');
+    if (val === '') {
+      // Clear all → activate "All"
+      activeFilters[filterKey].clear();
+      el.parentElement.querySelectorAll('.filter-pill').forEach(p => {
+        p.classList.remove('active'); p.style.background=''; p.style.color=''; p.style.borderColor='';
+      });
+      el.classList.add('active'); activatePillStyle(el);
+    } else {
+      // Toggle this value
+      if (activeFilters[filterKey].has(val)) {
+        activeFilters[filterKey].delete(val);
+        el.classList.remove('active'); el.style.background=''; el.style.color=''; el.style.borderColor='';
+      } else {
+        activeFilters[filterKey].add(val);
+        el.classList.add('active'); activatePillStyle(el);
+      }
+      // Sync "All" pill: active only when set is empty
+      if (allPill) {
+        const isEmpty = activeFilters[filterKey].size === 0;
+        allPill.classList.toggle('active', isEmpty);
+        if (isEmpty) activatePillStyle(allPill); else { allPill.style.background=''; allPill.style.color=''; allPill.style.borderColor=''; }
+      }
+    }
+  }
+  applyFilters();
+}
+// pilot 7986
+function activatePillStyle(el) {
+  const pc = el.style.getPropertyValue('--pc') || 'var(--accent)';
+  el.style.background=pc; el.style.color='#000'; el.style.borderColor='transparent';
+}
+// pilot 7992
+document.querySelectorAll('.filter-pill.active').forEach(el => activatePillStyle(el));
+// pilot 7994
+function clearFilters() {
+  // The KEY selection is NOT a filter-panel concern (Mark, 2026-08-05). It belongs to the
+  // ◍ KEY wheel, which has its own Clear in the hub — so the two controls are discrete:
+  // "Clear filters" clears the filter panel, the wheel's Clear clears the wheel. Wiping
+  // the key from here meant clearing a BPM range silently threw away the harmonic
+  // selection the user had built up on the wheel.
+  const keptKeys = (activeFilters && activeFilters.keys) ? activeFilters.keys : new Set();
+  const keptAnchor = activeFilters ? activeFilters._anchor : null;
+  document.getElementById('cat-search').value = '';
+  activeFilters = {
+    moods:new Set(), modes:new Set(), vocals:'',
+    bpmMin:60,    bpmMax:200,
+    danceMin:0,   danceMax:100,
+    energyMin:0,  energyMax:100,
+      durMin:0,     durMax:900,
+    relMin:1950,  relMax:2027,
+    keys:keptKeys, tags:new Set(), genres:new Set()
+  };
+  activeFilters._anchor = keptAnchor;
+  renderTagFilterRow();
+  // Reset every dual-range filter to its full span
+  document.querySelectorAll('.dual-range').forEach(dr => {
+    const low = dr.querySelector('.dr-low'), high = dr.querySelector('.dr-high');
+    low.value = low.min; high.value = high.max;
+    refreshDualRange(dr);
+  });
+  document.querySelectorAll('.filter-pills').forEach(g => {
+    g.querySelectorAll('.filter-pill').forEach((p,i) => {
+      p.classList.toggle('active', i===0);
+      if (i===0) activatePillStyle(p); else { p.style.background=''; p.style.color=''; p.style.borderColor=''; }
+    });
+  });
+  updateKeyCount();
+  renderCamelotWheel();
+  // (Ring bias deliberately NOT reset here — it is a wheel setting, and the wheel's own
+  //  Clear owns it. See clearKeyFilter.)
+  // Genre filters live in the Neural legend's checkboxes — re-render it so the
+  // just-cleared genre set is reflected visually there too (only when it's showing genre).
+  const nColorSel = document.getElementById('n-color');
+  if (nColorSel && nColorSel.value === 'genre' && typeof updateNeuralLegend === 'function') {
+    try { updateNeuralLegend('genre'); } catch (_) {}
+  }
+  applyFilters();
+}
+// pilot 8041
+function refreshDualRange(container) {
+  const key  = container.dataset.key;
+  const low  = container.querySelector('.dr-low');
+  const high = container.querySelector('.dr-high');
+  let lv = +low.value, hv = +high.value;
+  if (lv > hv) { [lv, hv] = [hv, lv]; low.value = lv; high.value = hv; }
+  const min = +low.min, max = +low.max;
+  const fillFrom = ((lv - min) / (max - min)) * 100;
+  const fillTo   = ((hv - min) / (max - min)) * 100;
+  container.style.setProperty('--fill-from', fillFrom + '%');
+  container.style.setProperty('--fill-to',   fillTo   + '%');
+  // Numeric entry fields flank the slider — dragging writes back into them, so the
+  // typed value and the thumb position can never disagree. Skip the field the user
+  // is currently typing into, or we'd yank the caret mid-edit.
+  const numLo = document.getElementById(`f-${key}-num-lo`);
+  const numHi = document.getElementById(`f-${key}-num-hi`);
+  if (numLo) {
+    if (document.activeElement !== numLo) numLo.value = lv;
+    numLo.classList.toggle('mb-num-set', lv > min);
+  }
+  if (numHi) {
+    if (document.activeElement !== numHi) numHi.value = hv;
+    numHi.classList.toggle('mb-num-set', hv < max);
+  }
+  // Map data-key → activeFilters keys
+  const capKey = key === 'dur' ? 'dur' : key;
+  activeFilters[`${capKey}Min`] = lv;
+  activeFilters[`${capKey}Max`] = hv;
+}
+// pilot 8070
+document.querySelectorAll('.dual-range').forEach(container => {
+  const low  = container.querySelector('.dr-low');
+  const high = container.querySelector('.dr-high');
+  const handler = which => () => {
+    let lv = +low.value, hv = +high.value;
+    // Enforce min-gap of 1 so thumbs never cross
+    if (which === 'low'  && lv > hv - 1) low.value  = Math.max(+low.min,  hv - 1);
+    if (which === 'high' && hv < lv + 1) high.value = Math.min(+high.max, lv + 1);
+    refreshDualRange(container);
+    applyFilters();
+  };
+  low.addEventListener('input',  handler('low'));
+  high.addEventListener('input', handler('high'));
+  refreshDualRange(container);
 
-export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast };
+  // Per-thumb tooltips derived from the metric. The minimum thumb raises the floor
+  // (hide tracks below this value); the maximum thumb lowers the ceiling.
+  const key = container.dataset.key || '';
+  const label = ({
+    bpm:     'BPM',
+    dance:   'danceability %',
+    energy:  'energy %',
+    dur:     'duration (s)',
+  })[key] || key;
+  if (!low.hasAttribute('title'))  low.title  = `Minimum ${label} — drag right to hide quieter / slower tracks below this value.`;
+  if (!high.hasAttribute('title')) high.title = `Maximum ${label} — drag left to hide louder / faster tracks above this value.`;
+
+  // ── Manual numeric entry ──────────────────────────────────────────
+  // Commit on Enter or blur (NOT on every keystroke — typing "150" would otherwise
+  // apply "1" then "15" and refilter the whole field twice for nothing). Arrow keys
+  // and the mouse wheel step live, since those are already discrete intents.
+  const numLo = document.getElementById(`f-${key}-num-lo`);
+  const numHi = document.getElementById(`f-${key}-num-hi`);
+  const commit = (el, which) => {
+    const bound = which === 'low' ? low : high;
+    let v = parseFloat(el.value);
+    if (!isFinite(v)) { refreshDualRange(container); return; }   // gibberish → snap back
+    v = Math.round(Math.max(+bound.min, Math.min(+bound.max, v)));
+    // Keep the 1-unit gap the thumbs enforce, so entry can't invert the range
+    if (which === 'low')  v = Math.min(v, +high.value - 1);
+    else                  v = Math.max(v, +low.value  + 1);
+    bound.value = v;
+    refreshDualRange(container);
+    applyFilters();
+  };
+  [[numLo,'low'], [numHi,'high']].forEach(([el, which]) => {
+    if (!el) return;
+    el.addEventListener('change', () => commit(el, which));
+    el.addEventListener('focus',  () => el.select());
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+      if (e.key === 'Escape') { e.preventDefault(); refreshDualRange(container); el.blur(); }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        // Native number-input stepping fires no 'change' until blur — commit now
+        setTimeout(() => commit(el, which), 0);
+      }
+      e.stopPropagation();   // never let filter typing reach the WASD / arrow flight keys
+    });
+    el.addEventListener('keyup',   e => e.stopPropagation());
+    el.addEventListener('keypress',e => e.stopPropagation());
+  });
+});
+// pilot 8343
+function openFieldPicker(btnId) {
+  const popup = document.getElementById('field-picker');
+  _fpStaged = new Set(viewedCatalogs);
+  renderFieldChecks();   // fill #field-picker-list with the current selection
+  // Position near button (right-edge clamped), same as the Columns picker.
+  const btn  = document.getElementById(btnId);
+  const rect = btn.getBoundingClientRect();
+  popup.style.display = 'block';
+  const pw = popup.offsetWidth;
+  let left = rect.left;
+  if (left + pw > window.innerWidth - 12) left = window.innerWidth - pw - 12;
+  popup.style.left = left + 'px';
+  popup.style.top  = (rect.bottom + 6) + 'px';
+}
+// pilot 10563
+let camelotCompatDir  = 'sym';   // 'sym' | 'up' | 'down'
+// pilot 10789
+const WHEEL_NOTATIONS = ['openkey', 'camelot', 'standard'];
+// pilot 10796
+function cycleWheelNotation() {
+  const i = WHEEL_NOTATIONS.indexOf(wheelNotation);
+  setWheelNotation(WHEEL_NOTATIONS[(i + 1) % WHEEL_NOTATIONS.length]);
+}
+// pilot 10809
+function setWheelNotation(mode) {
+  if (mode !== 'standard' && mode !== 'camelot' && mode !== 'openkey') return;
+  wheelNotation = mode;
+  try { localStorage.setItem('wheel-notation', mode); } catch (_) {}
+  document.querySelectorAll('#cw-notation .cwn-stop').forEach(b => {
+    b.classList.toggle('active', b.dataset.val === mode);
+  });
+  _syncNotationCycleBtn();
+  if (typeof renderCamelotWheel === 'function') renderCamelotWheel();
+}
+// pilot 10870
+function currentAnchorCamelotKey() {
+  try {
+  let trackId = null;
+  if (typeof neuralRingIdx !== 'undefined' && neuralRingIdx >= 0 && neuralNodeData?.[neuralRingIdx]) {
+    if (neuralNodeData[neuralRingIdx].camelot) return neuralNodeData[neuralRingIdx].camelot;
+    trackId = neuralNodeData[neuralRingIdx].catalogId;
+  }
+  if (!trackId && typeof audioCurrentId !== 'undefined' && audioCurrentId) trackId = audioCurrentId;
+  if (!trackId && typeof anchorTrackId === 'function') {
+    // anchorTrackId reads activePlaylist (declared with let in script #3) — guard against
+    // ReferenceError when this is called from script #2's init path before that runs.
+    try { trackId = anchorTrackId(); } catch (_) { trackId = null; }
+  }
+  if (!trackId || typeof catalog === 'undefined') return null;
+  const ent = catalog.find(e => e.id === trackId);
+  if (!ent?.data?.harmony) return null;
+  return noteToCamelot(ent.data.harmony.root, ent.data.harmony.mode);
+  } catch (_) { return null; }
+}
+// pilot 10890
+function setCompatMode(v) {
+  camelotCompatMode = v;
+  // Drive the gearstick visuals: the data-mode attribute slides the ball + colours the stop
+  const modes = document.getElementById('cw-modes');
+  if (modes) modes.dataset.mode = v;
+  // Switching AWAY from Manual with no anchor set yet → auto-seed from current node
+  if (v !== 'off' && (!activeFilters._anchor || !activeFilters.keys.size)) {
+    const auto = currentAnchorCamelotKey();
+    if (auto) {
+      activeFilters._anchor = auto;
+      activeFilters.keys = compatKeys(auto);
+      updateKeyCount();
+      renderCamelotWheel();
+      applyFilters();
+    }
+  }
+  reapplyKeySelectionIfAuto();
+  // Camelot wheel is the single source for matrix edges too — rebuild if neural is up.
+  if (typeof rebuildGraph === 'function' && typeof neuralMeshes !== 'undefined' && neuralMeshes.length) {
+    rebuildGraph();
+  }
+}
+// pilot 10914
+function reapplyKeySelectionIfAuto() {
+  // Re-derive the set from whatever single anchor key the user previously picked
+  if (camelotCompatMode === 'off' || !activeFilters.keys.size) return;
+  // Find an anchor: smallest set member by current selection order — pick any
+  // We treat the anchor as the previously stored one, or just use the first
+  const anchor = activeFilters._anchor || [...activeFilters.keys][0];
+  activeFilters._anchor = anchor;
+  activeFilters.keys = compatKeys(anchor);
+  updateKeyCount();
+  renderCamelotWheel();
+  applyFilters();
+}
+// pilot 10955
+function compatKeys(id) { return compatKeysFor(id, camelotCompatMode, camelotCompatDir); }
+// pilot 10963
+let camelotRingBias = 'both';   // 'both' | 'dark' | 'light'
+// pilot 10991
+function _applyRingBias() {
+  activeFilters.modes = new Set(
+    camelotRingBias === 'dark' ? ['minor'] : camelotRingBias === 'light' ? ['major'] : []);
+  applyFilters();
+}
+// pilot 10996
+function _syncModeIconUI() {
+  const m = document.getElementById('cw-modes');
+  if (!m) return;
+  m.dataset.bias = camelotRingBias;
+  m.querySelectorAll('.cw-stop').forEach(b => {
+    const active = b.dataset.val === camelotCompatMode;
+    b.classList.toggle('bias-dark',  active && camelotRingBias === 'dark');
+    b.classList.toggle('bias-light', active && camelotRingBias === 'light');
+  });
+}
+// pilot 11006
+function onModeIconClick(v) {
+  if (camelotCompatMode !== v) {
+    camelotRingBias = 'both';
+    _applyRingBias();
+    setCompatMode(v);
+  } else {
+    camelotRingBias = camelotRingBias === 'both' ? 'dark'
+                    : camelotRingBias === 'dark' ? 'light' : 'both';
+    _applyRingBias();
+    if (typeof showToast === 'function')
+      showToast(camelotRingBias === 'dark'  ? 'Dark — minor keys only'
+              : camelotRingBias === 'light' ? 'Light — major keys only'
+              : 'All modes', { subtle: true });
+  }
+  _syncModeIconUI();
+}
+// pilot 11102
+function clearKeyFilter() {
+  // Clear = back to "just where I am": select ONLY the current track's key (Mark,
+  // 2026-08-03). No current track → empty selection (all keys shown). Always Manual.
+  camelotCompatMode = 'off';
+  // Ring bias moved here from clearFilters — it's a wheel setting, so the wheel's Clear
+  // owns it and the filter panel's Clear leaves it alone.
+  if (typeof camelotRingBias !== 'undefined') camelotRingBias = 'both';
+  const m = document.getElementById('cw-modes');
+  if (m) m.dataset.mode = 'off';
+  if (typeof _syncModeIconUI === 'function') _syncModeIconUI();
+  activeFilters._anchor = null;
+  activeFilters.keys.clear();
+  // Clear now clears EVERYTHING — no key stays hard-selected (Mark, 2026-08-04).
+  // The current track's key still reads on the wheel, but as the SOFT .cam-current
+  // outline only: "you are here", not "this is filtering". Previously Clear re-selected
+  // the current key, which left a filter active behind a button that says Clear.
+  updateKeyCount();
+  renderCamelotWheel();
+  syncKeyViewToFilter();
+  applyFilters();
+}
+// pilot 11128
+function syncKeyViewToFilter() {
+  if (typeof applyHighVisibility === 'function') applyHighVisibility();
+}
+// pilot 11132
+function camelotClick(e) {
+  let el = e.target;
+  while (el && el !== e.currentTarget) {
+    if (el.dataset && el.dataset.key) { toggleCamelotKey(el.dataset.key); return; }
+    el = el.parentElement;
+  }
+}
+// pilot 11140
+function toggleCamelotKey(id) {  // e.g. '8B', '5A'
+  // Touching the wheel = Manual mode, always (Mark, 2026-08-03). If a compat mode was
+  // active, its computed selection stays as the base and the clicked key toggles on top;
+  // Manual only ends via Clear or one of the four mode pads.
+  if (camelotCompatMode !== 'off') {
+    camelotCompatMode = 'off';
+    const m = document.getElementById('cw-modes');
+    if (m) m.dataset.mode = 'off';
+    if (typeof _syncModeIconUI === 'function') _syncModeIconUI();
+  }
+  activeFilters._anchor = null;
+  if (activeFilters.keys.has(id)) activeFilters.keys.delete(id);
+  else activeFilters.keys.add(id);
+  updateKeyCount();
+  renderCamelotWheel();
+  syncKeyViewToFilter();
+  applyFilters();
+}
+// pilot 11160
+function updateKeyCount() {
+  const n   = activeFilters.keys.size;
+  const lbl = document.getElementById('kp-selected-label');
+  if (lbl) {
+    if (n === 0) {
+      lbl.textContent = 'No keys selected — showing all';
+    } else {
+      const names = [...activeFilters.keys].sort((a,b) => {
+        const pa=parseInt(a), pb=parseInt(b);
+        return pa!==pb ? pa-pb : a.slice(-1).localeCompare(b.slice(-1));
+      });
+      lbl.textContent = names.join('  ·  ');
+    }
+  }
+}
+// pilot 11176
+function renderCamelotWheel() {
+  const svg = document.getElementById('camelot-svg');
+  if (!svg) return;
+
+  const rInner = 42, rMid = 110, rOuter = 172;
+  const GAP_DEG = 1.5; // gap on each side of segment
+
+  function seg(r1, r2, posIdx, ring) {
+    const centerDeg = -90 + posIdx * 30;
+    const s = (centerDeg - 15 + GAP_DEG) * Math.PI / 180;
+    const e = (centerDeg + 15 - GAP_DEG) * Math.PI / 180;
+    const cos = Math.cos, sin = Math.sin;
+    const x1=r1*cos(s),y1=r1*sin(s), x2=r2*cos(s),y2=r2*sin(s);
+    const x3=r2*cos(e),y3=r2*sin(e), x4=r1*cos(e),y4=r1*sin(e);
+    const id = `${CAMELOT[posIdx].pos}${ring}`;
+    const selected = activeFilters.keys.has(id);
+    const hue = posIdx * 30;
+
+    let fill;
+    // Saturation cranked across the board so the wheel reads as a full colour spectrum
+    // at rest, not a muted grid. Lightness kept low on unselected so the colour is
+    // present but doesn't compete with selected / hover states.
+    // The wheel is CHROME, so it follows the app skin (not the field skin). Unselected
+    // keys are a quiet tint of their hue — pale on paper, deep on black — and selected
+    // keys go to full strength. Label ink flips with the fill so it stays legible in
+    // every combination. Hardcoding the light values left a glaring white wheel on the
+    // dark skin (2026-08-05).
+    const _skin = document.documentElement.getAttribute('data-skin');
+    const darkSkin = _skin === 'dark' || _skin === 'vintage';
+    // Vintage keys are aged — lower saturation than dark's neon, same depth logic.
+    const _sat = _skin === 'vintage';
+    if (selected) {
+      fill = ring==='A' ? `hsl(${hue},${darkSkin?(_sat?'64%,46%':'92%,52%'):'64%,44%'})` : `hsl(${hue},${darkSkin?(_sat?'58%,40%':'88%,46%'):'58%,38%'})`;
+    } else {
+      fill = ring==='A' ? `hsl(${hue},${darkSkin?(_sat?'40%,19%':'60%,20%'):'46%,84%'})` : `hsl(${hue},${darkSkin?(_sat?'36%,15%':'54%,16%'):'40%,88%'})`;
+    }
+    const textCol = darkSkin ? (_sat ? '#F7EDDA' : '#FFFFFF') : (selected ? '#FFFFFF' : '#1C1917');
+
+    const path = `M${x1},${y1} L${x2},${y2} A${r2},${r2} 0 0,1 ${x3},${y3} L${x4},${y4} A${r1},${r1} 0 0,0 ${x1},${y1} Z`;
+    const rMidSeg  = (r1 + r2) / 2;
+    const angleMid = (centerDeg) * Math.PI / 180;
+    const lx = rMidSeg * cos(angleMid), ly = rMidSeg * sin(angleMid);
+    const c   = CAMELOT[posIdx];
+    const note = c[ring].label;
+
+    // Rotate text to be radial (readable from outside)
+    const rotDeg = centerDeg + (centerDeg > 90 || centerDeg < -90 ? 180 : 0);
+
+    // Notation: 'standard' shows note+mode (bigger letter); 'camelot' shows position+ring.
+    // Only one is rendered at a time so each label has room to breathe.
+    const useCamelot = wheelNotation === 'camelot' || wheelNotation === 'openkey';
+    const posTxt = wheelNotation === 'openkey'
+      ? `${CAMELOT[posIdx].open}${ring === 'A' ? 'm' : 'd'}`
+      : `${CAMELOT[posIdx].pos}${ring}`;
+    // No maj/min sub-label (Mark, 2026-08-28): the words were dead weight in every
+    // notation. Note names carry minor as an m suffix (Am vs A) — the same convention
+    // as the List's Key column; the ring's position already says the rest. Full words
+    // stay in the segment's tooltip.
+    // Inner-ring labels sized to their segment, not to the outer ring (Mark, 2026-08-28:
+    // "too squashed at this size"): the minor ring's arcs are ~40% smaller, so its note
+    // sits at 15px with the m as a lighter 10px suffix instead of a full-height character
+    // — three glyphs no longer collide with their neighbours at small wheel sizes.
+    const labels = useCamelot
+      ? `<text class="cam-pos" x="0" y="0" text-anchor="middle" dominant-baseline="middle"
+            font-size="${ring==='A'?'15':'19'}" font-weight="600" fill="${textCol}" pointer-events="none">${posTxt}</text>`
+      : ring === 'A'
+      ? `<text class="cam-note" x="0" y="0" text-anchor="middle" dominant-baseline="middle"
+            font-size="15" font-weight="600" fill="${textCol}" pointer-events="none">${note}<tspan font-size="10" opacity=".85" dy="1">m</tspan></text>`
+      : `<text class="cam-note" x="0" y="0" text-anchor="middle" dominant-baseline="middle"
+            font-size="21" font-weight="600" fill="${textCol}" pointer-events="none">${note}</text>`;
+
+    return `<g data-key="${id}" class="cam-key" style="cursor:pointer">
+      <path d="${path}" fill="${fill}" stroke="var(--bg)" stroke-width="1.5">
+        <title>${c.pos}${ring} · ${note} ${ring==='A'?'minor':'major'}</title>
+      </path>
+      <g transform="rotate(${centerDeg+90},${lx},${ly}) translate(${lx},${ly})">
+        ${labels}
+      </g>
+    </g>`;
+  }
+
+  // Position numbers on the dividing ring at r=98
+  function posNum(posIdx) {
+    const angleDeg = -90 + posIdx * 30;
+    const a = angleDeg * Math.PI / 180;
+    const r = rMid;
+    const x = r * Math.cos(a), y = r * Math.sin(a);
+    return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle"
+      font-size="10" font-weight="500" fill="var(--muted)" opacity=".5" pointer-events="none">${CAMELOT[posIdx].pos}</text>`;
+  }
+
+  const segments = CAMELOT.map((_, i) => seg(rInner, rMid, i, 'A') + seg(rMid, rOuter, i, 'B')).join('');
+  const nums     = CAMELOT.map((_, i) => posNum(i)).join('');
+
+  svg.innerHTML = `
+    ${segments}
+    ${nums}
+    <circle r="${rInner}" fill="var(--surface2)" stroke="var(--border)" stroke-width="1"/>
+    <g id="kp-halo" style="pointer-events:none"></g>`;
+  attachCamelotHover();
+  // Auto-highlight the segment that matches the currently-anchored / playing track so the
+  // wheel always shows "you are HERE" even when no key filter is active.
+  syncCamelotCurrent();
+}
+// pilot 11282
+function syncCamelotCurrent() {
+  const svg = document.getElementById('camelot-svg');
+  if (!svg) return;
+  svg.querySelectorAll('.cam-current').forEach(g => g.classList.remove('cam-current'));
+  const cam = (typeof currentAnchorCamelotKey === 'function') ? currentAnchorCamelotKey() : null;
+  if (!cam) return;
+  const g = svg.querySelector(`g[data-key="${cam}"]`);
+  if (g) g.classList.add('cam-current');
+}
+// pilot 11293
+function safeNeighbors(id) {
+  const pos = parseInt(id), ring = id.slice(-1), other = ring === 'A' ? 'B' : 'A';
+  const prev = pos === 1 ? 12 : pos - 1, next = pos === 12 ? 1 : pos + 1;
+  return new Set([id, `${pos}${other}`, `${prev}${ring}`, `${next}${ring}`]);
+}
+// pilot 11299
+let camHoveredKey = null;
+// pilot 11300
+function attachCamelotHover() {
+  const svg = document.getElementById('camelot-svg');
+  if (!svg || svg._hoverAttached) return;
+  svg._hoverAttached = true;
+  svg.addEventListener('mousemove', e => {
+    const g = e.target.closest('[data-key]');
+    const k = g?.dataset?.key || null;
+    if (k === camHoveredKey) return;
+    camHoveredKey = k;
+    if (k) showSafeHalo(k); else hideSafeHalo();
+  });
+  svg.addEventListener('mouseleave', () => {
+    camHoveredKey = null;
+    hideSafeHalo();
+  });
+}
+// pilot 11317
+function showSafeHalo(id) {
+  // Gentle text-highlight: the hovered key + every compatible neighbour gets a brighter
+  // text-fill via .cam-suggested / .cam-anchor classes (CSS rules near the wheel styles).
+  // The old neon-arc overlay was too loud at the demo zoom.
+  clearCamelotHighlight();
+  const svg  = document.getElementById('camelot-svg');
+  if (!svg) return;
+  const keys = camelotCompatMode === 'off' ? safeNeighbors(id) : compatKeys(id);
+  svg.querySelectorAll('g[data-key]').forEach(g => {
+    const k = g.dataset.key;
+    if (k === id)       g.classList.add('cam-anchor');
+    else if (keys.has(k)) g.classList.add('cam-suggested');
+  });
+}
+// pilot 11332
+function hideSafeHalo() { clearCamelotHighlight(); }
+// pilot 11334
+function clearCamelotHighlight() {
+  const svg = document.getElementById('camelot-svg');
+  if (!svg) return;
+  svg.querySelectorAll('.cam-anchor, .cam-suggested')
+     .forEach(g => g.classList.remove('cam-anchor', 'cam-suggested'));
+}
+// pilot 14582
+function _syncEdgeToggles() {
+  const ringsOn = neuralEdgeStyle === 'rings' || neuralEdgeStyle === 'both';
+  const linesOn = neuralEdgeStyle === 'lines' || neuralEdgeStyle === 'both';
+  const r = document.getElementById('edge-toggle-rings');
+  const l = document.getElementById('edge-toggle-lines');
+  if (r) r.classList.toggle('on', ringsOn);
+  if (l) l.classList.toggle('on', linesOn);
+}
+// pilot 14591
+function toggleEdgeFeature(feature) {
+  if (!['rings','lines'].includes(feature)) return;
+  let ringsOn = neuralEdgeStyle === 'rings' || neuralEdgeStyle === 'both';
+  let linesOn = neuralEdgeStyle === 'lines' || neuralEdgeStyle === 'both';
+  if (feature === 'rings') ringsOn = !ringsOn;
+  if (feature === 'lines') linesOn = !linesOn;
+  neuralEdgeStyle = (ringsOn && linesOn) ? 'both'
+                   : ringsOn            ? 'rings'
+                   : linesOn            ? 'lines'
+                                        : 'none';
+  localStorage.setItem('neural-edge-style', neuralEdgeStyle);
+  _syncEdgeToggles();
+  if (typeof refreshNeuralEdgeHighlight === 'function') refreshNeuralEdgeHighlight();
+}
+// pilot 16628
+function toggleFilterFold() {
+  // On the LIST tab the fold is HORIZONTAL (Mark, 2026-08-28): the whole sidebar column
+  // collapses to a slim rail and the table takes the width. Elsewhere (playlists
+  // sidebar) the old vertical fold stands.
+  if (document.body.classList.contains('on-tab-catalog')) {
+    const on = !document.body.classList.contains('list-filters-collapsed');
+    document.body.classList.toggle('list-filters-collapsed', on);
+    try { localStorage.setItem('list-filters-collapsed', on ? '1' : '0'); } catch (_) {}
+    return;
+  }
+  // Only ever the sidebar copy — the drawer must never end up folded (see the CSS note).
+  const bar = document.querySelector('.tab-sidebar .filter-bar');
+  if (!bar) return;
+  const folded = !bar.classList.contains('folded');
+  bar.classList.toggle('folded', folded);
+  try { localStorage.setItem('filters-folded', folded ? '1' : '0'); } catch (_) {}
+}
+// pilot 18480
+renderCamelotWheel();
+// pilot 18481
+renderTagFilterRow();
+
+// ── Catalogue edits used by the List (they write state this module owns) ──
+// pilot 7804
+async function moveEntry(id, fromSlug, sel) {
+  const toSlug = sel.value; sel.value = '';
+  if (!toSlug) return;
+  const form = new FormData();
+  form.append('from', fromSlug);
+  form.append('to', toSlug);
+  const res  = await fetch(`/catalog/${id}/move`, { method:'POST', body:form });
+  const data = await res.json();
+  if (data.error) { showToast(data.error); return; }
+  const entry = catalog.find(c => c.id === id);
+  if (entry) entry._cat = toSlug;
+  const fm = allCatalogs.find(c => c.slug === fromSlug);
+  const tm = allCatalogs.find(c => c.slug === toSlug);
+  if (fm && fm.count > 0) fm.count--;
+  if (tm) tm.count++;
+  renderCatSelector();
+  if (!viewedCatalogs.has(toSlug)) catalog = catalog.filter(c => c.id !== id);
+  updateTabCounts(); applyFilters();
+}
+// pilot 8251
+async function deleteCatalogEntry(id, e) {
+  e.stopPropagation();
+  const entry = catalog.find(c => c.id === id);
+  // Entry deletion IS snapshotted server-side (repair_undo_entries restores) and the ×
+  // sits right next to the rescan button — confirm, and only mutate local state when
+  // the server actually deleted it.
+  if (!confirm(`Remove "${entry?.filename || 'this track'}" from the Field?\n\nOnly the catalog entry is removed — the audio file stays on disk.`)) return;
+  const cat   = entry?._cat || activeCatalog;
+  try {
+    const r = await fetch(`/catalog/${id}?cat=${cat}`, { method:'DELETE' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return showToast(err.error || `Delete failed (${r.status})`);
+    }
+  } catch (err) {
+    return showToast('Delete failed: ' + (err.message || err));
+  }
+  catalog = catalog.filter(c => c.id !== id);
+  window.listForgetExpanded?.(id);   // the List owns its expanded row
+  updateTabCounts(); applyFilters();
+}
+// pilot 13272
+function markFieldStale(opts) {
+  window._neuralCatalogSig = null;
+  window._neuralGraphDirty = true;
+  if (opts && opts.vec) {
+    _vecGen++;
+    _vecCache = null; _vecAdjCache = null;
+    _vecComputed = { pca:null, tsne:null, clusters:null, sim:null };
+  }
+  if ((!opts || opts.live !== false) && typeof neuralActive !== 'undefined' && neuralActive
+      && typeof neuralScene !== 'undefined' && neuralScene && typeof rebuildGraph === 'function') {
+    rebuildGraph();
+  }
+}
+
+// Inline on*="" handlers and generated markup call these by global name.
+Object.assign(window, { moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, adoptPlaylistStrays, audioPlayById, matrixCommitIdx, renderCatalog, renderRepair, returnToAnchor, setMode, syncTransportPos });
+
+export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation };

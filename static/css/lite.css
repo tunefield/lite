@@ -43,3 +43,10 @@
 .field-empty p { font-size: 18px; margin: 0; }
 #tab-neural { position: relative; }
 .field-empty .an-add { align-self: center; }
+
+/* List: filters on the left, table on the right. */
+.list-layout { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 16px; align-items: start; }
+.list-side .filter-bar { flex-direction: column !important; gap: 14px !important; }
+.list-main { min-width: 0; }
+@media (max-width: 900px) { .list-layout { grid-template-columns: 1fr; } }
+body .list-side .filter-bar .fb-rows > .fb-metrics > .metric-box { flex: none; }   /* its 158px basis is a width in a row; in this column it became a height */

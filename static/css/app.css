@@ -1400,7 +1400,7 @@ body.neural-focus-on     #matrix-focus-btn {
    each one into a vertical marker on the 4px track. The separator border drops 1.5px →
    1px: at this width a 1.5px ring either side ate more than half the fill. */
 .dual-range, .sp-range-wrap { --thumb-w:5px; }
-#filters-drawer .dual-range { --thumb-w:4px; }   /* 13px-tall pair, same 30% */
+:is(#filters-drawer, .list-side) .dual-range { --thumb-w:4px; }   /* 13px-tall pair, same 30% */
 .dual-range input[type=range]::-webkit-slider-thumb,
 .sp-range-wrap input[type=range]::-webkit-slider-thumb {
   -webkit-appearance:none; pointer-events:auto; width:var(--thumb-w); height:18px; border-radius:50%;
@@ -2648,26 +2648,26 @@ body.fp-right #tab-neural.active {
 .edge-drawer .drawer-body::-webkit-scrollbar-track { background:transparent; }
 .edge-drawer .drawer-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:0; }
 .edge-drawer .drawer-body::-webkit-scrollbar-thumb:hover { background:var(--muted); }
-#filters-drawer .filter-bar { flex-direction:column !important; gap:6px !important; position:static !important; }
+:is(#filters-drawer, .list-side) .filter-bar { flex-direction:column !important; gap:6px !important; position:static !important; }
 /* The drawer card is the ONLY frame — strip the filter-bar's own sidebar-pane chrome
    (border/background/padding) so there's no panel-inside-a-panel dead band. */
-#filters-drawer .filter-bar.sidebar-pane {
+:is(#filters-drawer, .list-side) .filter-bar.sidebar-pane {
   background:transparent !important; border:none !important;
   box-shadow:none; padding:0 !important; margin:0 !important;
   border-radius:0!important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
 }
-#filters-drawer .fb-header { display:none; }        /* the drawer tab already says FILTERS + badge */
-#filters-drawer .fb-rows { gap:6px !important; }
-#filters-drawer .filter-bar .filter-row { margin:0; gap:8px; flex-wrap:nowrap; align-items:center; }
+:is(#filters-drawer, .list-side) .fb-header { display:none; }        /* the drawer tab already says FILTERS + badge */
+:is(#filters-drawer, .list-side) .fb-rows { gap:6px !important; }
+:is(#filters-drawer, .list-side) .filter-bar .filter-row { margin:0; gap:8px; flex-wrap:nowrap; align-items:center; }
 /* One straight label column (Mark, 2026-08-26): same width, left-aligned everywhere. */
-#filters-drawer .filter-label, .metric-box .filter-label { width:66px; text-align:left; flex:none; }
+:is(#filters-drawer, .list-side) .filter-label, .metric-box .filter-label { width:66px; text-align:left; flex:none; }
 .metric-box-stacked .mb-header { justify-content:flex-start; }
 .metric-box-stacked .mb-header .mb-num-hi { margin-left:auto; }
-#filters-drawer .filter-label { width:60px; flex-shrink:0; font-size:9px; letter-spacing:.07em; }
-#filters-drawer .search-input { max-width:none; min-width:0; font-size:12px; padding:5px 10px; }
-#filters-drawer .filter-clear { margin-left:0; font-size:10px; padding:3px 7px; white-space:nowrap; }
-#filters-drawer .filter-pills { gap:3px; }
-#filters-drawer .filter-pill { font-size:10px; padding:3px 6px; }
+:is(#filters-drawer, .list-side) .filter-label { width:60px; flex-shrink:0; font-size:9px; letter-spacing:.07em; }
+:is(#filters-drawer, .list-side) .search-input { max-width:none; min-width:0; font-size:12px; padding:5px 10px; }
+:is(#filters-drawer, .list-side) .filter-clear { margin-left:0; font-size:10px; padding:3px 7px; white-space:nowrap; }
+:is(#filters-drawer, .list-side) .filter-pills { gap:3px; }
+:is(#filters-drawer, .list-side) .filter-pill { font-size:10px; padding:3px 6px; }
 /* ── ONE filter row, everywhere ────────────────────────────────────────────
    These rules used to be scoped to #filters-drawer. The filter bar is REPARENTED
    between the drawer and the tab sidebar (moveFilterBarToActiveTab), so outside the
@@ -2727,11 +2727,11 @@ body.fp-right #tab-neural.active {
 /* Off-default value = this end of the range is actually filtering something */
 .mb-num.mb-num-set { color:var(--metric-color, var(--accent)); font-weight:700; }
 /* Slimmer thumbs to match the tighter rows */
-#filters-drawer .dual-range input[type=range] { height:20px; }
-#filters-drawer .dual-range input[type=range]::-webkit-slider-thumb {
+:is(#filters-drawer, .list-side) .dual-range input[type=range] { height:20px; }
+:is(#filters-drawer, .list-side) .dual-range input[type=range]::-webkit-slider-thumb {
   width:var(--thumb-w); height:13px; margin-top:-4.5px; border-width:1px;
 }
-#filters-drawer .dual-range input[type=range]::-moz-range-thumb { width:var(--thumb-w); height:13px; border-width:1px; }
+:is(#filters-drawer, .list-side) .dual-range input[type=range]::-moz-range-thumb { width:var(--thumb-w); height:13px; border-width:1px; }
 
 .neural-toolbar {
   /* z-index 7 (> wheel slot's 6): at short window heights the bottom-anchored Camelot

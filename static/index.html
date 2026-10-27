@@ -16,6 +16,7 @@
   <nav class="hd-tabs tab-bar">
     <button class="tab-btn" id="tab-analyse-btn" onclick="switchTab('analyse')">Analyse</button>
     <button class="tab-btn" id="tab-neural-btn" onclick="switchTab('neural')">Field <span class="tab-count" id="tab-neural-count">0</span></button>
+    <button class="tab-btn" id="tab-catalog-btn" onclick="switchTab('catalog')">List <span class="tab-count" id="tab-catalog-count">0</span></button>
   </nav>
 </header>
 
@@ -58,6 +59,185 @@
       <div id="lib-roots-list"></div>
     </section>
   </div>
+</div>
+
+<div class="tab-panel" id="tab-catalog">
+ <div class="list-layout">
+  <aside class="list-side" id="list-filter-slot">
+  <div class="filter-bar sidebar-pane" style="flex-direction:row;align-items:flex-start;gap:20px;position:relative">
+    <!-- Fold toggle restored 2026-08-04 (Mark). It was dropped on 08-03 because the
+         Field tab keeps its filters in the ☰ FILTERS drawer, which opens and closes
+         itself — but that reasoning only covered that one tab. In the List / Playlists
+         sidebar the panel is always expanded and eats the column, with no way to collapse
+         it. The header is now the control; it's hidden inside the drawer, so this only
+         ever appears where it's needed. -->
+    <button class="fb-header" id="fb-fold-btn" onclick="toggleFilterFold()"
+            title="Fold the filters away — the active-filter count stays visible so you can see at a glance whether anything is still filtering.">
+      <svg class="fb-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/></svg>
+      <span class="fb-title">Filters</span>
+      <span class="fb-active-count" id="fb-active-count"></span>
+    </button>
+
+    <!-- Left: filter rows -->
+    <div class="fb-rows" style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
+      <div class="filter-row">
+        <span class="filter-label" title="Substring match against the displayed filename — case-insensitive">Search</span>
+        <input class="search-input" id="cat-search" type="text" placeholder="Track name…" oninput="applyFiltersDebounced()" title="Filter by the track's displayed name — case-insensitive substring">
+        <span class="filter-clear" onclick="clearFilters()" title="Reset every filter to its default">Clear filters</span>
+        <!-- Export button relocated into the table toolbar — see #c-export-btn there -->
+      </div>
+      <div class="filter-row">
+        <span class="filter-label" title="Four coarse mood bands — loudness (gentle↔loud) crossed with a bright/dark feel estimate">Mood</span>
+        <div class="filter-pills" id="fp-mood">
+          <span class="filter-pill active" data-val="" style="--pc:#7c6cff" onclick="togglePill(this,'mood')" title="Show tracks of any mood">All</span>
+          <span class="filter-pill" data-val="euphoric"    style="--pc:#ffd700" onclick="togglePill(this,'mood')" title="Loud and bright — uplifting">Euphoric</span>
+          <span class="filter-pill" data-val="intense"     style="--pc:#ff4444" onclick="togglePill(this,'mood')" title="Loud and dark — driving, powerful">Intense</span>
+          <span class="filter-pill" data-val="upbeat"      style="--pc:#44dd88" onclick="togglePill(this,'mood')" title="Gentle and bright — warm, groovy, chill">Upbeat</span>
+          <span class="filter-pill" data-val="melancholic" style="--pc:#4488ff" onclick="togglePill(this,'mood')" title="Gentle and dark — introspective, moody">Melancholic</span>
+        </div>
+      </div>
+      <!-- Major/Minor row removed 2026-08-02 — the dark/light ring bias now lives on the
+           key-wheel mode icons (click the active icon to cycle normal → dark → light);
+           activeFilters.modes is driven from there. -->
+
+      <div class="filter-row">
+        <span class="filter-label" title="Detected vocal presence — high pitch-track density in the 80–3000 Hz human voice range">Vocals</span>
+        <div class="filter-pills" id="fp-vocals">
+          <span class="filter-pill active" data-val=""    onclick="togglePill(this,'vocals')" title="Both vocal and instrumental">All</span>
+          <span class="filter-pill" data-val="yes" style="--pc:#44dd88" onclick="togglePill(this,'vocals')" title="Voice presence > 40%">Vocal</span>
+          <span class="filter-pill" data-val="no"  style="--pc:#aa88ff" onclick="togglePill(this,'vocals')" title="Voice presence < 20%">Instrumental</span>
+        </div>
+      </div>
+      <div class="filter-row fb-metrics" style="flex-wrap:wrap;gap:8px">
+        <div class="metric-box" data-metric="bpm" title="Tempo range — drag either thumb to clip the visible BPM band">
+          <span class="filter-label">BPM</span>
+          <input type="number" class="mb-num mb-num-lo" id="f-bpm-num-lo" min="60" max="200" step="1" value="60" title="Minimum BPM — type a value and press Enter (or click away) to set it exactly.">
+          <div class="dual-range" data-key="bpm" data-min="60" data-max="200">
+            <input type="range" class="dr-low"  min="60" max="200" value="60">
+            <input type="range" class="dr-high" min="60" max="200" value="200">
+          </div>
+          <input type="number" class="mb-num mb-num-hi" id="f-bpm-num-hi" min="60" max="200" step="1" value="200" title="Maximum BPM — type a value and press Enter (or click away) to set it exactly.">
+        </div>
+        <div class="metric-box metric-box-stacked" data-metric="dance" title="Danceability — tempo sweet spot + bass presence + pulse clarity. Lower thumb hides the most sluggish tracks; upper thumb hides the most driving.">
+          <div class="mb-header">
+            <span class="filter-label">Dance</span>
+            <input type="number" class="mb-num mb-num-lo" id="f-dance-num-lo" min="0" max="100" step="1" value="0" title="Minimum % danceability — type a value and press Enter (or click away) to set it exactly.">
+            
+            <input type="number" class="mb-num mb-num-hi" id="f-dance-num-hi" min="0" max="100" step="1" value="100" title="Maximum % danceability — type a value and press Enter (or click away) to set it exactly.">
+          </div>
+          <div class="mb-slider-row">
+            <span class="mb-desc mb-desc-low">Groovy</span>
+            <div class="dual-range" data-key="dance" data-min="0" data-max="100">
+              <input type="range" class="dr-low"  min="0" max="100" value="0">
+              <input type="range" class="dr-high" min="0" max="100" value="100">
+            </div>
+            <span class="mb-desc mb-desc-high">Driving</span>
+          </div>
+        </div>
+        <div class="metric-box metric-box-stacked" data-metric="energy" title="Loudness, 0–1. Derived from the track's integrated LUFS on a fixed curve, so 0.5 is about as loud as a streaming-normalised master. It measures level, nothing else — the LUFS column is the same thing in decibels, for gain staging.">
+          <div class="mb-header">
+            <span class="filter-label">Loudness</span>
+            <input type="number" class="mb-num mb-num-lo" id="f-energy-num-lo" min="0" max="100" step="1" value="0" title="Minimum % loudness — type a value and press Enter (or click away) to set it exactly.">
+            
+            <input type="number" class="mb-num mb-num-hi" id="f-energy-num-hi" min="0" max="100" step="1" value="100" title="Maximum % loudness — type a value and press Enter (or click away) to set it exactly.">
+          </div>
+          <div class="mb-slider-row">
+            <span class="mb-desc mb-desc-low">Quiet</span>
+            <div class="dual-range" data-key="energy" data-min="0" data-max="100">
+              <input type="range" class="dr-low"  min="0" max="100" value="0">
+              <input type="range" class="dr-high" min="0" max="100" value="100">
+            </div>
+            <span class="mb-desc mb-desc-high">Loud</span>
+          </div>
+        </div>
+        <div class="metric-box" data-metric="dur" title="Track duration (seconds) — useful to find short edits or long journeys">
+          <span class="filter-label">Length</span>
+          <input type="number" class="mb-num mb-num-lo" id="f-dur-num-lo" min="0" max="900" step="1" value="0" title="Minimum seconds — type a value and press Enter (or click away) to set it exactly.">
+          <div class="dual-range" data-key="dur" data-min="0" data-max="900">
+            <input type="range" class="dr-low"  min="0" max="900" value="0">
+            <input type="range" class="dr-high" min="0" max="900" value="900">
+          </div>
+          <input type="number" class="mb-num mb-num-hi" id="f-dur-num-hi" min="0" max="900" step="1" value="900" title="Maximum seconds — type a value and press Enter (or click away) to set it exactly.">
+        </div>
+        <div class="metric-box" data-metric="rel" title="Release period — year from embedded tags, falling back to the file's creation date. Full span = no filter.">
+          <span class="filter-label">Released</span>
+          <input type="number" class="mb-num mb-num-lo" id="f-rel-num-lo" min="1950" max="2027" step="1" value="1950" title="Minimum year — type a value and press Enter (or click away) to set it exactly.">
+          <div class="dual-range" data-key="rel" data-min="1950" data-max="2027">
+            <input type="range" class="dr-low"  min="1950" max="2027" value="1950">
+            <input type="range" class="dr-high" min="1950" max="2027" value="2027">
+          </div>
+          <input type="number" class="mb-num mb-num-hi" id="f-rel-num-hi" min="1950" max="2027" step="1" value="2027" title="Maximum year — type a value and press Enter (or click away) to set it exactly.">
+        </div>
+      </div>
+      <div class="filter-row" id="tag-filter-row" style="display:none">
+        <span class="filter-label" title="Filter by user-defined tags. Manage the tag list via the Tags ⚙ button in the List toolbar.">Tags</span>
+        <div class="filter-pills" id="fp-tags"></div>
+      </div>
+      <!-- Preview-window slider moved into the transport bar — see #nt-preview-wrap -->
+    </div>
+
+    <!-- Right: Camelot wheel (reparented into neural canvas when Neural tab is active) -->
+    <div id="camelot-pane" style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;padding-left:20px">
+      <!-- Clear now sits in the wheel's HUB as an icon button (Mark, 2026-08-04); the
+           ◍ filter fade moved out to the field's top bar beside Spread, and the
+           wheel-size slider is gone entirely (the drawer sets the size). -->
+      <div class="cw-mid-row">
+        <svg id="camelot-svg" width="280" height="280" viewBox="-180 -180 360 360" style="cursor:pointer" onclick="camelotClick(event)"></svg>
+        <!-- Notation cycler (Mark, 2026-08-26 pm): one round key-shaped button that steps
+             Open Key -> Camelot -> Notes. It sits above-right of the wheel; the ⚙ Settings
+             row remains as the discoverable copy and both stay in sync through
+             setWheelNotation(). -->
+        <!-- Key glyph only, bigger (Mark, 2026-08-28) — the notation is carried by the
+             pathway-style three-state treatment (plain / walls / lit) + the tooltip,
+             not by a tiny text label. -->
+        <button class="cw-notation-cycle" id="cw-notation-cycle" onclick="cycleWheelNotation()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="6.5" r="4"/><path d="M12 10.5V21"/><path d="M12 16.5h4.5"/><path d="M12 20h3.5"/></svg>
+        </button>
+        <button class="cw-clear-hub" onclick="clearKeyFilter()" title="Clear all key selection — every key shown again, no key filtering. The current track's key stays softly outlined on the wheel so you can still see where you are. Also exits any key mode.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+        </button>
+      </div>
+      <div id="kp-selected-label" style="font-size:10px;color:var(--muted);text-align:center;max-width:280px;line-height:1.45">None — showing all keys</div>
+      <!-- Below the wheel: mix gearstick + direction switch + edge-style switch -->
+      <div class="cw-gear">
+        <!-- Manual pad removed 2026-08-03: touching the wheel IS Manual mode. -->
+        <div class="cw-modes" id="cw-modes" data-mode="off" data-bias="both">
+          <button class="cw-stop" data-val="tight"    data-lbl="Safe"   onclick="onModeIconClick('tight')"    title="Safe — same key, ±1, relative (4 keys). Click again: normal → dark → light."></button>
+          <button class="cw-stop" data-val="extended" data-lbl="Wider"  onclick="onModeIconClick('extended')" title="Wider — adds adjacent on the opposite ring (6 keys). Click again: normal → dark → light."></button>
+          <button class="cw-stop" data-val="parallel" data-lbl="+Mood"  onclick="onModeIconClick('parallel')" title="+Mood — adds the parallel key, same root opposite mode (7 keys). Click again: normal → dark → light."></button>
+          <button class="cw-stop" data-val="full"     data-lbl="All"    onclick="onModeIconClick('full')"     title="All — every harmonic neighbour incl. the parallel cluster (9 keys). Click again: normal → dark → light."></button>
+        </div>
+        <!-- Direction switch (↑↕↓) removed 2026-08-03 (Mark) — compat sets are always
+             symmetric now; camelotCompatDir stays 'sym' internally. -->
+      </div>
+      <!-- Key-relationship DISPLAY switches. The Key View master toggle was retired
+           2026-08-03 (Mark): the wheel FILTER + the global filter-fade rail handle
+           visibility, and Rings / Lines / Preview each stand on their own. -->
+      <div class="cw-keyview-section">
+        <div class="edge-style-switch" id="edge-style-switch">
+          <button data-val="rings" id="edge-toggle-rings" onclick="toggleEdgeFeature('rings')" title="Teal rings around every key-compatible neighbour of your selected track">◯ Rings</button>
+          <button data-val="lines" id="edge-toggle-lines" onclick="toggleEdgeFeature('lines')" title="Purple lines from your selected track to each key-compatible neighbour">— Lines</button>
+          <button id="cw-fan-preview" onclick="toggleKeyFanPreview()" title="Key lines follow the track you're PREVIEWING instead of your selected track — audition a node and see its harmonic web live. Shortcut: V">⊙ Preview</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  </aside>
+  <div class="list-main">
+  <div class="toolbar lib-toolbar">
+    <button class="lib-tb-btn" id="list-field-btn" onclick="openFieldPicker('list-field-btn')">Fields ▾</button>
+    <span class="toolbar-count lib-count" id="catalog-count"></span>
+    <div class="toggle-group">
+      <button class="toggle-btn active" id="c-btn-table" onclick="setCatalogView('table')">Table</button>
+      <button class="toggle-btn"        id="c-btn-cards" onclick="setCatalogView('cards')">Cards</button>
+    </div>
+    <span class="lib-tb-sep"></span>
+    <button class="lib-tb-btn lib-tb-cols" id="c-col-btn" onclick="openColPicker('c-col-btn','catalog')">⊞ Columns ▾</button>
+  </div>
+  <div id="catalog-content"></div>
+  </div>
+ </div>
 </div>
 
 <div class="tab-panel" id="tab-neural">
@@ -462,6 +642,20 @@
   </div>
 
 </main>
+<div id="row-ctx-menu"></div>
+
+<div id="col-picker">
+  <div class="cp-header">
+    <span>Columns</span>
+    <button class="cp-close" onclick="closeColPicker()">×</button>
+  </div>
+  <div class="cp-list" id="cp-list"></div>
+  <div class="cp-footer">
+    <button onclick="colPickerAll(true)">Show all</button>
+    <button onclick="colPickerAll(false)">Hide all</button>
+    <button onclick="colPickerReset()">Reset</button>
+  </div>
+</div>
 <audio id="global-audio" preload="none"></audio>
 <script type="module" src="/static/js/app.js"></script>
 </body>
