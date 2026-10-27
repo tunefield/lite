@@ -865,3 +865,4 @@ async function tableRowCommit(ctx, id) {
 function listForgetExpanded(id) { if (catExpandedId === id) catExpandedId = null; }
 
 Object.assign(window, { listRenderCatalog: renderCatalog, listForgetExpanded, checkScore, saveRating, starWidget, setRating, saveTrackTags, addTagToTrack, removeTag, defaultColVis, saveColVis, saveColWidths, startColResize, orderedCols, colDragStart, colDragOver, colDrop, visibleCols, openColPicker, closeColPicker, toggleCol, colPickerAll, colPickerReset, setCatalogView, renderAnalyse, fmtScanLen, cardsHTML, tableHTML, cellHTML, tblSort, coverFailed, tblExpand, setBpmMul, clearBpm, setKeyStep, clearKey, buildCard, svgGauge, gaugeWrap, timRow, miniBarRow, tblBar, keyPill, formatDur, fmtDate, rescanEntry, saveGenre, audioToggle, _fieldUsesRating, tableRowClick, tableRowDblClick, tableRowCommit });
+export { rescanningIds };

@@ -18,6 +18,7 @@
     <button class="tab-btn" id="tab-neural-btn" onclick="switchTab('neural')">Field <span class="tab-count" id="tab-neural-count">0</span></button>
     <button class="tab-btn" id="tab-playlists-btn" onclick="switchTab('playlists')">Playlists <span class="tab-count" id="tab-playlists-count">0</span></button>
     <button class="tab-btn" id="tab-catalog-btn" onclick="switchTab('catalog')">List <span class="tab-count" id="tab-catalog-count">0</span></button>
+    <button class="tab-btn" id="tab-repair-btn" onclick="switchTab('repair')">Repair</button>
   </nav>
   <button class="tab-btn hd-settings" id="settings-btn" onclick="openSettings()" title="Settings" aria-label="Settings">⚙</button>
   <button class="tab-btn" id="feedback-btn" onclick="openFeedback()" title="Report a bug or share an idea — opens a short form with diagnostics filled in">Feedback</button>
@@ -252,6 +253,51 @@
   </div>
   <div id="playlists-grid" class="pl-grid"></div>
   <div id="playlists-compare" style="margin-top:24px"></div>
+</div>
+
+<div class="tab-panel" id="tab-repair">
+  <!-- Scan library — own row, primary CTA. API keys moved up to the page header. -->
+  <div class="repair-scan-row">
+    <!-- Single-select since 2026-08-28 (Mark): repair scopes to exactly ONE Field via a
+         plain dropdown — the multi-tick picker stays on List, where combining makes sense. -->
+    <select class="cat-select" id="repair-field-select" onchange="setRepairField(this.value)"
+            title="Which Field the health scan covers" style="max-width:240px"></select>
+    <button class="lib-tb-btn lib-tb-export" id="repair-scan-btn" onclick="repairScan()" title="Re-scan the Field for issues"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12h4l2.5-6 4 12 2.5-6h4"/></svg> <strong>Scan health</strong></button>
+    <!-- Ignored stash — only appears when there are entries hidden from scan; sits page-right. -->
+    <button class="lib-tb-btn lib-tb-danger" id="repair-ignored-btn" onclick="unignoreAll()" style="display:none;margin-left:auto" title="Restore every ignored issue back into the next scan"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="18.4" x2="18.4" y2="5.6"/></svg> Ignored: <span id="rep-ignored-count">0</span> · clear all</button>
+  </div>
+  <!-- Maintenance actions — each in its own banner card so it reads as a discrete utility
+       with its own affordance + description, not just a bunch of stacked buttons. -->
+  <div class="rep-action-grid">
+    <div class="rep-action-banner">
+      <button class="lib-tb-btn lib-tb-covers rab-btn" id="extract-covers-btn" onclick="extractCovers()" title="Extract embedded cover art (ID3/FLAC) for all tracks in this Field"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><polyline points="21 16 15.5 10.5 5 21"/></svg> Covers</button>
+      <span class="rab-desc">Pull embedded cover art (ID3 / FLAC) for every track</span>
+    </div>
+    <div class="rep-action-banner">
+      <button class="lib-tb-btn lib-tb-genres rab-btn" id="extract-genres-btn" onclick="extractGenres()" title="Read embedded genre tags into the Genre column (where empty)"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14.5" x2="15" y2="14.5"/></svg> Genres</button>
+      <span class="rab-desc">Read embedded genre tags into the Genre column</span>
+    </div>
+  </div>
+  <!-- Scan summary banner — promoted out of the toolbar so the headline stats lead. Scoped
+       to the currently-selected libraries (chip selection), not the whole database. -->
+  <div class="repair-progress" id="repair-progress" hidden aria-live="polite">
+    <div class="an-bar"><div class="an-fill" id="rp-fill"></div></div>
+    <span id="rp-label"></span>
+    <button class="btn-sm" onclick="cancelRepairTask()">Cancel</button>
+  </div>
+  <div id="repair-stat-banner" class="rep-stat-banner" style="display:none">
+    <span class="rsb-entries"><strong id="rsb-entries-n">0</strong> entries scanned</span>
+    <span class="rsb-dot">·</span>
+    <span class="rsb-issues"><strong id="rsb-issues-n">0</strong> issues found</span>
+    <span id="rsb-ignored" style="display:none">
+      <span class="rsb-dot">·</span>
+      <span class="rsb-ignored-txt"><strong id="rsb-ignored-n">0</strong> ignored</span>
+    </span>
+    <span id="rsb-scope" class="rsb-scope" style="margin-left:auto"></span>
+  </div>
+  <div id="repair-content">
+    <div class="rep-empty" style="padding:60px 20px">Click <strong>Scan health</strong> to find issues.</div>
+  </div>
 </div>
 
 <div class="tab-panel" id="tab-neural">

@@ -99,3 +99,7 @@ body.on-tab-neural .neural-canvas-wrap > #vecmath-panel[style*="block"] {
 .tools-results:empty, .tools-results > div:empty { display: none; }
 .vm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
 .vm-pair span { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Repair: long jobs show their progress on this tab. */
+.repair-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; }
+.repair-progress .an-bar { flex: 1; height: 10px; }

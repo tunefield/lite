@@ -6,8 +6,9 @@ import './export.js';
 import './feedback.js';
 import './queue.js';
 import './tools.js';
+import './repair.js';
 
-const TABS = ['analyse', 'neural', 'playlists', 'catalog'];   // repair joins when its module lands
+const TABS = ['analyse', 'neural', 'playlists', 'catalog', 'repair'];
 
 // One filter bar and one key wheel serve both the Field (in its FILTERS / KEY drawers) and the
 // List (in its sidebar); they move to whichever is showing. Replaces the pilot's
@@ -38,6 +39,7 @@ function switchTab(name) {
   if (name === 'analyse') window.renderLibRoots?.();
   if (name === 'catalog') loadCatalogMeta().then(() => loadCatalog());
   if (name === 'playlists') refreshSets().then(() => window.renderPlaylistsTab());
+  if (name === 'repair') loadCatalogMeta().then(() => { window.syncRepairFieldSelect(); window.repairRender(); });
 }
 window.switchTab = switchTab;
 

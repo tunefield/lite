@@ -650,4 +650,4 @@ async function analyseBoot() {
 }
 
 Object.assign(window, { addMusic, checkForNew, cancelScan, libRootRemove, renderLibRoots, resumeAnalysisQueue, anResumeDismiss });
-export { analyseBoot, apiJson };
+export { analyseBoot, apiJson, bgBreather, showEntriesUndoToast, uiForegroundBusy };
