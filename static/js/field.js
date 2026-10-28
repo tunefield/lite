@@ -8843,24 +8843,9 @@ async function spTrackDrop(ev) {
   // at the drop row, in order. The server's at_index does the splicing; each add is
   // individually snapshotted, so Undo walks the insertion back one track at a time.
   if (_sbDragSet && !spDrag) {
-    const ids = _sbDragSet; _sbDragSet = null;
-    if (!activePlaylistSlug || !activePlaylist) { showToast('No active playlist to drop into'); return; }
+    _sbDragSet = null;
     const row = ev.target.closest('.sp-track');
-    const n = (activePlaylist.tracks || []).length;
-    const toIdx = row ? parseInt(row.dataset.idx, 10) : n;   // no row under cursor → end
-    let added = 0, locked = false;
-    for (const id of ids) {
-      const r = await fetch(`/playlists/${activePlaylistSlug}/tracks`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ track_id: id, source_mode: 'learn', at_index: toIdx + added }),
-      });
-      if (r.status === 423) { locked = true; break; }
-      if (r.ok) added++;
-    }
-    await refreshPlaylistPanel();
-    document.getElementById('sb-preview')?.remove();
-    showToast(locked ? `Playlist is locked — ${added} of ${ids.length} inserted before the lock refused the rest`
-                     : `${added} track${added === 1 ? '' : 's'} inserted at position ${toIdx + 1}`);
+    await sbAddToSet(row ? parseInt(row.dataset.idx, 10) : undefined);   // no row under cursor → end
     return;
   }
   const drag = spDrag;   // dragend clears spDrag after this returns
@@ -9646,7 +9631,9 @@ function _sbMetricValues(entries, key) {
   return raw;
 }
 // pilot 13882
-async function sbGenerate() {
+// Lite: opts.drawn = 64 samples (0..1) drawn on the preview chart. A drawn curve is followed
+// closely (curve weight 85%), since drawing it is the point; presets keep the 50/50 blend.
+async function sbGenerate(opts = {}) {
   const out = document.getElementById('vm-sb-out');
   if (!_sbStart) { out.innerHTML = '<div class="vm-empty">Mark a Start track first — select a track, then press "Start here". (An End is optional.)</div>'; return; }
   if (_sbEnd && _sbStart === _sbEnd) { out.innerHTML = '<div class="vm-empty">Start and End are the same track.</div>'; return; }
@@ -9658,12 +9645,23 @@ async function sbGenerate() {
 
   const nWant = Math.max(2, Math.min(M.n, parseInt(document.getElementById('sb-n').value, 10) || 20));
   const cyc   = Math.max(2, parseInt(document.getElementById('sb-interval').value, 10) || 8);
-  const blend = (parseInt(document.getElementById('sb-blend').value, 10) || 50) / 100;
+  const blend = opts.drawn ? 0.85 : (parseInt(document.getElementById('sb-blend').value, 10) || 50) / 100;
   const wCoh = 1 - blend, wCurve = blend, wGoal = 0.6;
   const metricKey = document.getElementById('sb-metric').value;
 
+  // The preview chart spans what this selection actually has (Lite), so the top of a drawn
+  // curve means "the loudest you have", not a value no track reaches.
+  const entries = getFilteredCatalog();
+  const byId = new Map(entries.map(e => [e.id, e]));
+  const mv = _sbMetricValues(M.ids.map(id => byId.get(id)), metricKey);
+  let lo = Infinity, hi = -Infinity;
+  for (const v of mv) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (!(hi - lo > 0.05)) { lo = 0; hi = 1; }
   let curveFn;
-  if (_sbCurve === 'custom') {
+  if (opts.drawn) {
+    const ys = opts.drawn, last = ys.length - 1;
+    curveFn = t => { const x = Math.max(0, Math.min(1, t)) * last, k = Math.min(last - 1, Math.floor(x)); return lo + (hi - lo) * (ys[k] + (ys[k + 1] - ys[k]) * (x - k)); };
+  } else if (_sbCurve === 'custom') {
     if (!_sbCustom) { out.innerHTML = '<div class="vm-empty">No drawn curve yet — press ✎ and draw one.</div>'; return; }
     curveFn = _sbCustomFn();
   } else if (_sbCurve === 'formula') {
@@ -9674,9 +9672,6 @@ async function sbGenerate() {
     curveFn = (t, i) => preset(t, i, cyc);
   }
 
-  const entries = getFilteredCatalog();
-  const byId = new Map(entries.map(e => [e.id, e]));
-  const mv = _sbMetricValues(M.ids.map(id => byId.get(id)), metricKey);
   const mOf = r => Number.isFinite(mv[r]) ? mv[r] : 0.5;
 
   const adj = await vecAdjacency(M, 12);
@@ -9738,22 +9733,23 @@ async function sbGenerate() {
 
   _sbResult = { ids: path.map(r => M.ids[r]),
                 targets: path.map((r, j) => curveFn(j / (path.length - 1), j, path.length, cyc)),
-                actual: path.map(r => mOf(r)), metricKey };
+                actual: path.map(r => mOf(r)), metricKey, drawn: opts.drawn || null, lo, hi };
   sbShowPreview();
   out.innerHTML = `<div class="vm-note">${path.length} tracks — preview open. <button class="btn-sm" onclick="sbShowPreview()">Reopen preview</button></div>`;
 }
 // pilot 13979
 function sbShowPreview() {
   if (!_sbResult) return;
-  const { ids, targets, actual, metricKey } = _sbResult;
+  const { ids, targets, actual, metricKey, lo = 0, hi = 1 } = _sbResult;
   let ov = document.getElementById('sb-preview');
+  const was = ov?.querySelector('[data-moved]')?.style.cssText;   // a refit keeps the panel where you dragged it
   if (ov) ov.remove();
   ov = document.createElement('div');
   ov.id = 'sb-preview';
   ov.style.cssText = 'position:fixed;inset:0;z-index:640;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px';
   const W = 560, H = 120;
   const px = j => 10 + (W - 20) * j / Math.max(1, ids.length - 1);
-  const py = v => 10 + (H - 20) * (1 - Math.max(0, Math.min(1, v)));
+  const py = v => 10 + (H - 20) * (1 - Math.max(0, Math.min(1, (v - lo) / (hi - lo))));
   const line = targets.map((v, j) => `${px(j).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
   const dots = actual.map((v, j) => `<circle cx="${px(j).toFixed(1)}" cy="${py(v).toFixed(1)}" r="2.4" fill="var(--accent)"/>`).join('');
   const rows = ids.map((id, j) => `
@@ -9765,27 +9761,96 @@ function sbShowPreview() {
     <div class="fun-panel" data-drag style="background:var(--surface);max-width:620px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px" onclick="event.stopPropagation()">
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
         <b>Set preview</b>
-        <span class="vm-note">${ids.length} tracks · curve over ${esc(metricKey)} — line is the target, dots are the tracks</span>
+        <span class="vm-note">${ids.length} tracks · curve over ${esc(metricKey)}</span>
         <button class="btn-sm" style="margin-left:auto" onclick="document.getElementById('sb-preview').remove()">×</button>
       </div>
-      <svg width="100%" viewBox="0 0 ${W} ${H}" style="flex:none;border:1px solid var(--border);background:var(--surface2)">
-        <polyline points="${line}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}
+      <svg id="sb-preview-chart" width="100%" viewBox="0 0 ${W} ${H}" style="flex:none;border:1px solid var(--border);background:var(--surface2);cursor:crosshair;touch-action:none">
+        <polyline id="sb-preview-line" points="${line}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}
+        <text x="${W - 6}" y="16" text-anchor="end" font-size="9" fill="var(--muted)">${Math.round(hi * 100)}%</text>
+        <text x="${W - 6}" y="${H - 6}" text-anchor="end" font-size="9" fill="var(--muted)">${Math.round(lo * 100)}%</text>
       </svg>
+      <div class="vm-note" style="margin-top:4px">Line = the target, dots = the tracks. Draw on the chart to reshape the line and the set refits to follow it; top and bottom are the ${esc(metricKey)} range this selection actually has.</div>
       <div style="overflow-y:auto;margin:10px 0;flex:1">${rows}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-sm vm-go" onclick="sbSaveAsPlaylist(false)">Save New Playlist</button>
+        <button class="btn-sm vm-go" onclick="sbSaveAsPlaylist(false)">Save as new set</button>
         <!-- NOT a <button>: WebKit (the native window) refuses to start an HTML5 drag
              from interactive elements, which is why "Drag To Playlist" did nothing
              there (Mark, 2026-08-28). A div + -webkit-user-drag:element drags from
              its entire surface. -->
         <div class="btn-sm vm-go sb-drag-handle" role="button" tabindex="0" draggable="true"
-             ondragstart="sbDragStart(event)" ondragend="sbDragEnd(event)"
-             title="Drag this whole set — the entire button is the handle — and drop it anywhere in the Builder's playlist; it inserts at the row you drop on">⠿ Drag To Playlist</div>
+             onclick="sbAddToSet()" ondragstart="sbDragStart(event)" ondragend="sbDragEnd(event)"
+             title="${activePlaylist ? `Click to add all ${ids.length} tracks to the end of “${esc(activePlaylist.name)}”, or drag this button onto Your set beside the Field to insert them where you drop` : 'No set is open — make one with ＋ New set beside the Field first'}">⠿ Add to your set</div>
         <span class="vm-note" id="sb-save-note"></span>
       </div>
     </div>`;
   ov.addEventListener('click', () => ov.remove());
   document.body.appendChild(ov);
+  if (was) { const p = ov.querySelector('[data-drag]'); p.style.cssText = was; p.dataset.moved = '1'; }
+  _sbWireDraw(W, H, ids.length);
+}
+// Lite (Mark, 28 Oct): draw the target curve straight onto the preview chart. A stroke paints
+// over the current line between where it starts and ends; letting go rebuilds the set to follow it.
+function _sbWireDraw(W, H, n) {
+  const svg = document.getElementById('sb-preview-chart');
+  const N = 64, ys = new Array(N);
+  const tg = _sbResult.targets;
+  for (let k = 0; k < N; k++) {
+    if (_sbResult.drawn) { ys[k] = _sbResult.drawn[k]; continue; }
+    const x = k / (N - 1) * (tg.length - 1), j = Math.min(tg.length - 2, Math.floor(x));
+    const v = tg.length < 2 ? tg[0] ?? 0.5 : tg[j] + (tg[j + 1] - tg[j]) * (x - j);
+    const { lo = 0, hi = 1 } = _sbResult;
+    ys[k] = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  }
+  const at = ev => {
+    const r = svg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
+    return [Math.max(0, Math.min(1, (x - 10) / (W - 20))), Math.max(0, Math.min(1, 1 - (y - 10) / (H - 20)))];
+  };
+  const paint = ([t0, v0], [t1, v1]) => {
+    const a = Math.round(t0 * (N - 1)), b = Math.round(t1 * (N - 1));
+    for (let k = Math.min(a, b); k <= Math.max(a, b); k++) ys[k] = a === b ? v1 : v0 + (v1 - v0) * (k - a) / (b - a);
+  };
+  const draw = () => {
+    const pts = ys.map((v, k) => `${(10 + (W - 20) * k / (N - 1)).toFixed(1)},${(10 + (H - 20) * (1 - v)).toFixed(1)}`).join(' ');
+    const l = document.getElementById('sb-preview-line');
+    l.setAttribute('points', pts); l.setAttribute('stroke', 'var(--accent)'); l.removeAttribute('stroke-dasharray');
+  };
+  let last = null;
+  svg.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    ev.preventDefault(); svg.setPointerCapture(ev.pointerId);
+    last = at(ev); paint(last, last); draw();
+  });
+  svg.addEventListener('pointermove', ev => { if (!last) return; const p = at(ev); paint(last, p); last = p; draw(); });
+  const done = () => {
+    if (!last) return;
+    last = null;
+    document.querySelector('#sb-preview .vm-note').textContent = `Refitting ${n} tracks to your curve…`;
+    sbGenerate({ drawn: ys.slice() });
+  };
+  svg.addEventListener('pointerup', done);
+  svg.addEventListener('pointercancel', done);
+}
+// Lite: "Add to your set" — click appends the previewed set; dropping it on Your set inserts it there.
+async function sbAddToSet(toIdx) {
+  const ids = _sbResult?.ids;
+  if (!ids?.length) return;
+  if (!activePlaylistSlug || !activePlaylist) { showToast('No set is open — make one with ＋ New set beside the Field first'); return; }
+  const n = (activePlaylist.tracks || []).length;
+  if (toIdx == null) toIdx = n;
+  let added = 0, locked = false;
+  for (const id of ids) {
+    const r = await fetch(`/playlists/${activePlaylistSlug}/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: id, source_mode: 'learn', at_index: toIdx + added }),
+    });
+    if (r.status === 423) { locked = true; break; }
+    if (r.ok) added++;
+  }
+  await refreshPlaylistPanel();
+  document.getElementById('sb-preview')?.remove();
+  showToast(locked ? `The set is locked — ${added} of ${ids.length} added before the lock refused the rest`
+                   : `${added} track${added === 1 ? '' : 's'} added to “${activePlaylist.name}” at position ${toIdx + 1}`);
 }
 // pilot 14031
 function sbDragStart(ev) {
@@ -9796,9 +9861,9 @@ function sbDragStart(ev) {
   const ov = document.getElementById('sb-preview');
   if (ov) { ov.style.pointerEvents = 'none'; ov.style.opacity = '0.12'; }
   const tracks = document.getElementById('sp-tracks');
-  if (!activePlaylist) showToast('No active playlist in the Builder to drop into');
+  if (!activePlaylist) showToast('No set is open — make one with ＋ New set beside the Field first');
   else if (!tracks || tracks.offsetParent === null)
-    showToast('The Builder is hidden in this mode — switch to Curate to drop the set');
+    showToast('Your set is on the Field tab — or just click the button to add these to the end');
 }
 // pilot 14043
 function sbDragEnd() {
@@ -10142,6 +10207,6 @@ function closeFieldPicker() {
 }
 
 // Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { closeFieldPicker, updateScanProgress, vecPathFind, vmMarkFrom, vmRouteTo, openSettings, closeSettings, setDrawerScale, setFilterFade, setAppSkin, setFog, setFieldSkin, saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
+Object.assign(window, { closeFieldPicker, updateScanProgress, vecPathFind, vmMarkFrom, vmRouteTo, openSettings, closeSettings, setDrawerScale, setFilterFade, setAppSkin, setFog, setFieldSkin, saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbAddToSet, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
 
 export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation, fmtTime, activePlaylistSlug, addTrackToActivePlaylist, allPlaylists, audioPlayById, audioStop, matrixCommitIdx, refreshPlaylistPanel, setAnchorTrack, anchorTrackId, vecMatrix, vecDist2, _vecCamPos, VEC_DIMS, vecKNN, vecArith, vecParseArith, vecPathFind, vecPathStats, _coverTexCache, renderCatalog };

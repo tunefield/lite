@@ -177,6 +177,8 @@ Up next follows **the track you last double-clicked** — add a track and the su
 | **Distance as axis** | Puts "how far from this track" on the X axis — nearest on the left |
 | **Build a set from here** | A 20-track set starting here, shaped by energy — preview it, then save it |
 
+**The set preview.** *Build a set from here* opens a preview: the line is the energy curve the set aims for, the dots are the tracks it picked. **Draw on the chart** to reshape the line — drag across it, as many strokes as you like — and the set refits to follow your curve as closely as the library allows. Top and bottom of the chart are the loudest and quietest tracks this selection actually has. **Save as new set** keeps it as its own set; **Add to your set** appends it to the set beside the Field (or drag that button onto Your set to insert it at a row).
+
 **This set:**
 
 | Button | What it does |
