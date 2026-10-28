@@ -34,6 +34,12 @@ document.addEventListener('pointerdown', e => {
   handle.addEventListener('pointercancel', up);
 });
 
+// Put a moved card back where its own CSS places it (for popups that should reopen there).
+window.dragReset = box => {
+  for (const p of ['position', 'margin', 'right', 'bottom', 'transform', 'width', 'left', 'top']) box.style.removeProperty(p);
+  delete box.dataset.moved;
+};
+
 addEventListener('resize', () => {
   for (const box of document.querySelectorAll('[data-drag][data-moved]')) { const r = box.getBoundingClientRect(); place(box, r.left, r.top); }
 });

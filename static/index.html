@@ -93,7 +93,6 @@
       <div class="filter-row">
         <span class="filter-label" title="Four coarse mood bands — loudness (gentle↔loud) crossed with a bright/dark feel estimate">Mood</span>
         <div class="filter-pills" id="fp-mood">
-          <span class="filter-pill active" data-val="" style="--pc:#7c6cff" onclick="togglePill(this,'mood')" title="Show tracks of any mood">All</span>
           <span class="filter-pill" data-val="euphoric"    style="--pc:#ffd700" onclick="togglePill(this,'mood')" title="Loud and bright — uplifting">Euphoric</span>
           <span class="filter-pill" data-val="intense"     style="--pc:#ff4444" onclick="togglePill(this,'mood')" title="Loud and dark — driving, powerful">Intense</span>
           <span class="filter-pill" data-val="upbeat"      style="--pc:#44dd88" onclick="togglePill(this,'mood')" title="Gentle and bright — warm, groovy, chill">Upbeat</span>
@@ -104,14 +103,7 @@
            key-wheel mode icons (click the active icon to cycle normal → dark → light);
            activeFilters.modes is driven from there. -->
 
-      <div class="filter-row">
-        <span class="filter-label" title="Detected vocal presence — high pitch-track density in the 80–3000 Hz human voice range">Vocals</span>
-        <div class="filter-pills" id="fp-vocals">
-          <span class="filter-pill active" data-val=""    onclick="togglePill(this,'vocals')" title="Both vocal and instrumental">All</span>
-          <span class="filter-pill" data-val="yes" style="--pc:#44dd88" onclick="togglePill(this,'vocals')" title="Voice presence > 40%">Vocal</span>
-          <span class="filter-pill" data-val="no"  style="--pc:#aa88ff" onclick="togglePill(this,'vocals')" title="Voice presence < 20%">Instrumental</span>
-        </div>
-      </div>
+      <!-- Vocals row removed 2026-10-28 (Mark); activeFilters.vocals stays '' and filters nothing. -->
       <div class="filter-row fb-metrics" style="flex-wrap:wrap;gap:8px">
         <div class="metric-box" data-metric="bpm" title="Tempo range — drag either thumb to clip the visible BPM band">
           <span class="filter-label">BPM</span>

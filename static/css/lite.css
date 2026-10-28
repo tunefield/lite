@@ -113,11 +113,12 @@ body.on-tab-neural #tab-neural #side-panel { display: flex !important; margin-to
 .un-keep:hover { color: var(--accent); }
 .un-empty { font-size: 11px; color: var(--muted); margin: 0; }
 
-/* The advanced ⋈ vector panel (opened from Settings) floats over the Field. The pilot parked it
-   in a sidebar Lite doesn't have, and app.css hides it inside the canvas wrap. */
+/* The advanced ⋈ vector panel (opened from Settings) floats over the Field, opening in the centre
+   of the screen every time (Mark, 28 Oct; toggleVecPanel drops any dragged position). The pilot
+   parked it in a sidebar Lite doesn't have, and app.css hides it inside the canvas wrap. */
 body.on-tab-neural .neural-canvas-wrap > #vecmath-panel[style*="block"] {
-  display: block !important; position: absolute; top: 64px; left: 48px; width: 320px; z-index: 30;
-  background: var(--surface); box-shadow: 4px 4px 0 var(--scrim);
+  display: block !important; position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 320px; z-index: 30; background: var(--surface); box-shadow: 4px 4px 0 var(--scrim);
 }
 
 /* Set tools: the one-click vector buttons, floating beside the set builder. */
@@ -141,3 +142,37 @@ body.on-tab-neural .neural-canvas-wrap > #vecmath-panel[style*="block"] {
 /* Movable popups (drag.js): the title row of any data-drag card is the handle. */
 [data-drag] > :first-child { cursor: move; user-select: none; }
 [data-drag] > :first-child :is(button, input, select, textarea, a, label) { cursor: pointer; }
+
+/* Filter sliders (Mark, 28 Oct): dots on a line. No frame, tint or colour spine; the label
+   carries the metric colour and the line shows the chosen span in it. The pilot never drew
+   that span (--fill-from/--fill-to were set and unused), and its grey "track" was the whole
+   20px box: a background colour ignores the shorthand's 4px size. Thumbs travel between
+   their own centres, so the line is inset by half a dot each side to keep the span under them. */
+:is(#list-filter-slot, #filters-drawer-body) .fb-metrics { gap: 2px !important; }
+:is(#list-filter-slot, #filters-drawer-body) .metric-box {
+  background: none; border: none; padding: 3px 0;
+  grid-template-columns: minmax(0, 60px) 34px minmax(64px, 1fr) 34px; column-gap: 6px;
+}
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range {
+  --dot: 12px; height: 18px;
+  background: linear-gradient(to right, var(--border) 0 var(--fill-from), var(--metric-color) var(--fill-from) var(--fill-to), var(--border) var(--fill-to))
+              calc(var(--dot) / 2) 50% / calc(100% - var(--dot)) 2px no-repeat;
+}
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range input[type=range] { height: 18px; }
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range input[type=range]::-webkit-slider-runnable-track { height: 2px; }
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range input[type=range]::-webkit-slider-thumb {
+  width: var(--dot); height: var(--dot); margin-top: -5px; border-radius: 50% !important;
+  background: var(--metric-color); border: 2px solid var(--surface);
+}
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range input[type=range]::-moz-range-thumb {
+  width: var(--dot); height: var(--dot); border-radius: 50% !important; box-sizing: border-box;
+  background: var(--metric-color); border: 2px solid var(--surface);
+}
+:is(#list-filter-slot, #filters-drawer-body) .metric-box .dual-range input[type=range]:active::-webkit-slider-thumb { transform: scale(1.2); }
+:is(#list-filter-slot, #filters-drawer-body) .mb-num {
+  background: none; border: none; border-bottom: 1px solid transparent; height: 18px; padding: 0; font-size: 11px;
+}
+:is(#list-filter-slot, #filters-drawer-body) .mb-num-lo { text-align: right; }
+:is(#list-filter-slot, #filters-drawer-body) .mb-num-hi { text-align: left; }
+:is(#list-filter-slot, #filters-drawer-body) .mb-num:hover { border-bottom-color: var(--border); }
+:is(#list-filter-slot, #filters-drawer-body) .mb-num:focus { background: none; border-bottom-color: var(--metric-color); }

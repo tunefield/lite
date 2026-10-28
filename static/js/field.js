@@ -1940,6 +1940,7 @@ function toggleVecPanel() {
   const p = document.getElementById('vecmath-panel');
   if (!p || !vecEnabled) return;
   const open = p.style.display !== 'block';
+  if (open) window.dragReset?.(p);   // Lite: always opens centred, wherever it was dragged last time
   p.style.display = open ? 'block' : 'none';
   document.getElementById('vecmath-btn')?.classList.toggle('on', open);
   if (open) vmRenderWeights();
@@ -6162,9 +6163,12 @@ function clearFilters() {
     refreshDualRange(dr);
   });
   document.querySelectorAll('.filter-pills').forEach(g => {
-    g.querySelectorAll('.filter-pill').forEach((p,i) => {
-      p.classList.toggle('active', i===0);
-      if (i===0) activatePillStyle(p); else { p.style.background=''; p.style.color=''; p.style.borderColor=''; }
+    g.querySelectorAll('.filter-pill').forEach(p => {
+      // Lite: only an "All" pill lights on clear. Mood has none any more (Mark, 28 Oct): no mood
+      // picked means every mood, so the pilot's "first pill" rule would have lit Euphoric.
+      const on = p.dataset.val === '';
+      p.classList.toggle('active', on);
+      if (on) activatePillStyle(p); else { p.style.background=''; p.style.color=''; p.style.borderColor=''; }
     });
   });
   updateKeyCount();
