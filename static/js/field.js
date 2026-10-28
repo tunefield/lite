@@ -8079,6 +8079,9 @@ async function refreshPlaylistPanel() {
     // trail shows. Re-derive visibility FIRST, then lay the trail over the updated field.
     if (typeof updateMatrixVisibility === 'function') updateMatrixVisibility();
     if (typeof rebuildPlaylistTrail === 'function') rebuildPlaylistTrail();
+    // An undo, add, remove or reorder can change the set's length or the playing track's
+    // place in it, and a paused track sends no timeupdate to redraw "Track N / N".
+    updateTransport();
   } catch (e) {
     console.error('refreshPlaylistPanel', e);
   }

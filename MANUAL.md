@@ -246,13 +246,13 @@ Field health. Pick the Field, press **Scan health**, and the findings group into
 | Missing cover art | No embedded art, no folder cover.jpg | Extract covers, then Generate key-colour covers |
 | Missing artist / title | Tags never extracted | Backfill tags from files |
 | Missing genre | No genre tag | Extract genres |
-| Failed / partial analysis | BPM = 0 or duration = 0 | Rescan all |
+| Failed / partial analysis | BPM = 0 or duration = 0 | Rescan these tracks |
 | Catalog name ↔ tag mismatch | Tags disagree with the stored name | Apply tags to catalog names (undoable) — files on disk are never renamed |
 | Duplicates | Same track catalogued more than once | Auto-delete duplicates (keep best), after a preview |
 
 **Covers:** **Extract covers** pulls the art embedded in your files; **Generate key-colour covers** draws a sleeve from the track's key colour, artist and title for whatever is left — so every track can end up with one. Long jobs show their progress on the Repair tab with a **Cancel**. Per-row buttons fix or **ignore** individual issues; ignored issues stay out of future scans until you clear the ignored list.
 
-When a file simply carries no tags, Repair says so plainly — *the remaining tracks have no artist/title tags in the file* — rather than reporting a failure. **Rescan all** re-analyses tracks whose files were copied into Tunefield's own library; tracks analysed in place from your own folders are re-analysed by removing and re-adding them on the Analyse tab.
+When a file simply carries no tags, Repair says so plainly — *the remaining tracks have no artist/title tags in the file* — rather than reporting a failure. **Rescan these tracks** re-analyses only the tracks that finding lists, wherever their files live.
 
 > **Caution: delete and dedup actions remove catalog entries** — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of exactly what would be deleted, you confirm before anything runs, an Undo is offered straight after, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.
 

@@ -191,13 +191,9 @@ const REPAIR_CATEGORIES = [
     ],
     rowExtra: r => `<button class="rep-row-btn" onclick="repairLookupTrack('${r.id}','discogs')" title="Search Discogs for this track">🔎 Discogs</button>` },
   { key:'missing_loudness', icon:REP_ICO('<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5z"/><path d="M15.5 9a5 5 0 0 1 0 6M18 6.7a8.5 8.5 0 0 1 0 10.6"/>'),  title:'Missing LUFS loudness',      desc:'Track was analysed before LUFS was added — rescan to populate', sev:'warn',
-    actions: cat => [
-      { label:'Rescan all (active Field)', run: async () => { await rescanAll(); await repairScan(); } }
-    ] },
+    actions: rows => [rescanRowsAction(rows)] },
   { key:'failed_analysis',  icon:REP_ICO('<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>'),  title:'Failed / partial analysis',  desc:'BPM=0 or duration=0 — analysis likely failed', sev:'crit',
-    actions: cat => [
-      { label:'Rescan all', run: async () => { await rescanAll(); await repairScan(); } }
-    ],
+    actions: rows => [rescanRowsAction(rows)],
     rowExtra: r => `<span class="rep-meta">[${esc(r.catalog)}]</span>` },
   { key:'filename_tag_mismatch', icon:REP_ICO('<path d="M3 7h4l10 10h4m0 0-2.5-2.5M21 17l-2.5 2.5M3 17h4l2.5-2.5M17 7h4m0 0-2.5-2.5M21 7l-2.5 2.5"/>'), title:'Stored name ↔ tag mismatch',  desc:'Embedded ID3 tags disagree with the name Tunefield stores for this track. Files on disk are never renamed.', sev:'warn',
     actions: () => [
@@ -767,11 +763,21 @@ async function generateCovers(ids) {
   }
 }
 // pilot 10396
-async function rescanAll() {
+// The Repair button that rescans just the tracks a finding lists.
+function rescanRowsAction(rows) {
+  return { label: rows.length === 1 ? 'Rescan this track' : `Rescan these ${rows.length} tracks`,
+           run: async () => { await rescanAll(rows); await repairScan(); } };
+}
+// rows: Repair rows ({id, slug, filename}) to rescan, which may sit in any Field; without
+// them, every track in the open Field. Lite: a Repair finding rescans only its own tracks,
+// not the whole library (Mark, 28 Oct).
+async function rescanAll(rows) {
   const btn      = document.getElementById('rescan-all-btn') || {};   // Lite: the List has no Rescan button; progress shows on the Repair bar
   const duration = document.getElementById('rescan-duration')?.value || '0.5';   // Lite: no scan-length menu; the pilot's default
-  const eligible = catalog.filter(e => e.has_file && !rescanningIds.has(e.id));
-  if (!eligible.length) { showToast('No tracks with stored files to rescan.'); return; }
+  const eligible = (rows
+    ? rows.map(r => catalog.find(e => e.id === r.id) || { id: r.id, _cat: r.slug, filename: r.filename })
+    : catalog.filter(e => e.has_file)).filter(e => !rescanningIds.has(e.id));
+  if (!eligible.length) { showToast('Nothing to rescan: no audio file could be found for these tracks.'); return; }
 
   btn.disabled    = true;
   btn.textContent = `↻ 0/${eligible.length}`;
