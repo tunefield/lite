@@ -1,7 +1,12 @@
 /* Lite's own surfaces. Tokens come from app.css (the pilot's). */
 [hidden] { display: none !important; }   /* class display rules beat the attribute otherwise (handover §9) */
 
-.an { max-width: 760px; margin: 32px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 18px; }
+/* One frame for every tab: the body is a centred flex column (pilot), so without this the
+   wrapper shrank to its content and the header jumped between full width and an 815px column. */
+#app { width: 100%; box-sizing: border-box; }
+#tab-analyse.active, #tab-repair.active { width: 100%; }
+
+.an { display: flex; flex-direction: column; gap: 18px; }
 .an-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
 .an-field label { text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
 
@@ -44,12 +49,41 @@
 #tab-neural { position: relative; }
 .field-empty .an-add { align-self: center; }
 
-/* List: filters on the left, table on the right. */
-.list-layout { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 16px; align-items: start; }
-.list-side .filter-bar { flex-direction: column !important; gap: 14px !important; }
+/* List: filters on the left, table on the right. The filter panel has its own frame, stays in
+   view while the table scrolls, and folds sideways to a slim rail (pilot toggleFilterFold sets
+   body.list-filters-collapsed on this tab; the rail keeps the active-filter count). */
+.list-layout { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.list-side {
+  position: sticky; top: 8px; box-sizing: border-box; min-width: 0;
+  max-height: calc(100vh - 76px - var(--transport-clear, 140px)); overflow-y: auto; overflow-x: hidden;   /* clears the header and the transport */
+  border: 1px solid var(--border); background: var(--surface); padding: 0 12px 12px;
+}
+#list-filter-slot .filter-bar { flex-direction: column !important; gap: 14px !important; }
 .list-main { min-width: 0; }
-@media (max-width: 900px) { .list-layout { grid-template-columns: 1fr; } }
-body .list-side .filter-bar .fb-rows > .fb-metrics > .metric-box { flex: none; }   /* its 158px basis is a width in a row; in this column it became a height */
+@media (max-width: 900px) { .list-layout { grid-template-columns: 1fr; } .list-side { position: static; max-height: none; } }
+body :is(#list-filter-slot, #filters-drawer-body) .filter-bar .fb-rows > .fb-metrics > .metric-box { flex: none; }   /* its 158px basis is a width in a row; in this column it became a height */
+#list-filter-slot .filter-bar > button.fb-header {
+  display: flex; position: sticky; top: 0; z-index: 2; background: var(--surface);
+  padding: 10px 0 8px; font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+}
+#list-filter-slot .fb-chev { transform: rotate(90deg); }   /* points left: fold the panel away */
+/* The pilot's top-bar layout (body:not(.fp-left):not(.fp-right) .fb-rows) lays the rows side by
+   side with !important; in a column (this sidebar, or the Field's FILTERS drawer, which is the same
+   panel moved) that sized each row to its content and ran past the panel. */
+:is(#list-filter-slot, #filters-drawer-body) .fb-rows { flex-direction: column !important; flex-wrap: nowrap; align-items: stretch; gap: 8px !important; }
+:is(#list-filter-slot, #filters-drawer-body) .fb-rows > .filter-row { flex: none; padding: 0; border-left: none; min-width: 0; align-items: flex-start; }
+:is(#list-filter-slot, #filters-drawer-body) .filter-bar .filter-row .filter-label { padding-top: 4px; }
+:is(#list-filter-slot, #filters-drawer-body) .filter-bar .fb-metrics .filter-label { padding-top: 0; }
+:is(#list-filter-slot, #filters-drawer-body) .filter-pills { flex-wrap: wrap; min-width: 0; }   /* five mood pills ran 100px past the panel */
+#list-filter-slot #camelot-pane { align-self: stretch; }
+
+body.list-filters-collapsed .list-layout { grid-template-columns: 38px minmax(0, 1fr); }
+body.list-filters-collapsed #list-filter-slot { padding: 0; overflow: hidden; }
+body.list-filters-collapsed #list-filter-slot .filter-bar > :not(.fb-header) { display: none !important; }
+body.list-filters-collapsed #list-filter-slot .filter-bar > button.fb-header {
+  writing-mode: vertical-rl; justify-content: flex-start; align-items: center; padding: 10px 0; gap: 8px; border-bottom: none;
+}
+body.list-filters-collapsed #list-filter-slot .fb-chev { transform: none; }   /* points right (unfold): the vertical rail turns the glyph a quarter already */
 
 /* Field tab: the 3D Field with the set builder beside it. */
 body #tab-neural.active { display: grid !important; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: stretch; }

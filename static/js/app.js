@@ -62,6 +62,8 @@ document.addEventListener('click', e => {
   if (fp?.style.display === 'block' && !fp.contains(e.target) && !e.target.closest('[id$=field-btn]')) window.closeFieldPicker?.();
 });
 window.renderPlaybackRangeUI();
+// The List's filter panel remembers whether it was folded (pilot toggleFilterFold writes this).
+try { document.body.classList.toggle('list-filters-collapsed', localStorage.getItem('list-filters-collapsed') === '1'); } catch (_) {}
 
 await loadCatalogMeta();
 await refreshSets();

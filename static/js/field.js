@@ -6367,6 +6367,30 @@ function reapplyKeySelectionIfAuto() {
 function compatKeys(id) { return compatKeysFor(id, camelotCompatMode, camelotCompatDir); }
 // pilot 10963
 let camelotRingBias = 'both';   // 'both' | 'dark' | 'light'
+// pilot 10964
+function _miniWheelSVG(mode) {
+  const lit = mode === 'off' ? new Set() : compatKeysFor('8A', mode, 'sym');
+  const cx = 17, cy = 17;
+  let s = `<svg viewBox="0 0 34 34" width="26" height="26" aria-hidden="true">`;
+  const seg = (pos, ring) => {
+    const r0 = ring === 'A' ? 4.5 : 10, r1 = ring === 'A' ? 9 : 14.5;
+    const a0 = ((pos - 1) * 30 - 90 - 12.5) * Math.PI / 180;
+    const a1 = ((pos - 1) * 30 - 90 + 12.5) * Math.PI / 180;
+    const p = (r, a) => `${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
+    const id = `${pos}${ring}`;
+    const fill = lit.has(id)
+      ? (id === '8A' ? 'var(--cw-anchor, #ffffff)' : 'var(--cw-lit, #44ccff)')
+      : 'var(--cw-ghost, rgba(255,255,255,.13))';
+    return `<path d="M ${p(r0,a0)} L ${p(r1,a0)} A ${r1} ${r1} 0 0 1 ${p(r1,a1)} L ${p(r0,a1)} A ${r0} ${r0} 0 0 0 ${p(r0,a0)} Z" fill="${fill}"/>`;
+  };
+  for (let pos = 1; pos <= 12; pos++) s += seg(pos, 'A') + seg(pos, 'B');
+  if (mode === 'off') s += `<circle cx="${cx}" cy="${cy}" r="2.4" fill="var(--cw-lit, #44ccff)"/>`;   // free-pick cursor dot
+  return s + `</svg>`;
+}
+// pilot 10983 (modules run after the page is parsed, so the buttons are already here)
+document.querySelectorAll('#cw-modes .cw-stop').forEach(b => {
+  b.innerHTML = _miniWheelSVG(b.dataset.val) + `<span class="cw-stop-lbl">${b.dataset.lbl || ''}</span>`;
+});
 // pilot 10991
 function _applyRingBias() {
   activeFilters.modes = new Set(

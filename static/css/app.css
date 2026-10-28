@@ -1336,11 +1336,10 @@ body.neural-focus-on     #matrix-focus-btn {
    both panes. Filters uses outline triangles (▽/▷), Playlist uses filled (▼/▶) so the two
    are immediately distinguishable when both are visible. */
 
-/* Filter-bar gets a header strip positioned at the top — kept absolute so the existing
-   two-column flex-row layout below remaier {
-  position:absolute; top:10px; left:18px; right:18px; height:22px;
-  display:flex; align-items:center; gap:8px;
-}
+/* Filter-bar header strip. Lite: the pilot's text here was truncated ("…layout below remaier {")
+   and never closed, so this comment swallowed the .fb-title and .fb-active-count rules and the
+   badge always showed, even at 0. The absolute-position rule it introduced never applied in the
+   pilot either and is superseded by button.fb-header further down, so it stays dropped. */
 .fb-title { font-weight:700; font-size:13px; color:var(--text); }
 .fb-active-count {
   font-size:10px; padding:2px 7px; border-radius:0;
