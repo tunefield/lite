@@ -38,7 +38,7 @@ It runs entirely on your own Mac. Your music, your analysis and your sets never 
 4. **▶ Play.** The set plays through, each track's preview section, and the camera flies to each track as it starts.
 5. **Export set.** Rekordbox, Traktor, Ableton or M3U8.
 
-Everything you create lives in the `data/` folder next to the app (or on the USB stick, for the portable build). Deleted audio goes to `data/_trash/` first, never straight to oblivion.
+Everything you create lives in `~/Library/Application Support/Tunefield Lite/data/` (on the USB stick, beside the app, for the portable build). Deleted audio goes to `data/_trash/` first, never straight to oblivion.
 
 The five tabs across the top, in workflow order:
 
@@ -49,6 +49,8 @@ The five tabs across the top, in workflow order:
 | **Playlists** | All your sets |
 | **List** | Everything as a sortable table, with the same filters as the Field |
 | **Repair** | Library health: covers, tags, genres, paths, duplicates |
+
+Every popup — Settings, Set tools, the set report, the pickers — can be dragged out of the way by its title bar.
 
 Whenever something breaks or confuses you, press **Feedback** (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. **Copy & open form ↗** opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.
 
@@ -87,7 +89,7 @@ Four slim tabs sit on the field's left edge:
 
 - **FIELDS** — tick which Fields are in view.
 - **AXES** — the dropdowns for **X / Y / Z / Size / Colour**, saved **Views**, and **Formulas** (a presets & patches picker, and **ƒx Edit** for writing your own axis maths).
-- **FILTERS** — search, mood, vocals, and ranges for BPM, danceability, loudness, length and release year.
+- **FILTERS** — search, mood, and ranges for BPM, danceability, loudness, length and release year. Drag either dot along a line, or type the number at its end; the stretch of line between the dots is what's kept. Mood pills combine: pick none and every mood shows.
 - **KEY** — the Camelot wheel.
 
 Click a tab to slide its drawer out; click again to tuck it away. Several can be open at once. **Drawer size** in ⚙ Settings scales them all.
@@ -189,7 +191,7 @@ Up next follows **the track you last double-clicked** — add a track and the su
 
 **Library:** **Near-duplicates** lists pairs of tracks that sound almost identical — the same record twice, or two edits.
 
-**The advanced panel.** ⚙ Settings → **⋈ Advanced vector panel** (or key `3`) opens the full tools: PCA and t-SNE with their detail, free-form vector arithmetic (`-voc +2rough` — "this, but less vocal and much rougher", in standard deviations), and the **Weights** that decide what "similar" means to you. The weights affect every Set tool.
+**The advanced panel.** ⚙ Settings → **⋈ Advanced vector panel** (or key `3`) opens the full tools in the middle of the screen: PCA and t-SNE with their detail, free-form vector arithmetic (`-voc +2rough` — "this, but less vocal and much rougher", in standard deviations), and the **Weights** that decide what "similar" means to you. The weights affect every Set tool.
 
 ---
 
@@ -223,7 +225,7 @@ Every set as a card, with its tracks.
 The tracks of whichever Fields are ticked in **Fields ▾**, as one sortable table.
 
 - **Columns** — click a header to sort; drag a header onto another to reorder; drag edges for width; **⊞ Columns** shows or hides them. **Key** follows your wheel-label setting.
-- **The sidebar** holds the same filters and Camelot wheel as the Field's drawers — they're shared, so filtering here filters the Field too.
+- **The sidebar** holds the same filters and Camelot wheel as the Field's drawers — they're shared, so filtering here filters the Field too. Click **‹ FILTERS** to fold it to a slim rail and give the table the width; the rail still shows how many filters are on.
 - **Ratings** — click the ★ column to rate 0–5. Ratings work as a field metric and in formulas (`rat`).
 - **Check** — tempo confidence as a traffic light: **red** = the file's tag and the analysis disagree (worth a listen), **yellow** = medium, **green** = high. Sort by it and check the top until it turns green.
 - **Right-click** a row to add it to a set.
@@ -361,7 +363,7 @@ Keys never fire while you're typing in a box or dragging a slider.
 
 **I deleted something I shouldn't have.** Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to `data/_trash/` rather than being erased.
 
-**Start over cleanly.** Quit, delete the `data/` folder, relaunch.
+**Start over cleanly.** Quit, delete `~/Library/Application Support/Tunefield Lite` (or the `data/` folder on the stick, for the portable build), relaunch.
 
 ---
 

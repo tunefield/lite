@@ -9002,6 +9002,11 @@ function syncTransportPos() {
     const raw = Math.max(0, Math.round(innerHeight - top)) + 16;   // + breathing room
     const clear = Math.min(raw, Math.round(innerHeight * 0.33));
     document.documentElement.style.setProperty('--transport-clear', clear + 'px');
+    // Lite: the Field's mouse-guide card sits bottom-left of the canvas, which the capsule
+    // overlaps there; lift it clear of the dial.
+    const hint = document.querySelector('#tab-neural.active .neural-hint');
+    const wrap = hint?.closest('.neural-canvas-wrap');
+    if (wrap) hint.style.bottom = Math.max(14, Math.round(wrap.getBoundingClientRect().bottom - top + 8)) + 'px';
   });
 }
 

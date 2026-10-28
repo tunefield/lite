@@ -56,7 +56,7 @@
 <div class="wrap">
   <div class="masthead">
     <div class="brand">tunefield<b>.</b> user manual</div>
-    <div class="ver">version 1.0.0 · built 2026-10-27</div>
+    <div class="ver">version 1.0.0 · built 2026-10-28</div>
   </div>
   <h1 id="tunefield-lite--user-manual">Tunefield Lite — User Manual</h1>
 <p><em>Public beta. The exact version is in the <code>VERSION</code> file and at the top of every Feedback report.</em></p>
@@ -91,7 +91,7 @@
 <li><strong>▶ Play.</strong> The set plays through, each track's preview section, and the camera flies to each track as it starts.</li>
 <li><strong>Export set.</strong> Rekordbox, Traktor, Ableton or M3U8.</li>
 </ol>
-<p>Everything you create lives in the <code>data/</code> folder next to the app (or on the USB stick, for the portable build). Deleted audio goes to <code>data/_trash/</code> first, never straight to oblivion.</p>
+<p>Everything you create lives in <code>~/Library/Application Support/Tunefield Lite/data/</code> (on the USB stick, beside the app, for the portable build). Deleted audio goes to <code>data/_trash/</code> first, never straight to oblivion.</p>
 <p>The five tabs across the top, in workflow order:</p>
 <table>
 <thead>
@@ -123,6 +123,7 @@
 </tr>
 </tbody>
 </table>
+<p>Every popup — Settings, Set tools, the set report, the pickers — can be dragged out of the way by its title bar.</p>
 <p>Whenever something breaks or confuses you, press <strong>Feedback</strong> (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. <strong>Copy &amp; open form ↗</strong> opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.</p>
 <hr />
 <h2 id="2-the-analyse-tab">2. The Analyse tab</h2>
@@ -147,7 +148,7 @@
 <ul>
 <li><strong>FIELDS</strong> — tick which Fields are in view.</li>
 <li><strong>AXES</strong> — the dropdowns for <strong>X / Y / Z / Size / Colour</strong>, saved <strong>Views</strong>, and <strong>Formulas</strong> (a presets &amp; patches picker, and <strong>ƒx Edit</strong> for writing your own axis maths).</li>
-<li><strong>FILTERS</strong> — search, mood, vocals, and ranges for BPM, danceability, loudness, length and release year.</li>
+<li><strong>FILTERS</strong> — search, mood, and ranges for BPM, danceability, loudness, length and release year. Drag either dot along a line, or type the number at its end; the stretch of line between the dots is what's kept. Mood pills combine: pick none and every mood shows.</li>
 <li><strong>KEY</strong> — the Camelot wheel.</li>
 </ul>
 <p>Click a tab to slide its drawer out; click again to tuck it away. Several can be open at once. <strong>Drawer size</strong> in ⚙ Settings scales them all.</p>
@@ -269,7 +270,7 @@
 </table>
 <p><strong>The Field:</strong> <strong>Arrange by sound</strong> lays the field out along the three directions your library actually varies (PCA); <strong>Map by similarity</strong> pulls similar tracks into visible clumps (t-SNE); <strong>Group by sound</strong> colours the field into sound families; <strong>⟲ Reset view</strong> puts the axes back.</p>
 <p><strong>Library:</strong> <strong>Near-duplicates</strong> lists pairs of tracks that sound almost identical — the same record twice, or two edits.</p>
-<p><strong>The advanced panel.</strong> ⚙ Settings → <strong>⋈ Advanced vector panel</strong> (or key <code>3</code>) opens the full tools: PCA and t-SNE with their detail, free-form vector arithmetic (<code>-voc +2rough</code> — "this, but less vocal and much rougher", in standard deviations), and the <strong>Weights</strong> that decide what "similar" means to you. The weights affect every Set tool.</p>
+<p><strong>The advanced panel.</strong> ⚙ Settings → <strong>⋈ Advanced vector panel</strong> (or key <code>3</code>) opens the full tools in the middle of the screen: PCA and t-SNE with their detail, free-form vector arithmetic (<code>-voc +2rough</code> — "this, but less vocal and much rougher", in standard deviations), and the <strong>Weights</strong> that decide what "similar" means to you. The weights affect every Set tool.</p>
 <hr />
 <h2 id="7-playing-a-set">7. Playing a set</h2>
 <p>Press <strong>▶</strong> on the transport at the bottom. The set plays through in order, starting from the track you last added or played, and <strong>the camera flies to each track as it starts</strong> — a slow orbit that breathes in and out. Grab the view (drag, scroll or the flight keys) and the camera is yours; the <strong>Fly</strong> button hands it back.</p>
@@ -294,7 +295,7 @@
 <p>The tracks of whichever Fields are ticked in <strong>Fields ▾</strong>, as one sortable table.</p>
 <ul>
 <li><strong>Columns</strong> — click a header to sort; drag a header onto another to reorder; drag edges for width; <strong>⊞ Columns</strong> shows or hides them. <strong>Key</strong> follows your wheel-label setting.</li>
-<li><strong>The sidebar</strong> holds the same filters and Camelot wheel as the Field's drawers — they're shared, so filtering here filters the Field too.</li>
+<li><strong>The sidebar</strong> holds the same filters and Camelot wheel as the Field's drawers — they're shared, so filtering here filters the Field too. Click <strong>‹ FILTERS</strong> to fold it to a slim rail and give the table the width; the rail still shows how many filters are on.</li>
 <li><strong>Ratings</strong> — click the ★ column to rate 0–5. Ratings work as a field metric and in formulas (<code>rat</code>).</li>
 <li><strong>Check</strong> — tempo confidence as a traffic light: <strong>red</strong> = the file's tag and the analysis disagree (worth a listen), <strong>yellow</strong> = medium, <strong>green</strong> = high. Sort by it and check the top until it turns green.</li>
 <li><strong>Right-click</strong> a row to add it to a set.</li>
@@ -575,7 +576,7 @@
 <p><strong>My acapella or stem is classified wrong.</strong> Put a label in the filename or tags — <code>(Acapella)</code>, <code>(Instrumental)</code>, <code>Vocals Only</code> — and it overrides detection.</p>
 <p><strong>Filtered-out tracks disappear.</strong> A filter takes them off the screen. <strong>⚙ Settings → Filtered-out tracks</strong> keeps them as faint ghosts instead.</p>
 <p><strong>I deleted something I shouldn't have.</strong> Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to <code>data/_trash/</code> rather than being erased.</p>
-<p><strong>Start over cleanly.</strong> Quit, delete the <code>data/</code> folder, relaunch.</p>
+<p><strong>Start over cleanly.</strong> Quit, delete <code>~/Library/Application Support/Tunefield Lite</code> (or the <code>data/</code> folder on the stick, for the portable build), relaunch.</p>
 <hr />
 <h2 id="15-appendix-what-the-metrics-mean">15. Appendix: what the metrics mean</h2>
 <p>An honest note up front: BPM and key come from the file's own tags where they exist, and signal analysis where they don't, and are usually right (see the FAQ for the known failure modes and the one-click corrections). Loudness is a real measurement; <strong>danceability, brightness and vocals are heuristic scores</strong> — good for <em>arranging</em> music in space, not gospel. If a score contradicts your ears, trust your ears (and send feedback).</p>
