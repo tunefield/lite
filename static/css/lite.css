@@ -60,7 +60,7 @@
 }
 #list-filter-slot .filter-bar { flex-direction: column !important; gap: 14px !important; }
 .list-main { min-width: 0; }
-@media (max-width: 900px) { .list-layout { grid-template-columns: 1fr; } .list-side { position: static; max-height: none; } }
+@media (max-width: 900px) { .list-layout { grid-template-columns: minmax(0, 1fr); } .list-side { position: static; max-height: none; } }
 body :is(#list-filter-slot, #filters-drawer-body) .filter-bar .fb-rows > .fb-metrics > .metric-box { flex: none; }   /* its 158px basis is a width in a row; in this column it became a height */
 #list-filter-slot .filter-bar > button.fb-header {
   display: flex; position: sticky; top: 0; z-index: 2; background: var(--surface);

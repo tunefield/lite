@@ -10,7 +10,7 @@ import { apiJson } from './analyse.js';
 // pilot 5692
 const COLS = [
   { key:'#',        label:'#',          weight:0.4, fixedW: 46, required:true,  sort:null,                        catalogOnly:false },
-  { key:'cover',    label:'',           weight:0.4, fixedW: 38, required:false, sort:null,                        catalogOnly:false },
+  { key:'cover',    label:'',  pickLabel:'Cover art', weight:0.4, fixedW: 38, required:false, sort:null,             catalogOnly:false },
   // Preview column retired 2026-08-28 (Mark): the play trigger lives ON the cover now,
   // and the card-expose switch moved to the track number.
   { key:'artist',   label:'Artist',     weight:1.4,             required:false, sort:r=>trackArtistTitle(r).artist, catalogOnly:false },
@@ -227,7 +227,7 @@ function openColPicker(btnId, ctx) {
     <label class="cp-item ${c.required?'required':''}">
       <input type="checkbox" ${colVis[c.key]?'checked':''} ${c.required?'disabled':''}
         onchange="toggleCol('${c.key}',this.checked)">
-      <label>${c.label || '(delete button)'}</label>
+      <label>${c.pickLabel || c.label}</label>
     </label>`).join('');
 
   // Position near button
