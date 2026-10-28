@@ -7,6 +7,7 @@ import './feedback.js';
 import './queue.js';
 import './tools.js';
 import './repair.js';
+import './drag.js';
 
 const TABS = ['analyse', 'neural', 'playlists', 'catalog', 'repair'];
 

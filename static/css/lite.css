@@ -137,3 +137,7 @@ body.on-tab-neural .neural-canvas-wrap > #vecmath-panel[style*="block"] {
 /* Repair: long jobs show their progress on this tab. */
 .repair-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; }
 .repair-progress .an-bar { flex: 1; height: 10px; }
+
+/* Movable popups (drag.js): the title row of any data-drag card is the handle. */
+[data-drag] > :first-child { cursor: move; user-select: none; }
+[data-drag] > :first-child :is(button, input, select, textarea, a, label) { cursor: pointer; }

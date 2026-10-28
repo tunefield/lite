@@ -479,7 +479,7 @@
          set tools (similar / groups / routes / set builder) moved to the SET TOOLS
          drawer on the field's right edge (Mark, 2026-08-26) — with them gone the old
          Simple|Full switch had nothing left to hide, so it's gone too. -->
-    <div id="vecmath-panel">
+    <div id="vecmath-panel" data-drag>
       <div class="vm-head">
         <span class="vm-title" title="Tools that work across ALL of a track's measurements at once, instead of just the three axes you can see">⋈ Vector maths</span>
         <button class="cp-close" onclick="toggleVecPanel()" title="Close this panel (the field keeps whatever you applied — use Reset view to undo it)">×</button>
@@ -651,7 +651,7 @@
 
 <!-- ── PLAYLISTS TAB ── -->
 <div id="formula-popup" style="display:none;position:fixed;inset:0;z-index:650;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this)toggleFormulaPanel()">
-  <div id="formula-panel" onclick="event.stopPropagation()">
+  <div id="formula-panel" data-drag onclick="event.stopPropagation()">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <span style="font-weight:800;font-size:12px;color:#d9c2ff">ƒx Formula axes</span>
       <button class="cp-close" onclick="toggleFormulaPanel()" style="margin-left:auto" title="Close the formula editor (any applied formula stays active — use Clear to drop it)">×</button>
@@ -672,7 +672,7 @@
     </details>
   </div>
 </div>
-<div id="settools-box" role="dialog" aria-label="Set tools">
+<div id="settools-box" data-drag role="dialog" aria-label="Set tools">
   <div class="stb-head"><span class="stb-title">⋈ Set tools</span><button class="cp-close" onclick="closeSetToolsBox()">×</button></div>
   <div class="stb-body">
     <div class="tg"><div class="tg-h">This track <span>click one in the Field first</span></div>
@@ -717,7 +717,7 @@
 </main>
 <div id="row-ctx-menu"></div>
 
-<div id="col-picker">
+<div id="col-picker" data-drag>
   <div class="cp-header">
     <span>Columns</span>
     <button class="cp-close" onclick="closeColPicker()">×</button>
@@ -729,7 +729,7 @@
     <button onclick="colPickerReset()">Reset</button>
   </div>
 </div>
-<div id="export-menu">
+<div id="export-menu" data-drag>
   <div class="cp-header">
     <span id="export-menu-header">Export</span>
     <button class="cp-close" onclick="closeExportMenu()">×</button>
@@ -771,7 +771,7 @@
   </div>
 </div>
 <div id="rb-setup-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeRbSetup()">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+  <div data-drag style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
       <span style="font-weight:700;font-size:15px"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="3" x2="5" y2="21"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="19" y1="3" x2="19" y2="21"/><circle cx="5" cy="8" r="2.2"/><circle cx="12" cy="15" r="2.2"/><circle cx="19" cy="7" r="2.2"/></svg> Rekordbox bridge — one-time setup</span>
       <button class="cp-close" onclick="closeRbSetup()">×</button>
@@ -795,7 +795,7 @@
   </div>
 </div>
 <div id="feedback-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeFeedback()">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+  <div data-drag style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(560px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
       <span style="font-weight:700;font-size:15px"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 4 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 8.4z"/></svg> Send feedback</span>
       <button class="cp-close" onclick="closeFeedback()">×</button>
@@ -820,7 +820,7 @@
   </div>
 </div>
 <div id="settings-modal" style="display:none;position:fixed;inset:0;z-index:520;background:rgba(0,0,0,.65)">
-  <div class="settings-card">
+  <div class="settings-card" data-drag>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <h3 style="margin:0;font-size:15px">⚙ Settings</h3>
       <button class="btn-icon" onclick="closeSettings()" title="Close (Esc)">×</button>
@@ -903,7 +903,7 @@
   </div>
 </div>
 
-<div id="field-picker">
+<div id="field-picker" data-drag>
   <div class="cp-header">
     <span>Fields</span>
     <!-- Apply, not × (Mark, 2026-08-28): the picker STAGES its ticks, so the closing
@@ -917,7 +917,7 @@
   </div>
 </div>
 <div id="kbnav-help-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeKbHelp()">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(520px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+  <div data-drag style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(520px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
       <span style="font-weight:700;font-size:15px">⌨ Keyboard controls</span>
       <button class="cp-close" onclick="closeKbHelp()">×</button>

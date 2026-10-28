@@ -625,7 +625,7 @@ function showRepairModal(html) {
     m.onclick = e => { if (e.target === m) closeRepairModal(); };
     document.body.appendChild(m);
   }
-  m.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:0;padding:18px;max-width:760px;width:90vw">${html}</div>`;
+  m.innerHTML = `<div data-drag style="background:var(--surface);border:1px solid var(--border);border-radius:0;padding:18px;max-width:760px;width:90vw">${html}</div>`;   // first child of html is its title, the drag handle
   m.style.display = 'flex';
 }
 // pilot 10129

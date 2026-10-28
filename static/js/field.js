@@ -7426,6 +7426,7 @@ function vmShowArcReport(name, ids, st, slugForReorder) {
 
   const el = document.createElement('div');
   el.id = 'arc-report';
+  el.dataset.drag = '';
   el.innerHTML = `
     <div class="arc-head">
       <span class="arc-name">${esc(name)}</span>
@@ -9752,7 +9753,7 @@ function sbShowPreview() {
       <span class="vm-dist">${(actual[j] * 100).toFixed(0)}%</span>
     </div>`).join('');
   ov.innerHTML = `
-    <div class="fun-panel" style="background:var(--surface);max-width:620px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px" onclick="event.stopPropagation()">
+    <div class="fun-panel" data-drag style="background:var(--surface);max-width:620px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px" onclick="event.stopPropagation()">
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
         <b>Set preview</b>
         <span class="vm-note">${ids.length} tracks · curve over ${esc(metricKey)} — line is the target, dots are the tracks</span>
