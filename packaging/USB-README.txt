@@ -61,8 +61,9 @@ IF IT WON'T OPEN FROM A USB STICK AT ALL (no warning, it just never appears)
 FREE, EXCEPT EXPORT
   The Field, sets, Up next, Set tools and Repair are free, with no account.
   Export (Rekordbox, Traktor, Ableton, M3U8, CSV) is Tunefield Pro: on sale
-  in January 2027 for €79, one-time, or €59 if you sign up at tunefield.app
-  before then. Your sets are kept, ready to export when Pro arrives.
+  in January 2027 for €79, one-time, or €59 if you sign up at
+  tunefield.app/pro before then. Your sets are kept, ready to export when
+  Pro arrives.
 
 HOW PORTABLE MODE WORKS
   The file named PORTABLE next to the app is the switch. While it is there, all

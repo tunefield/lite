@@ -4,7 +4,7 @@ Tunefield Lite helps a DJ build a set from a selection of music. It analyses you
 
 Free, except export. Runs entirely on your Mac: your music, your analysis and your sets never leave it. Public beta.
 
-**Export is Tunefield Pro.** Sending sets to Rekordbox, Traktor and Ableton, or saving them as M3U8 or CSV, goes on sale in January 2027: €79, one-time, or €59 if you sign up at [tunefield.app](https://tunefield.app) before then. Your sets are kept, ready to export when Pro arrives.
+**Export is Tunefield Pro.** Sending sets to Rekordbox, Traktor and Ableton, or saving them as M3U8 or CSV, goes on sale in January 2027: €79, one-time, or €59 if you sign up at [tunefield.app/pro](https://tunefield.app/pro) before then. Your sets are kept, ready to export when Pro arrives.
 
 ## Download
 
