@@ -22,9 +22,25 @@ function setExportSource(v) {
   const csvItem = document.getElementById('exp-csv');
   if (csvItem) csvItem.style.opacity = (v === 'playlist') ? '0.4' : '1';
 }
+// Export is Pro (Mark, 29 Oct 2026): every format, on sale in January. Until then every way
+// into export opens the Pro card. In January this checks the licence instead.
+const PRO_SIGNUP_URL = 'https://tunefield.app/pro?src=app';
+function exportLocked() { return true; }
+function openProCard() {
+  closeExportMenu();
+  document.getElementById('pro-modal').style.display = 'flex';
+  if (typeof featUse === 'function') featUse('pro_card');
+}
+function closeProCard() { document.getElementById('pro-modal').style.display = 'none'; }
+function proSignUp() {
+  if (typeof featUse === 'function') featUse('pro_signup');
+  window.tfOpenExternal(PRO_SIGNUP_URL);
+  closeProCard();
+}
 // pilot 8465
 function openExportMenu(ev) {
   if (ev) ev.stopPropagation();
+  if (exportLocked()) { openProCard(); return; }
   const popup = document.getElementById('export-menu');
   // Lite: two entry points. The set panel's button exports the open set; the List's exports
   // what the filters show.
@@ -87,6 +103,7 @@ async function exportRows() {
 }
 // pilot 8531
 async function exportAs(kind) {
+  if (exportLocked()) { openProCard(); return; }
   if (typeof featUse === 'function') featUse('export_' + kind);
   closeExportMenu();
   if (kind === 'csv') {
@@ -251,6 +268,7 @@ async function exportRbBridge(rows, name) {
 }
 // pilot 8738
 async function openRbSetup() {
+  if (exportLocked()) { openProCard(); return; }
   closeExportMenu();
   localStorage.setItem('rb-bridge-setup-seen', '1');
   const s = await rbStatus();
@@ -319,4 +337,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, buildTraktorNml, exportMenuClose: closeExportMenu });

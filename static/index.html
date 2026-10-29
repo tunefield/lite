@@ -230,7 +230,7 @@
     </div>
     <span class="lib-tb-sep"></span>
     <button class="lib-tb-btn lib-tb-cols" id="c-col-btn" onclick="openColPicker('c-col-btn','catalog')">⊞ Columns ▾</button>
-    <button class="lib-tb-btn lib-tb-export" id="c-export-btn" onclick="openExportMenu(event)">Export ▾</button>
+    <button class="lib-tb-btn lib-tb-export pro-badge" id="c-export-btn" onclick="openExportMenu(event)" title="Export what the filters show — Tunefield Pro, on sale in January">Export ▾</button>
   </div>
   <div id="catalog-content"></div>
   </div>
@@ -635,7 +635,7 @@
     <div class="sp-footer">
       <button class="sp-undo" id="sp-undo" onclick="undoLastAdd()">↶ Undo</button>
       <button class="sp-tools" onclick="openSetToolsBox()" title="One-click vector tools: more like this, bridges, smoothing, groups">⋈ Set tools</button>
-      <button class="sp-export" id="sp-export-btn" onclick="openExportMenu(event)" title="Export this set for Rekordbox, Traktor, Ableton or as M3U8">Export set</button>
+      <button class="sp-export pro-badge" id="sp-export-btn" onclick="openExportMenu(event)" title="Export this set for Rekordbox, Traktor, Ableton or as M3U8 — Tunefield Pro, on sale in January">Export set</button>
       <button class="sp-lock" id="sp-lock" onclick="toggleLock()">Lock</button>
     </div>
   </aside>
@@ -759,6 +759,25 @@
     </div>
     <div class="cp-item" onclick="exportAs('traktor')" title="Traktor NML — drop into Traktor's Playlists folder or import via File menu">
       <span style="flex:1">Traktor NML</span><span style="color:var(--muted);font-size:11px">.nml</span>
+    </div>
+  </div>
+</div>
+<!-- Export is Pro (Mark, 29 Oct 2026): every export, on sale in January. Until then both
+     Export buttons open this card instead of the menu (export.js exportLocked). -->
+<div id="pro-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeProCard()">
+  <div data-drag role="dialog" aria-label="Tunefield Pro" style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(440px,95vw);display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:700;font-size:15px">Export is part of Tunefield Pro</span>
+      <button class="cp-close" onclick="closeProCard()">×</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.6">
+      <p style="margin:0">Pro sends your sets to <strong>Rekordbox</strong>, <strong>Traktor</strong> and <strong>Ableton Live</strong>, and saves them as <strong>M3U8</strong> or <strong>CSV</strong>. Everything else in Tunefield stays free.</p>
+      <p style="margin:0">Pro goes on sale in <strong>January</strong>: €79, a one-time purchase. Sign up now and you get the founder price, <strong>€59</strong>.</p>
+      <p style="margin:0;color:var(--muted);font-size:12px">Your sets are kept, ready to export when Pro arrives.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
+        <button class="btn-sm" onclick="closeProCard()">Not now</button>
+        <button onclick="proSignUp()" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Sign up for Pro ↗</button>
+      </div>
     </div>
   </div>
 </div>

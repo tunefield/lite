@@ -1,8 +1,10 @@
 # Tunefield Lite
 
-Tunefield Lite helps a DJ build a set from a selection of music. It analyses your tracks on your own Mac and lays them out as a 3D field, shaped by tempo, loudness, key and mood, so *where things are* means something. Build a set in the field, play it through, and export it to Rekordbox, Traktor, Ableton or M3U8.
+Tunefield Lite helps a DJ build a set from a selection of music. It analyses your tracks on your own Mac and lays them out as a 3D field, shaped by tempo, loudness, key and mood, so *where things are* means something. Build a set in the field and play it through.
 
-Free. Runs entirely on your Mac: your music, your analysis and your sets never leave it. Public beta.
+Free, except export. Runs entirely on your Mac: your music, your analysis and your sets never leave it. Public beta.
+
+**Export is Tunefield Pro.** Sending sets to Rekordbox, Traktor and Ableton, or saving them as M3U8 or CSV, goes on sale in January 2027: €79, one-time, or €59 if you sign up at [tunefield.app](https://tunefield.app) before then. Your sets are kept, ready to export when Pro arrives.
 
 ## Download
 
@@ -17,7 +19,7 @@ Free. Runs entirely on your Mac: your music, your analysis and your sets never l
 
 ## Using it
 
-The [manual](MANUAL.md) covers everything; it is also inside the app. The short version: **Analyse → Add music**, pick a folder; open the **Field**; **＋ New set** and double-click tracks to add them; **▶ Play**; **Export set**.
+The [manual](MANUAL.md) covers everything; it is also inside the app. The short version: **Analyse → Add music**, pick a folder; open the **Field**; **＋ New set** and double-click tracks to add them; **▶ Play**. **Export set** is Pro.
 
 ## Feedback
 

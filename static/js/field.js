@@ -3275,7 +3275,7 @@ document.addEventListener('mouseup', () => { _fpsDragging = false; });
 function _kbModalOpen() {
   const ids = ['kbnav-help-modal','rb-setup-modal','rb-coll-modal','feedback-modal',
                'repair-config-modal','repair-suggest-modal','confirm-modal',
-               'import-modal','fpcalc-help-modal','settings-modal',
+               'import-modal','fpcalc-help-modal','settings-modal','pro-modal',
                'formula-popup','sb-draw','sb-preview','ci-review-modal','settools-box','arc-report'];
   return ids.some(id => {
     const el = document.getElementById(id);
@@ -7066,6 +7066,8 @@ document.addEventListener('keydown', e => {
     if (fp && fp.style.display === 'flex') { toggleFormulaPanel(); return; }
     const em = document.getElementById('export-menu');
     if (em && em.style.display === 'block') { closeExportMenu(); return; }
+    const pm = document.getElementById('pro-modal');
+    if (pm && pm.style.display === 'flex') { window.closeProCard(); return; }
     const tm = document.getElementById('tag-manager');
     if (tm && tm.style.display === 'block') { tm.style.display = 'none'; return; }
     const arc = document.getElementById('arc-report');

@@ -2,7 +2,7 @@
 
 *Public beta. The exact version is in the `VERSION` file and at the top of every Feedback report.*
 
-Tunefield turns your music into a space you can fly through. Every track becomes a point in a 3D field shaped by the music itself — tempo, loudness, key, mood — so *where things are* means something. **Tunefield Lite does one job: it helps a DJ build a set from a selection of music.** Add a folder, see it as a field, build the set, play it through, export it to your DJ software.
+Tunefield turns your music into a space you can fly through. Every track becomes a point in a 3D field shaped by the music itself — tempo, loudness, key, mood — so *where things are* means something. **Tunefield Lite does one job: it helps a DJ build a set from a selection of music.** Add a folder, see it as a field, build the set, play it through, and, with Tunefield Pro, export it to your DJ software.
 
 It runs entirely on your own Mac. Your music, your analysis and your sets never leave the machine; the only thing that ever goes out is a Feedback report, and only when you send it.
 
@@ -36,7 +36,7 @@ It runs entirely on your own Mac. Your music, your analysis and your sets never 
 2. **Field.** Your tracks appear as coloured spheres — left to right is slow to fast, bottom to top is quiet to loud, colour is the key.
 3. **＋ New set**, then **double-click** tracks to add them. **Up next** under the set suggests what could follow.
 4. **▶ Play.** The set plays through, each track's preview section, and the camera flies to each track as it starts.
-5. **Export set.** Rekordbox, Traktor, Ableton or M3U8.
+5. **Export set.** Rekordbox, Traktor, Ableton or M3U8. Export is Tunefield Pro, on sale in January 2027 (see §11).
 
 Everything you create lives in `~/Library/Application Support/Tunefield Lite/data/` (on the USB stick, beside the app, for the portable build). Deleted audio goes to `data/_trash/` first, never straight to oblivion.
 
@@ -231,7 +231,7 @@ The tracks of whichever Fields are ticked in **Fields ▾**, as one sortable tab
 - **Ratings** — click the ★ column to rate 0–5. Ratings work as a field metric and in formulas (`rat`).
 - **Check** — tempo confidence as a traffic light: **red** = the file's tag and the analysis disagree (worth a listen), **yellow** = medium, **green** = high. Sort by it and check the top until it turns green.
 - **Right-click** a row to add it to a set.
-- **Export ▾** exports what the filters show (see §11).
+- **Export ▾** exports what the filters show (Pro, see §11).
 - **Table / Cards** switches the view.
 
 ---
@@ -259,6 +259,8 @@ When a file simply carries no tags, Repair says so plainly — *the remaining tr
 ---
 
 ## 11. Exporting — Rekordbox, Traktor, Ableton
+
+> **Export is part of Tunefield Pro.** Pro goes on sale in January 2027: €79, a one-time purchase, or €59 at the founder price if you sign up at tunefield.app before then. Until then both Export buttons say so and link to the sign-up. Your sets are kept, ready to export when Pro arrives. Everything else in Tunefield is free.
 
 **Export set** (set panel) exports the open set; **Export ▾** (List tab) exports what the filters show. You can switch the **Source** at the top of the menu either way.
 

@@ -3755,7 +3755,8 @@ input[type=range]::-moz-range-thumb     { border-radius:0 !important; }
              filter: saturate(.3); }
 .tf-locked:hover { opacity: .62; }
 *:has(> select.tf-locked) { position:relative; }   /* a <select> can't host ::after — badge its parent */
-.tf-locked::after, *:has(> select.tf-locked)::after {
+.pro-badge { position: relative; }   /* full strength: it opens the Pro card, it isn't disabled */
+.tf-locked::after, *:has(> select.tf-locked)::after, .pro-badge::after {
   content: 'PRO'; position: absolute; top: -5px; right: -5px; z-index: 3;
   font-size: 7px; font-weight: 700; letter-spacing: .06em; line-height: 1;
   padding: 2px 3px; border-radius: 2px; pointer-events: none;
