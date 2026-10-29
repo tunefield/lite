@@ -72,6 +72,6 @@ webfont is ever fetched** — consistent with the app working fully offline.
 
 ## Project metadata
 
-- Tunefield source: https://github.com/tunefield/app
+- Tunefield Lite source: https://github.com/tunefield/lite
 - Copyright (c) 2024–2026 Mark Burnett (and contributors).
 - AGPL-3.0-or-later — see `LICENSE`.

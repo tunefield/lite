@@ -1,13 +1,38 @@
 # Tunefield Lite
 
-New repo for the from-scratch rebuild decided 2026-10-26. **Nothing is here yet.**
+Tunefield Lite helps a DJ build a set from a selection of music. It analyses your tracks on your own Mac and lays them out as a 3D field, shaped by tempo, loudness, key and mood, so *where things are* means something. Build a set in the field, play it through, and export it to Rekordbox, Traktor, Ableton or M3U8.
 
-Read the handover first (revision 2, after a three-critic review):
+Free. Runs entirely on your Mac: your music, your analysis and your sets never leave it. Public beta.
 
-    ../tunefield/_local/LITE-HANDOVER-2026-10-26.md
+## Download
 
-§0.1 runs the pilot beside you · §12.0 is your first hour · §12.1 is the message to send Mark on Tue 27
-morning — **defaults stand after Tue 27 Oct 18:00** · §12.9 is Plan B.
+**[Latest release →](https://github.com/tunefield/lite/releases/latest)**
 
-The pilot at `../tunefield` is an archive and reference — read from it, never develop in it.
-Ships Tue 3 Nov 2026. Free. DJ-first. No modes. Public beta.
+| File | For |
+|---|---|
+| `Tunefield-Lite-<version>-arm64.dmg` | Installing on your Mac: open it and drag Tunefield into Applications |
+| `Tunefield-Lite-<version>-arm64-USB.zip` | Running from a USB stick, library and all |
+
+**Needs** a Mac with Apple Silicon (M1 or newer) and macOS 14 Sonoma or newer.
+
+## Using it
+
+The [manual](MANUAL.md) covers everything; it is also inside the app. The short version: **Analyse → Add music**, pick a folder; open the **Field**; **＋ New set** and double-click tracks to add them; **▶ Play**; **Export set**.
+
+## Feedback
+
+Use the **Feedback** button in the app, which fills in a diagnostics snapshot for you. Or email mark@tunefield.app.
+
+## Running from source
+
+Python 3.12 from python.org:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python app.py
+```
+
+It opens in your browser at `http://localhost:5050`, or the next free port. The release builds are made with `packaging/release-macos.sh`.
+
+## Licence
+
+AGPL-3.0, see [LICENSE](LICENSE). Third-party notices are in [NOTICE.md](NOTICE.md). Changes are in [CHANGELOG.md](CHANGELOG.md).
