@@ -275,6 +275,11 @@ async function openRbSetup() {
   if (s?.bridge_path) document.getElementById('rb-bridge-path').textContent = s.bridge_path;
   document.getElementById('rb-setup-modal').style.display = 'flex';
 }
+function closeRbSetup() { document.getElementById('rb-setup-modal').style.display = 'none'; }
+function copyRbBridgePath() {
+  const path = document.getElementById('rb-bridge-path')?.textContent || '';
+  navigator.clipboard?.writeText(path).then(() => showToast('Path copied'), () => showToast('Could not copy — select the path and copy it'));
+}
 // pilot 8790
 function buildTraktorNml(rows, name) {
   const nowIso = new Date().toISOString().slice(0, 19);
@@ -337,4 +342,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

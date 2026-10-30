@@ -145,6 +145,32 @@ function _annoFlush() {
 window.addEventListener('beforeunload', _annoFlush);
 // pilot 5961
 window.addEventListener('pagehide', _annoFlush);
+// pilot 5962 — read the data folder's copy back at boot. The browser cache is per Mac;
+// annotations.json roams with the stick, and without this step a stick plugged into
+// another laptop showed no ratings, tags or views, and the first star clicked there
+// replaced the whole section on disk (review, 2026-10-30). The server always wins: the
+// pilot's "upload the local copy if the server is empty" branch is gone, because the
+// DMG and USB builds share one bundle ID, so an empty stick would have inherited the
+// Mac library's ratings.
+async function annoHydrate() {
+  let doc;
+  try { doc = await fetch('/annotations').then(r => r.ok ? r.json() : null); } catch { doc = null; }
+  if (!doc) return;
+  Object.keys(RATINGS).forEach(k => delete RATINGS[k]);
+  Object.assign(RATINGS, doc.ratings || {});
+  try { localStorage.setItem('track-ratings', JSON.stringify(RATINGS)); } catch (_) {}
+  allTags = Object.entries(doc.tags || {}).map(([id, t]) => ({ id, name: t.name, color: t.color }));
+  try { localStorage.setItem('all-tags', JSON.stringify(allTags)); } catch (_) {}
+  Object.keys(trackTags).forEach(k => delete trackTags[k]);
+  const raw = {};
+  Object.entries(doc.track_tags || {}).forEach(([k, v]) => { trackTags[k] = new Set(v); raw[k] = [...v]; });
+  try { localStorage.setItem('track-tags', JSON.stringify(raw)); } catch (_) {}
+  try { localStorage.setItem('field-views', JSON.stringify(doc.views || [])); } catch (_) {}
+  // Repaint everything that shows annotations, if it exists yet.
+  for (const fn of ['renderCatalog', 'renderTagFilterRow', 'renderFieldViews'])
+    if (typeof window[fn] === 'function') { try { window[fn](); } catch (_) {} }
+}
+annoHydrate();
 // pilot 6073
 let allCatalogs    = [];        // [{name, slug, count}]
 // pilot 6074
@@ -384,7 +410,10 @@ function getFilteredCatalog() {
 // pilot 7888
 function applyFilters() {
   window.onSetChange?.();   // Up next draws from what the filters show
-  renderCatalog();
+  // The List table is one HTML string for every visible row (156 MB at 30k tracks);
+  // build it only while the List tab is showing. switchTab('catalog') reloads the
+  // catalog, which lands here again with the tab visible (review, 2026-10-30).
+  if (document.body.classList.contains('on-tab-catalog')) renderCatalog();
   refreshActiveFilterCount();
   // Matrix is layout-stable: a filter change only toggles per-node visibility, never
   // re-lays positions. That keeps the camera, anchor ring, and currently-playing track
@@ -7624,11 +7653,24 @@ let playbackRange = (() => {
   } catch { return def; }
 })();
 // pilot 20421
+let _pbLastPos = -1;   // the slot the playing track last held in the sequence
 function _pbSeqPos(seq) {
   const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
   const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
-  if (_pbSeqIdx >= 0 && _pbSeqIdx < seq.ids.length && seq.ids[_pbSeqIdx] === cur) return _pbSeqIdx;
-  return cur ? seq.ids.indexOf(cur) : -1;
+  const i = (_pbSeqIdx >= 0 && _pbSeqIdx < seq.ids.length && seq.ids[_pbSeqIdx] === cur)
+    ? _pbSeqIdx : (cur ? seq.ids.indexOf(cur) : -1);
+  if (i >= 0) _pbLastPos = i;
+  return i;
+}
+// The playing track was taken out of the set (× or undo), so _pbSeqPos finds nothing and
+// Next used to restart at track 1 (review, 2026-10-30). Give back the slot it held: Next
+// then plays the track that slid into it, Previous the one before. -1 when nothing was
+// playing, so a fresh set still starts from the top.
+function _pbGapPos(seq) {
+  const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
+  const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
+  if (!cur || _pbLastPos < 0) return -1;
+  return Math.min(_pbLastPos, seq.ids.length);
 }
 // pilot 20443
 const NTD_C_PROG = 2 * Math.PI * 27;
@@ -7834,7 +7876,8 @@ async function advanceToNextTrack() {
     return;
   }
 
-  let nextIdx = (playMode === 'shuffle') ? _shuffleNext(seq, i) : i + 1;
+  const gap = i < 0 ? _pbGapPos(seq) : -1;
+  let nextIdx = (playMode === 'shuffle') ? _shuffleNext(seq, i) : (gap >= 0 ? gap : i + 1);
   let next = seq.ids[nextIdx];
   if (!next) {
     // End of the list. Straight-through stops here; the looping modes wrap around.
@@ -7904,14 +7947,16 @@ async function previousTrack() {
     return;
   }
   const i    = _pbSeqPos(seq);
-  const prev = seq.ids[i - 1];
+  const gap  = i < 0 ? _pbGapPos(seq) : -1;
+  const pi   = gap >= 0 ? gap - 1 : i - 1;
+  const prev = seq.ids[pi];
   if (!prev) {
     if (audioCurrentId) tfSeekTo(0);
     showToast(seq.source === 'playlist' ? 'Start of playlist' : 'Start of list');
     updateTransport();
     return;
   }
-  _pbSeqIdx = i - 1;
+  _pbSeqIdx = pi;
   if (typeof neuralNodeData !== 'undefined' && neuralNodeData.length) {
     const nodeIdx = neuralNodeData.findIndex(nd => nd.catalogId === prev);
     if (nodeIdx >= 0) { await matrixCommitIdx(nodeIdx, { force: true }); updateTransport(); return; }
@@ -8016,6 +8061,7 @@ function updateTransport() {
   const tracks  = activePlaylist?.tracks || [];
   const curId   = audioCurrentId || anchorTrackId();
   const trackI  = curId ? tracks.findIndex(t => t.track_id === curId) : -1;
+  if (trackI >= 0) _pbLastPos = trackI;   // every timeupdate lands here: the slot stays current for _pbGapPos
 
   // Title from catalog lookup if we have one
   // (setNtTitle below wraps the text and starts the marquee only if it overflows)
@@ -8302,6 +8348,7 @@ function spFollowPlaying() {
 // pilot 21253
 async function setActivePlaylist(slug) {
   if (!slug) return;
+  _pbLastPos = -1;   // a slot in the old set means nothing in the new one
   await fetch('/playlists/active', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
   await refreshPlaylistPanel();
 }

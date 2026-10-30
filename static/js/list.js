@@ -305,7 +305,25 @@ function renderCatalog() {
     return;
   }
   const rows = filtered.map(e => ({ id:e.id, filename:e.filename, status:'done', data:e.data, analyzedAt:e.analyzed_at, scanDuration:e.scan_duration, has_file:e.has_file, isCatalog:true }));
+  // A different filter result starts paged again; "Show all" is per result, not per session.
+  if (filtered.length !== _catLastCount) { _catLastCount = filtered.length; catShowAll = false; }
   out.innerHTML = catalogView==='table' ? tableHTML(rows,'catalog') : cardsHTML(rows,'catalog');
+}
+// pilot 8875 (Lite): the table is one HTML string per visible row — at 30k rows that is
+// 156 MB and ~600k elements, which froze the window on every filter touch (review,
+// 2026-10-30). Draw the first LIST_PAGE sorted rows and offer the rest on request.
+const LIST_PAGE = 500;
+let catShowAll = false, _catLastCount = -1;
+function listShowAll() { catShowAll = true; renderCatalog(); }
+function listPage(sorted, ctx) {
+  if (ctx !== 'catalog' || catShowAll || sorted.length <= LIST_PAGE) return { rows: sorted, hidden: 0 };
+  return { rows: sorted.slice(0, LIST_PAGE), hidden: sorted.length - LIST_PAGE };
+}
+function showMoreHTML(hidden, cols) {
+  if (!hidden) return '';
+  const cell = `<button class="btn-sm" onclick="listShowAll()">Show the other ${hidden} track${hidden === 1 ? '' : 's'}</button>`;
+  return cols ? `<tr class="show-more"><td colspan="${cols}" style="text-align:center;padding:10px">${cell}</td></tr>`
+              : `<div class="show-more" style="text-align:center;padding:10px">${cell}</div>`;
 }
 // pilot 8897
 function fmtScanLen(v) {
@@ -318,7 +336,8 @@ function fmtScanLen(v) {
 // pilot 8906
 function cardsHTML(rows, ctx) {
   if (!rows.length) return '';
-  return `<div class="cards-stack">${rows.map((r,i) => `
+  const page = listPage(rows, ctx);
+  return `<div class="cards-stack">${page.rows.map((r,i) => `
     <div>
       <div class="track-card-header">
         <span class="track-num">${String(i+1).padStart(2,'0')}</span>
@@ -331,7 +350,7 @@ function cardsHTML(rows, ctx) {
         ${ctx==='catalog' ? `<button class="delete-btn" onclick="deleteCatalogEntry('${r.id}',event)">×</button>` : ''}
       </div>
       ${r.status==='done' ? buildCard(r.data, r.id) : ''}
-    </div>`).join('')}</div>`;
+    </div>`).join('')}${showMoreHTML(page.hidden)}</div>`;
 }
 // pilot 8925
 function tableHTML(rows, ctx) {
@@ -401,7 +420,8 @@ function tableHTML(rows, ctx) {
     return `<th class="${active?'sorted':''}"${drag(c)} onclick="tblSort('${ctx}','${c.key}')">${cap}${active?(sd===1?' ↑':' ↓'):''}${handle(c.key)}</th>`;
   }).join('')}</tr>`;
 
-  const tbody = sorted.map((r,i) => {
+  const page = listPage(sorted, ctx);
+  const tbody = page.rows.map((r,i) => {
     const isExp = r.id === expId;
     const d     = r.data;
     let cells   = '';
@@ -436,7 +456,7 @@ function tableHTML(rows, ctx) {
     return rowEl + detEl;
   }).join('');
 
-  return `<div class="table-wrap"><table>${colgroup}<thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
+  return `<div class="table-wrap"><table>${colgroup}<thead>${thead}</thead><tbody>${tbody}${showMoreHTML(page.hidden, vcols.length)}</tbody></table></div>`;
 }
 // pilot 9030
 function cellHTML(c, r, d, mc, i, ctx) {
@@ -864,5 +884,5 @@ async function tableRowCommit(ctx, id) {
 
 function listForgetExpanded(id) { if (catExpandedId === id) catExpandedId = null; }
 
-Object.assign(window, { listRenderCatalog: renderCatalog, listForgetExpanded, checkScore, saveRating, starWidget, setRating, saveTrackTags, addTagToTrack, removeTag, defaultColVis, saveColVis, saveColWidths, startColResize, orderedCols, colDragStart, colDragOver, colDrop, visibleCols, openColPicker, closeColPicker, toggleCol, colPickerAll, colPickerReset, setCatalogView, renderAnalyse, fmtScanLen, cardsHTML, tableHTML, cellHTML, tblSort, coverFailed, tblExpand, setBpmMul, clearBpm, setKeyStep, clearKey, buildCard, svgGauge, gaugeWrap, timRow, miniBarRow, tblBar, keyPill, formatDur, fmtDate, rescanEntry, saveGenre, audioToggle, _fieldUsesRating, tableRowClick, tableRowDblClick, tableRowCommit });
+Object.assign(window, { listRenderCatalog: renderCatalog, listShowAll, listForgetExpanded, checkScore, saveRating, starWidget, setRating, saveTrackTags, addTagToTrack, removeTag, defaultColVis, saveColVis, saveColWidths, startColResize, orderedCols, colDragStart, colDragOver, colDrop, visibleCols, openColPicker, closeColPicker, toggleCol, colPickerAll, colPickerReset, setCatalogView, renderAnalyse, fmtScanLen, cardsHTML, tableHTML, cellHTML, tblSort, coverFailed, tblExpand, setBpmMul, clearBpm, setKeyStep, clearKey, buildCard, svgGauge, gaugeWrap, timRow, miniBarRow, tblBar, keyPill, formatDur, fmtDate, rescanEntry, saveGenre, audioToggle, _fieldUsesRating, tableRowClick, tableRowDblClick, tableRowCommit });
 export { rescanningIds };

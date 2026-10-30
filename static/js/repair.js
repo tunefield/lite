@@ -2,7 +2,7 @@
 // tags. The pilot's (index.html @ 7c8c0e7), offline only: the Discogs/AcoustID lookups, online
 // cover fetching and the API-keys panel are LATER (Mark, 26 Oct). "// pilot N" marks each source line.
 import { _coverTexCache, activeCatalog, allCatalogs, catalog, esc, loadCatalog, markFieldStale, noteToCamelot, renderCatalog, showToast, trackArtistTitle } from './field.js';
-import { bgBreather, showEntriesUndoToast, uiForegroundBusy } from './analyse.js';
+import { bgBreather, showEntriesUndoToast, tfConfirmFetch, uiForegroundBusy } from './analyse.js';
 import { rescanningIds } from './list.js';
 
 
@@ -183,13 +183,11 @@ const REPAIR_CATEGORIES = [
           if (e?.name !== 'AbortError') showToast(`Backfill failed: ${e.message}`);
         } finally { endScanProgress(_spTok); }
       } }
-    ],
-    rowExtra: r => `<button class="rep-row-btn" onclick="repairLookupTrack('${r.id}','discogs')" title="Search Discogs for this track">🔎 Discogs</button>` },
+    ] },
   { key:'missing_genre',    icon:REP_ICO('<path d="M3.5 12.5 12 4h7.5V11l-8.5 8.5a1.5 1.5 0 0 1-2.1 0l-5.4-5.4a1.5 1.5 0 0 1 0-2.1z" transform="rotate(180 11.5 12)"/><circle cx="15.8" cy="7.8" r=".4"/>'),  title:'Missing genre',              desc:'Entry has no genre tag set', sev:'warn',
     actions: cat => [
       { label:'Extract genres (active Field)', run: async () => { await extractGenres(); await repairScan(); } }
-    ],
-    rowExtra: r => `<button class="rep-row-btn" onclick="repairLookupTrack('${r.id}','discogs')" title="Search Discogs for this track">🔎 Discogs</button>` },
+    ] },
   { key:'missing_loudness', icon:REP_ICO('<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5z"/><path d="M15.5 9a5 5 0 0 1 0 6M18 6.7a8.5 8.5 0 0 1 0 10.6"/>'),  title:'Missing LUFS loudness',      desc:'Track was analysed before LUFS was added — rescan to populate', sev:'warn',
     actions: rows => [rescanRowsAction(rows)] },
   { key:'failed_analysis',  icon:REP_ICO('<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>'),  title:'Failed / partial analysis',  desc:'BPM=0 or duration=0 — analysis likely failed', sev:'crit',
@@ -200,9 +198,7 @@ const REPAIR_CATEGORIES = [
       { label:'Auto-apply tags to stored names…', run: previewTagFilenames },
       { label:'Undo all tag rewrites', danger:true, run: undoTagFilenames },
     ],
-    rowExtra: r => `<span class="rep-meta">catalog: <strong>${esc(r.filename_artist || '?')}</strong> – <strong>${esc(r.filename_title || '?')}</strong> · tag: <strong>${esc(r.tag_artist || '?')}</strong> – <strong>${esc(r.tag_title || '?')}</strong></span>
-      <button class="rep-row-btn" onclick="repairLookupTrack('${r.id}','discogs')" title="Search Discogs">🔎 Discogs</button>
-      <button class="rep-row-btn${fpcalcMissing() ? ' is-disabled' : ''}" data-acoustid="1" onclick="repairLookupTrack('${r.id}','acoustid')" title="${fpcalcMissing() ? 'AcoustID needs Chromaprint fpcalc (not installed) — see 🔑 API keys' : 'Fingerprint via AcoustID'}">🎧 AcoustID</button>` },
+    rowExtra: r => `<span class="rep-meta">catalog: <strong>${esc(r.filename_artist || '?')}</strong> – <strong>${esc(r.filename_title || '?')}</strong> · tag: <strong>${esc(r.tag_artist || '?')}</strong> – <strong>${esc(r.tag_title || '?')}</strong></span>` },
   { key:'duplicate_files',  icon:REP_ICO('<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),  title:'Duplicate file references',  desc:'Same audio file referenced by multiple entries', sev:'warn',
     actions: () => [{ label:'Auto-delete duplicates (keep best)…', danger:true, run: () => previewDedup('duplicate_files') }],
     isGroups: true },
@@ -390,8 +386,6 @@ async function unignoreAll() {
   await repairScan();
   showToast('All ignored issues restored');
 }
-// pilot 9830
-function fpcalcMissing() { return window.__health && window.__health.fpcalc === false; }
 // pilot 9898
 async function deleteDupRow(id, slug, btn) {
   if (!confirm(`Delete this Field entry?\n\nOnly the catalog entry is removed — the audio file stays on disk.`)) return;
@@ -865,4 +859,4 @@ function cancelScan() {
 function scanSignal(tok) { return tok?.abort?.signal; }
 function isScanCancelled(tok) { return !!tok?.superseded || (tok === _rp.tok && _rp.cancelled); }
 
-Object.assign(window, { extractGenres, repairSlugs, setRepairField, syncRepairFieldSelect, repairScan, renderRepair, repairToggle, repairAction, ignoreRepairRow, ignoreCategoryAll, unignoreAll, fpcalcMissing, deleteDupRow, previewDedup, previewTagFilenames, undoTagFilenames, showRepairModal, closeRepairModal, extractCovers, keyCoverColor, drawGeneratedCover, generateCovers, rescanAll, _purgeMissingCoverCache, repairRender: renderRepair, cancelRepairTask: cancelScan });
+Object.assign(window, { extractGenres, repairSlugs, setRepairField, syncRepairFieldSelect, repairScan, renderRepair, repairToggle, repairAction, ignoreRepairRow, ignoreCategoryAll, unignoreAll, deleteDupRow, previewDedup, previewTagFilenames, undoTagFilenames, showRepairModal, closeRepairModal, extractCovers, keyCoverColor, drawGeneratedCover, generateCovers, rescanAll, _purgeMissingCoverCache, repairRender: renderRepair, cancelRepairTask: cancelScan });

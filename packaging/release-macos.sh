@@ -78,16 +78,19 @@ if [ "$NOTARIZE" = "0" ]; then
   echo "== notarize SKIPPED (--no-notarize) =="
   echo "   The DMG is signed but NOT notarized and NOT stapled."
   echo "   Gatekeeper will refuse it on another Mac until it is."
-  echo "   To finish later:  xcrun notarytool submit \"$DMG\" --keychain-profile tunefield-notary --wait \\"
-  echo "                  && xcrun stapler staple \"$DMG\""
+  echo "   To finish: re-run this script without --no-notarize (stapling only the DMG by"
+  echo "   hand leaves the app inside the USB zip unstapled, and an offline Mac refuses it)."
 else
 echo "== notarize (waits for Apple) =="
 xcrun notarytool submit "$DMG" --keychain-profile tunefield-notary --wait
 xcrun stapler staple "$DMG"
 fi
 # The app inside carries the same measured signature — staple the loose copy too so
-# the USB build verifies offline.
-[ "$NOTARIZE" = "1" ] && { xcrun stapler staple "$APP" || echo "note: app staple failed (dmg ticket still covers online checks)"; }
+# the USB build verifies offline. Fatal: a zip built from an unstapled app is refused
+# by an offline Mac (the club case), so there is no point shipping it.
+if [ "$NOTARIZE" = "1" ]; then
+  xcrun stapler staple "$APP" || { echo "app staple failed — the USB zip would not verify offline; aborting" >&2; exit 1; }
+fi
 
 echo "== USB zip =="
 mkdir -p "$STAGE/usb/Tunefield-USB"

@@ -761,6 +761,10 @@ def assign_mood(energy, valence):
 
 SAMPLE_BLOCKS = 6          # how many places across the track a partial scan listens at
 _SAMPLE_TAPER_MS = 12      # fade in/out on each block edge
+# Ceiling on decoded audio per track, whatever the scan setting: a multi-hour DJ mix at
+# 50% would otherwise decode 3,600 s (~320 MB of samples, several GB through the STFT
+# and hpss buffers), and four workers of that exhaust an 8 GB Mac.
+FULL_TRACK_CAP = 900       # seconds (15 min) — sane ceiling for "full track"
 
 
 def _load_sampled(filepath, duration, frac, sr=22050):
@@ -777,7 +781,7 @@ def _load_sampled(filepath, duration, frac, sr=22050):
     statistical (autocorrelation over the onset envelope), so a few soft edges do not
     move it — but this is the reason the taper is not optional.
     """
-    total = max(1.0, duration * float(frac))
+    total = min(max(1.0, duration * float(frac)), float(FULL_TRACK_CAP))
     n = SAMPLE_BLOCKS
     blk = total / n
     # Ignore the outer 5%: intros and run-outs are the least representative part of a
@@ -887,9 +891,8 @@ def analyze(filepath, duration_limit=60, verbose=True):
     duration = result["metadata"].get("duration_sec", 0)
 
     # Full-track mode (duration_limit ≥ 9999) loads the whole file from the start, but
-    # capped so a multi-hour podcast / DJ mix can't blow out memory on a big STFT.
-    # Shorter scans skip the first 20% to avoid intros (when the track is long enough).
-    FULL_TRACK_CAP = 900  # seconds (15 min) — sane ceiling for "full track"
+    # capped (FULL_TRACK_CAP) so a multi-hour podcast / DJ mix can't blow out memory on a
+    # big STFT. Shorter scans skip the first 20% to avoid intros (when the track is long enough).
     full_track = duration_limit >= 9999
     # FRACTIONAL scan lengths (Mark, 2026-08-26): a value in (0, 1] means "this fraction
     # of the track" rather than a number of seconds, so a 3-minute edit and a 12-minute
@@ -900,7 +903,11 @@ def analyze(filepath, duration_limit=60, verbose=True):
     if fractional:
         full_track = duration_limit >= 0.999
         offset = 0.0
-        load_dur = min(duration, FULL_TRACK_CAP)
+        # What we actually ask for — _load_sampled decodes this fraction, and the
+        # short-decode warning below compares against load_dur. Using the full length
+        # here flagged every healthy track longer than 30 s as "may be damaged" at the
+        # 50% scan (117 s decoded of 233 s "expected").
+        load_dur = min(duration * duration_limit, FULL_TRACK_CAP)
     elif full_track:
         offset = 0.0
         load_dur = min(duration, FULL_TRACK_CAP) if duration > 0 else FULL_TRACK_CAP

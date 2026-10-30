@@ -4,7 +4,7 @@
 // bottom is Lite's own.
 // Modules talk through window.name?.() (as the pilot's inline handlers do); only the
 // owning module assigns its own state.
-import { catalog, activeCatalog, allCatalogs, loadCatalogMeta, esc, showToast, fmtTime } from './field.js';
+import { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, fmtTime } from './field.js';
 
 // pilot 6555, 6599 — moved here from the Field: this module owns the music folders.
 let libRoots = [];
@@ -33,6 +33,26 @@ async function apiJson(url, opts) {
   }
   return { ok: true, data: d };
 }
+// pilot 18720 — fetch() with the destructive-action confirm token in the X-Tunefield-Confirm
+// header. The token is fetched on first use (same-origin GET /system/token) and once more
+// on a 403, since the server mints a new one per process and a restart under an open tab
+// would otherwise 403 every delete until reload.
+let _tfConfirm = '';
+async function tfConfirmFetch(url, opts) {
+  const getToken = async () => {
+    try { const t = await fetch('/system/token').then(x => x.ok ? x.json() : null); if (t?.token) _tfConfirm = t.token; }
+    catch (_) { /* keep whatever we had */ }
+  };
+  const doFetch = () => {
+    const o = Object.assign({}, opts || {});
+    o.headers = Object.assign({}, o.headers || {}, { 'X-Tunefield-Confirm': _tfConfirm });
+    return fetch(url, o);
+  };
+  if (!_tfConfirm) await getToken();
+  let r = await doFetch();
+  if (r.status === 403) { const had = _tfConfirm; await getToken(); if (_tfConfirm && _tfConfirm !== had) r = await doFetch(); }
+  return r;
+}
 // pilot 6600
 async function libRootsLoad() {
   // The old form assigned the parsed body straight in. On any error that body is
@@ -60,6 +80,10 @@ async function libRootAdd() {
   // Lock the button + show inline progress while we hit the server.
   if (addBtn) addBtn.classList.add('scanning');
   setInlineScan(true, 'Adding folder…');
+  // A failed add ("Folder not found", typo) must not leave the PREVIOUS scan's files in
+  // place: anAnalyseScanned would send them all to the Field now showing, cloning Field
+  // A's library into Field B (review, 2026-10-30).
+  libScanResults = null;
   try {
     const res = await fetch('/library/roots', {
       method: 'POST',
@@ -433,6 +457,9 @@ async function _anPump() {
     // failure-details list must be written after it or they'd be wiped instantly.
     await libScan();
     await loadCatalogMeta();
+    // The Field is built from `catalog`; without this the new tracks only appeared after
+    // leaving the tab and coming back (review, 2026-10-30).
+    if (_anAdded > 0) await loadCatalog();
     window.updateTabCounts?.();
     if (status) status.textContent = wasCancelled
       ? `Cancelled · ${anSummary()}`
@@ -494,8 +521,44 @@ let _anState = 'idle';   // idle | scanning | running | done
 
 // Lite adds to the Field you're on — the pilot's separate destination picker is gone.
 function _analyseTargetCat() { return activeCatalog || ''; }
-// shortcut: folder removal still snapshots server-side, but there's no undo button yet; add one with the Repair tab.
-function showEntriesUndoToast(msg) { showToast(msg); }
+// pilot 21295 — every bulk entry delete (folder removal, orphans, dedup) is snapshotted
+// server-side; this toast's Undo restores the latest snapshot. The confirm dialogs and the
+// manual promise it, so it has to exist (review, 2026-10-30).
+function showEntriesUndoToast(msg) {
+  let t = document.getElementById('entries-undo-toast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'entries-undo-toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:96px;z-index:600;display:flex;align-items:center;gap:12px;'
+      + 'pointer-events:auto;background:color-mix(in srgb, var(--surface2) 94%, #000);color:var(--text);'
+      + 'padding:8px 10px 8px 14px;border-radius:0;font-size:12.5px;font-weight:600;'
+      + 'box-shadow:3px 3px 0 var(--scrim), 0 0 0 1px var(--border);'
+      + 'opacity:0;transform:translateX(-50%) translateY(6px);transition:opacity .18s ease, transform .18s ease';
+    document.body.appendChild(t);
+  }
+  t.innerHTML = `<span>${esc(msg)}</span>`
+    + `<button class="undo-btn" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:4px 12px;font-weight:800;font-size:11px;letter-spacing:.3px;text-transform:uppercase;cursor:pointer">Undo</button>`;
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)'; });
+  const hide = () => {
+    t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(6px)';
+    t.style.pointerEvents = 'none';           // a faded toast must not eat clicks…
+    setTimeout(() => t.remove(), 200);        // …and must leave the DOM once faded
+  };
+  clearTimeout(t._tid);
+  t._tid = setTimeout(hide, 10000);
+  t.querySelector('.undo-btn').onclick = async () => { clearTimeout(t._tid); hide(); await _undoDeletedEntries(); };
+  // Also reachable from the header's undo long after the toast is gone.
+  window.tfUndoPush?.(msg.replace(/\.$/, '') || 'deleting entries', _undoDeletedEntries);
+}
+async function _undoDeletedEntries() {
+  const r = await fetch('/repair/undo-entries', { method: 'POST' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { showToast(j.error || 'Nothing to undo'); return; }
+  showToast(`Restored ${j.restored} entr${j.restored === 1 ? 'y' : 'ies'}`);
+  await loadCatalogMeta();
+  await loadCatalog();
+  window.updateTabCounts?.();
+  if (document.body.classList.contains('on-tab-repair')) await window.repairScan?.();
+}
 function renderLibScan() {}   // Lite analyses straight after the scan — nothing to tick
 
 function anShow(state, head) {
@@ -650,4 +713,4 @@ async function analyseBoot() {
 }
 
 Object.assign(window, { addMusic, checkForNew, cancelScan, libRootRemove, renderLibRoots, resumeAnalysisQueue, anResumeDismiss });
-export { analyseBoot, apiJson, bgBreather, showEntriesUndoToast, uiForegroundBusy };
+export { analyseBoot, apiJson, bgBreather, showEntriesUndoToast, tfConfirmFetch, uiForegroundBusy };

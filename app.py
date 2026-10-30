@@ -305,6 +305,11 @@ def _require_confirm():
     return None
 
 
+def _host_is_loopback():
+    host = (request.host or "").rsplit(":", 1)[0].strip("[]").lower()
+    return host in ("localhost", "127.0.0.1", "::1")
+
+
 def _same_origin_ok():
     """CSRF guard for state-changing endpoints that AREN'T confirm-token gated (analyse,
     scan, extract-*). A browser always sets Origin/Referer on a cross-origin POST and a
@@ -315,8 +320,7 @@ def _same_origin_ok():
     # FIRST trust decision leaves a DNS-rebinding gap: a hostile hostname resolving to
     # 127.0.0.1 satisfies origin==host while being an attacker page (Aug 15 code
     # review). We only ever bind loopback, so any other Host is by definition wrong.
-    host = (request.host or "").rsplit(":", 1)[0].strip("[]").lower()
-    if host not in ("localhost", "127.0.0.1", "::1"):
+    if not _host_is_loopback():
         return False
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
     if not origin:
@@ -354,6 +358,12 @@ _LOCK_EXEMPT_ENDPOINTS = {
 
 @app.before_request
 def _serialize_mutations():
+    # Every method, reads included: a DNS-rebound hostname pointing at 127.0.0.1 could
+    # otherwise GET /catalogs, /library/scan and /catalog/<id>/stream — every music path
+    # and the audio itself (review, 2026-10-30). Only loopback Hosts exist for this app.
+    if not _host_is_loopback():
+        from flask import abort
+        abort(403, description="unexpected Host")
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return
     # Blanket CSRF guard: a cross-origin browser request carries a mismatched Origin /
@@ -1477,13 +1487,22 @@ def load_meta():
         with open(META_FILE) as f:
             data = json.load(f)
         return data if isinstance(data, list) else []
-    except Exception as e:
-        try:
-            os.replace(META_FILE, META_FILE + ".corrupt")
-            print(f"[load_meta] corrupted {META_FILE} → moved to .corrupt ({e})")
-        except Exception:
-            pass
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        _quarantine(META_FILE, "load_meta", e)
         return []
+
+def _quarantine(path, who, err):
+    """Move an unparseable JSON file aside and log it. Only for files whose CONTENT is
+    bad (JSONDecodeError / UnicodeDecodeError) — an OSError (flaky USB stick, out of file
+    handles) must raise instead, because the file is healthy and treating it as empty
+    lets the next merge write a catalog holding only the newest tracks (review,
+    2026-10-30). The name carries a timestamp so a second quarantine never overwrites
+    the first: that earlier copy may be the only backup left."""
+    try:
+        os.replace(path, f"{path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        print(f"[{who}] corrupted {path} → moved aside ({err})")
+    except Exception:
+        pass
 
 def save_meta(meta):
     atomic_json_dump(META_FILE, meta)
@@ -1569,12 +1588,8 @@ def _load_cat_raw(slug):
         with open(path) as f:
             data = json.load(f)
         return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
-        try:
-            os.replace(path, path + ".corrupt")
-            print(f"[load_cat] corrupted {path} → moved to .corrupt ({e})")
-        except Exception:
-            pass
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        _quarantine(path, "load_cat", e)
         return []
 
 # A scan length is EITHER a fraction of each track in (0, 1] — the form the UI has used
@@ -2922,16 +2937,20 @@ def scan_health(slugs=None):
                         "tag_artist": tag_artist,    "tag_title": tag_title,
                     })
                 # Dupes
+                # Both keys include the Field: a track deliberately added to two Fields
+                # is not a duplicate of itself, and "Auto-delete duplicates" used to strip
+                # it from every Field but one (review, 2026-10-30).
                 key_path = absolute_form(e.get("library_file","")).lower()
                 if key_path:
-                    seen_paths.setdefault(key_path, []).append(row)
+                    seen_paths.setdefault((slug, key_path), []).append(row)
                 # Prefer real ID3 tags for the title-dup key; fall back to filename parse
                 # only when tags are absent (a stronger signal for a delete-triggering heuristic).
-                dup_artist = (tag_artist or fn_artist).lower()
-                dup_title  = (tag_title  or fn_title).lower()
-                tkey = (dup_artist, dup_title)
-                if tkey != ("",""):
-                    seen_titles.setdefault(tkey, []).append(row)
+                # Both artist AND title must be present: untagged files that are all
+                # called "Track 01" are different songs, not duplicates.
+                dup_artist = (tag_artist or fn_artist).lower().strip()
+                dup_title  = (tag_title  or fn_title).lower().strip()
+                if dup_artist and dup_title:
+                    seen_titles.setdefault((slug, dup_artist, dup_title), []).append(row)
             except Exception:
                 # Skip the malformed entry; the rest of the scan proceeds.
                 continue
@@ -4197,12 +4216,8 @@ def pl_load_meta():
             with open(PL_META_FILE) as f:
                 data = json.load(f)
             meta = data if isinstance(data, list) else []
-        except Exception as e:
-            try:
-                os.replace(PL_META_FILE, PL_META_FILE + ".corrupt")
-                print(f"[pl_load_meta] corrupted {PL_META_FILE} → moved to .corrupt ({e})")
-            except Exception:
-                pass
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            _quarantine(PL_META_FILE, "pl_load_meta", e)
             meta = None
     if meta is None or (not meta and os.path.isdir(PLAYLISTS_DIR)):
         reconstructed = _pl_reconstruct_meta_from_disk()
@@ -4219,13 +4234,9 @@ def pl_load_state():
     if os.path.exists(PL_STATE_FILE):
         try:
             with open(PL_STATE_FILE) as f: return json.load(f)
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             # Torn state file degrades to "no active playlist", never a dead panel.
-            try:
-                os.replace(PL_STATE_FILE, PL_STATE_FILE + ".corrupt")
-                print(f"[pl_load_state] corrupted {PL_STATE_FILE} → moved to .corrupt ({e})")
-            except Exception:
-                pass
+            _quarantine(PL_STATE_FILE, "pl_load_state", e)
     return {"active_slug": None, "session_id": None, "session_started_at": None}
 
 def pl_save_state(state):
@@ -4252,12 +4263,8 @@ def pl_load(slug):
     # of bricking every playlist surface with raw 400s.
     try:
         with open(p) as f: return json.load(f)
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
-        try:
-            os.replace(p, p + ".corrupt")
-            print(f"[pl_load] corrupted {p} → moved to .corrupt ({e})")
-        except Exception:
-            pass
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        _quarantine(p, "pl_load", e)
         return None
 
 def pl_save(pl):
