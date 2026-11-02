@@ -5,8 +5,9 @@ TUNEFIELD LITE — portable (USB) build
   Intel Macs are not supported.
 
 WHAT THIS IS
-  Tunefield runs entirely from this folder. Your Fields, sets, covers and
-  settings live in a data/ folder that appears HERE, next to the app. Your music
+  Tunefield runs entirely from this folder. Your Fields, sets, covers, ratings
+  and tags live in a data/ folder that appears HERE, next to the app (display
+  settings stay with the computer you plug into). Your music
   data stays on the stick; small caches stay on the computer. Take the stick,
   take your analysis with you.
 

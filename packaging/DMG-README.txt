@@ -40,7 +40,8 @@ FREE, EXCEPT EXPORT
 
 WHERE YOUR DATA LIVES
   ~/Library/Application Support/Tunefield Lite
-  Fields, sets, covers and settings live there.
+  Fields, sets, covers, ratings and tags live there; display settings live in
+  the app's own browser storage.
 YOUR MUSIC IS NEVER MOVED OR CHANGED - Tunefield analyses your files where they
   already are. Besides its measurements it keeps one thing: a playback cache of
   FLAC and Ogg tracks you have played in the app (max 4 GB, oldest dropped

@@ -764,7 +764,8 @@ _SAMPLE_TAPER_MS = 12      # fade in/out on each block edge
 # Ceiling on decoded audio per track, whatever the scan setting: a multi-hour DJ mix at
 # 50% would otherwise decode 3,600 s (~320 MB of samples, several GB through the STFT
 # and hpss buffers), and four workers of that exhaust an 8 GB Mac.
-FULL_TRACK_CAP = 900       # seconds (15 min) — sane ceiling for "full track"
+FULL_TRACK_CAP = 300       # seconds (5 min) — ceiling for "full track". 900 s peaked at 5.7 GB
+                           # per worker on a 48-min mix, 12 GB for a 4-worker chunk (debug sweep, 2 Nov 2026)
 
 
 def _load_sampled(filepath, duration, frac, sr=22050):
@@ -910,6 +911,9 @@ def analyze(filepath, duration_limit=60, verbose=True):
         # here flagged every healthy track longer than 30 s as "may be damaged" at the
         # 50% scan (117 s decoded of 233 s "expected").
         load_dur = min(duration if full_track else duration * duration_limit, FULL_TRACK_CAP)
+        # What the List shows as coverage: the fraction decoded, not the one requested — a
+        # short file read whole is 1.0, not 0.5 (debug sweep, 2 Nov 2026).
+        result["scan_fraction"] = round(min(1.0, load_dur / duration), 3) if duration > 0 else duration_limit
     elif full_track:
         offset = 0.0
         load_dur = min(duration, FULL_TRACK_CAP) if duration > 0 else FULL_TRACK_CAP
@@ -1153,6 +1157,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
         harm_rms = float(np.mean(librosa.feature.rms(y=y_harmonic)[0]))
         perc_rms = float(np.mean(librosa.feature.rms(y=y_percussive)[0]))
         percussive_ratio = float(perc_rms / (harm_rms + perc_rms + 1e-8))
+        del y_percussive   # last use — a 300 s buffer the rest of the pass does not need
         # TIMBRAL FINGERPRINT — MFCCs 3 and 4, averaged over the track. Stored raw; the
         # vector space z-scores every column anyway.
         #

@@ -22,9 +22,10 @@ lines are the problems.
 | usage log | `<data>/logs/usage.jsonl` — one JSON line per event | same |
 | catalogs | `<data>/catalogs/*.json` | same |
 
-Usage events: `start` (version, mode, port), `analyze` (format, ms, cover found),
-`analyze_reject` (undecodable file — expected sometimes), `error` (internal — never
-expected; each has a matching traceback in app.log).
+Usage events include `start` (version, mode, port), `analyze` (format, ms, cover found),
+`analyze_reject` (undecodable or refused file — expected sometimes), `repair`, `quit` and
+the client's feature events; `error` is internal and never expected (each has a matching
+traceback in app.log).
 
 ## Live endpoints (while the app runs)
 
@@ -45,7 +46,6 @@ expected; each has a matching traceback in app.log).
   decoder" — genuine, nothing on the machine can decode those. Not a bug. Other
   compressed AIFC (e.g. IMA4) decodes fine via CoreAudio, as do .opus, .m4b and .aifc —
   all supported since 2026-08-12.
-- **Uploads over 500 MB** are refused with advice to use a library-root folder scan.
 - Key detection can flip major/minor vs the dev machine on near-tie tracks (~1%).
 
 ## What IS a bug

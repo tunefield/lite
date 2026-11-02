@@ -51,12 +51,7 @@ following travel inside it as well:
 ## External binaries — NOT bundled, and not required
 
 Tunefield decodes audio and reads tags itself; **no shipped build contains ffmpeg,
-ffprobe or fpcalc**, and none is needed to analyse a library. The optional AcoustID
-lookup in Repair uses `fpcalc` only if the user has installed it themselves.
-
-| Tool | Licence | Project |
-|---|---|---|
-| chromaprint / fpcalc *(optional, user-installed, for AcoustID)* | LGPL-2.1 | https://acoustid.org/chromaprint |
+ffprobe or fpcalc**, and none is needed to analyse a library.
 
 Because these binaries are not distributed with Tunefield, no LGPL §6 source offer is
 required of us. Anyone who *does* redistribute a bundle containing them takes on that

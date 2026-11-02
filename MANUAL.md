@@ -67,7 +67,7 @@ While it runs:
 - **The progress panel is unmissable.** Within a second of pressing Add music it says what it is doing. The first few tracks take longest while the analyser warms up; after that you see *Analysing 120 of 1,376* and *about 9 min left*.
 - **Cancel** stops after the batch in flight. Everything analysed so far stays.
 - **You can use the Field while it runs.** Analysis slows itself down slightly while the Field or the List is on screen, so neither stutters.
-- **Interrupted runs come back.** If the app quits or crashes mid-run, the next launch opens on Analyse with *Analysis was interrupted — N files still to go* and a **Resume** button. Closing the window mid-run asks first.
+- **Interrupted runs come back.** If the app quits or crashes mid-run, the next launch opens on Analyse with *Analysis was interrupted — N files still to go* and a **Resume** button. Closing the native window mid-run does not ask; the run is simply offered back next time (a browser tab does ask first).
 
 When it finishes, the panel says what happened: *120 tracks added · 30 already in this Field · 2 files couldn't be read*. **Tracks already in the Field are a count, never an error.** Files that genuinely can't be decoded are listed under *details* with the reason.
 
@@ -242,13 +242,15 @@ Field health. Pick the Field, press **Scan health**, and the findings group into
 
 | Card | What it means | Fix offered |
 |---|---|---|
-| Broken file paths | Entry points at a file that no longer exists | Ignore a row, delete the orphan entries, or re-add the folder on the Analyse tab if the files only moved |
+| Files not found | Entry points at a file that no longer exists | Ignore a row, delete the orphan entries, or re-add the folder on the Analyse tab if the files only moved |
 | Missing cover art | No embedded art, no folder cover.jpg | Extract covers, then Generate key-colour covers |
 | Missing artist / title | Tags never extracted | Backfill tags from files |
 | Missing genre | No genre tag | Extract genres |
 | Failed / partial analysis | BPM = 0 or duration = 0 | Rescan these tracks |
-| Catalog name ↔ tag mismatch | Tags disagree with the stored name | Apply tags to catalog names (undoable) — files on disk are never renamed |
-| Duplicates | Same track catalogued more than once | Auto-delete duplicates (keep best), after a preview |
+| Missing LUFS loudness | Analysed before loudness was measured | Rescan these tracks |
+| Unrecognised musical key | Key root outside the 12-note set (an analysis quirk) | Rescan these tracks |
+| Stored name ↔ tag mismatch | Tags disagree with the stored name | Apply tags to catalog names (undoable) — files on disk are never renamed |
+| Duplicate file references / Duplicate titles | Same file, or same artist and title, catalogued more than once | Auto-delete duplicates (keep best), after a preview |
 
 **Covers:** **Extract covers** pulls the art embedded in your files; **Generate key-colour covers** draws a sleeve from the track's key colour, artist and title for whatever is left — so every track can end up with one. Long jobs show their progress on the Repair tab with a **Cancel**. Per-row buttons fix or **ignore** individual issues; ignored issues stay out of future scans until you clear the ignored list.
 
@@ -373,7 +375,7 @@ Keys never fire while you're typing in a box or dragging a slider.
 
 ## 15. Appendix: what the metrics mean
 
-An honest note up front: BPM and key come from the file's own tags where they exist, and signal analysis where they don't, and are usually right (see the FAQ for the known failure modes and the one-click corrections). Loudness is a real measurement; **danceability, brightness and vocals are heuristic scores** — good for *arranging* music in space, not gospel. If a score contradicts your ears, trust your ears (and send feedback).
+An honest note up front: BPM comes from the file's own tag where one exists and is plausible, otherwise from signal analysis; key is always detected from the audio. Both are usually right (see the FAQ for the known failure modes and the one-click corrections). Loudness is a real measurement; **danceability, brightness and vocals are heuristic scores** — good for *arranging* music in space, not gospel. If a score contradicts your ears, trust your ears (and send feedback).
 
 **BPM** — tempo in beats per minute. Where the file ships its own BPM tag that is used (obviously wrong tags are ignored); otherwise it's detected from the audio, with half-time misreads rescued upward when the track's own pulse supports a faster tempo. The default X axis: left to right is slow to fast.
 

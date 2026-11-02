@@ -62,6 +62,17 @@ codesign --force --options runtime --timestamp \
 codesign --verify --deep --strict "$APP"
 echo "signature verifies"
 
+if [ "$NOTARIZE" = "1" ]; then
+  echo "== notarize app (waits for Apple) =="
+  # The app is stapled first and THEN copied into the DMG and the USB zip, so both carry a
+  # ticket. Stapling only the DMG left the app inside it unstapled (debug sweep, 2 Nov 2026).
+  APPZIP="$STAGE/notarize-app.zip"
+  rm -f "$APPZIP"
+  ditto -c -k --keepParent "$APP" "$APPZIP"
+  xcrun notarytool submit "$APPZIP" --keychain-profile tunefield-notary --wait
+  xcrun stapler staple "$APP" || { echo "app staple failed — neither the DMG nor the USB zip would verify offline; aborting" >&2; exit 1; }
+fi
+
 echo "== dmg =="
 mkdir -p "$STAGE/dmg/Testing"
 cp -R "$APP" "$STAGE/dmg/"
@@ -78,20 +89,13 @@ if [ "$NOTARIZE" = "0" ]; then
   echo "== notarize SKIPPED (--no-notarize) =="
   echo "   The DMG is signed but NOT notarized and NOT stapled."
   echo "   Gatekeeper will refuse it on another Mac until it is."
-  echo "   To finish: re-run this script without --no-notarize (stapling only the DMG by"
-  echo "   hand leaves the app inside the USB zip unstapled, and an offline Mac refuses it)."
+  echo "   To finish: re-run this script without --no-notarize (it notarizes and staples the"
+  echo "   app first, so the DMG and the USB zip both carry it, then notarizes the DMG)."
 else
 echo "== notarize (waits for Apple) =="
 xcrun notarytool submit "$DMG" --keychain-profile tunefield-notary --wait
 xcrun stapler staple "$DMG"
 fi
-# The app inside carries the same measured signature — staple the loose copy too so
-# the USB build verifies offline. Fatal: a zip built from an unstapled app is refused
-# by an offline Mac (the club case), so there is no point shipping it.
-if [ "$NOTARIZE" = "1" ]; then
-  xcrun stapler staple "$APP" || { echo "app staple failed — the USB zip would not verify offline; aborting" >&2; exit 1; }
-fi
-
 echo "== USB zip =="
 mkdir -p "$STAGE/usb/Tunefield-USB"
 cp -R "$APP" "$STAGE/usb/Tunefield-USB/"

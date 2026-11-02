@@ -128,18 +128,31 @@ function _annoSnapshot() {
   if (_annoQ.views)      body.views = _viewsLoad();
   return body;
 }
-// pilot 5946
-function _annoFlush() {
+// pilot 5946 (rewritten). sendBeacon and keepalive fetch are capped at 64 KiB — WebKit
+// returns false / rejects — which silently lost every save past ~2,000 ratings, and the
+// next boot's hydrate then replaced the local copy (debug sweep, 2 Nov 2026). They are
+// used only while the page is going away; a normal save is a plain fetch that retries.
+let _annoFailed = false;
+function _annoFlush(ev) {
   clearTimeout(_annoT); _annoT = null;
   const body = _annoSnapshot();
   if (!Object.keys(body).length) return;
-  Object.keys(_annoQ).forEach(k => delete _annoQ[k]);
+  const sections = Object.keys(_annoQ);
+  sections.forEach(k => delete _annoQ[k]);
   const json = JSON.stringify(body);
-  if (!(navigator.sendBeacon && navigator.sendBeacon('/annotations',
-        new Blob([json], { type: 'application/json' })))) {
-    fetch('/annotations', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: json, keepalive: true }).catch(() => {});
+  const hdrs = { 'Content-Type': 'application/json' };
+  if (ev && (ev.type === 'pagehide' || ev.type === 'beforeunload')) {
+    if (navigator.sendBeacon && navigator.sendBeacon('/annotations', new Blob([json], { type: 'application/json' }))) return;
+    fetch('/annotations', { method: 'POST', headers: hdrs, body: json, keepalive: json.length < 60000 }).catch(() => {});
+    return;
   }
+  fetch('/annotations', { method: 'POST', headers: hdrs, body: json })
+    .then(r => { if (!r.ok) throw new Error(String(r.status)); _annoFailed = false; })
+    .catch(() => {
+      sections.forEach(k => { _annoQ[k] = true; });
+      if (!_annoFailed) { _annoFailed = true; showToast('Couldn’t save ratings and tags — retrying'); }
+      clearTimeout(_annoT); _annoT = setTimeout(_annoFlush, 5000);
+    });
 }
 // pilot 5958
 window.addEventListener('beforeunload', _annoFlush);
@@ -7664,12 +7677,13 @@ let playbackRange = (() => {
 })();
 // pilot 20421
 let _pbLastPos = -1;   // the slot the playing track last held in the sequence
+let _pbLastId = null;  // …and which track held it (a preview must not inherit the slot)
 function _pbSeqPos(seq) {
   const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
   const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
   const i = (_pbSeqIdx >= 0 && _pbSeqIdx < seq.ids.length && seq.ids[_pbSeqIdx] === cur)
     ? _pbSeqIdx : (cur ? seq.ids.indexOf(cur) : -1);
-  if (i >= 0) _pbLastPos = i;
+  if (i >= 0) { _pbLastPos = i; _pbLastId = cur; }
   return i;
 }
 // The playing track was taken out of the set (× or undo), so _pbSeqPos finds nothing and
@@ -7679,7 +7693,9 @@ function _pbSeqPos(seq) {
 function _pbGapPos(seq) {
   const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
   const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
-  if (!cur || _pbLastPos < 0) return -1;
+  // The slot belongs to one track: a List or Up next preview that took over playback must
+  // not inherit it, or Next replayed the track before it (debug sweep, 2 Nov 2026).
+  if (!cur || _pbLastPos < 0 || cur !== _pbLastId) return -1;
   return Math.min(_pbLastPos, seq.ids.length);
 }
 // pilot 20443
@@ -8071,7 +8087,7 @@ function updateTransport() {
   const tracks  = activePlaylist?.tracks || [];
   const curId   = audioCurrentId || anchorTrackId();
   const trackI  = curId ? tracks.findIndex(t => t.track_id === curId) : -1;
-  if (trackI >= 0) _pbLastPos = trackI;   // every timeupdate lands here: the slot stays current for _pbGapPos
+  if (trackI >= 0) { _pbLastPos = trackI; _pbLastId = curId; }   // every timeupdate lands here: the slot stays current for _pbGapPos
 
   // Title from catalog lookup if we have one
   // (setNtTitle below wraps the text and starts the marquee only if it overflows)
@@ -8355,7 +8371,7 @@ function spFollowPlaying() {
 // pilot 21253
 async function setActivePlaylist(slug) {
   if (!slug) return;
-  _pbLastPos = -1;   // a slot in the old set means nothing in the new one
+  _pbLastPos = -1; _pbLastId = null;   // a slot in the old set means nothing in the new one
   await fetch('/playlists/active', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
   await refreshPlaylistPanel();
 }
@@ -8749,7 +8765,7 @@ async function renderPlaylistsTab() {
         <button class="pli-prev" onclick="previewPlaylistTrack('${esc(t.track_id)}', event)" title="Preview this track (Esc to stop)">${isPlaying?'⏸':'▶'}</button>
         <span class="pli-title" title="${esc(title)}">${esc(title)}</span>
         <span class="pli-meta">${esc(meta)}</span>
-        <button class="pli-rm" onclick="removePlaylistTrack('${esc(p.slug)}', ${i})" title="Remove from this playlist">×</button>
+        <button class="pli-rm" onclick="removePlaylistTrack('${esc(p.slug)}', ${i}, '${esc(t.track_id)}')" title="Remove from this playlist">×</button>
       </div>`;
     }).join('') || (unread
       // Not a drop target while unread: dropping here would append to what the client
@@ -8948,12 +8964,30 @@ function spTrackDragEnd(_ev) {
   spDrag = null;
 }
 // pilot 22104
-async function removePlaylistTrack(slug, idx) {
-  const r = await fetch(`/playlists/${slug}/tracks/${idx}`, { method:'DELETE' });
-  if (r.status === 423) return showToast('Playlist is locked');
-  if (!r.ok) return showToast('Remove failed');
-  await refreshPlaylistPanel();
-  await renderPlaylistsTab();
+// Playlists-tab ×: the same stale-index hazard as the side panel (review #26), fixed the
+// same way — the row passes its track id, the index is re-resolved against the playlist
+// as it is now, and calls queue behind _rmChain (debug sweep, 2 Nov 2026).
+async function removePlaylistTrack(slug, idx, trackId) {
+  const run = async () => {
+    if (trackId != null) {
+      let tracks = (slug === activePlaylistSlug && activePlaylist) ? activePlaylist.tracks : null;
+      if (!tracks) {
+        try { const j = await fetch(`/playlists/${slug}`).then(r => r.ok ? r.json() : null); tracks = j?.tracks || j?.playlist?.tracks || null; }
+        catch (_) { tracks = null; }
+      }
+      if (tracks) {
+        const seq = tracks.map(t => t.track_id);
+        if (seq[idx] !== trackId) idx = seq.indexOf(trackId);
+        if (idx < 0) return;   // already gone
+      }
+    }
+    const r = await fetch(`/playlists/${slug}/tracks/${idx}`, { method:'DELETE' });
+    if (r.status === 423) return showToast('Playlist is locked');
+    if (!r.ok) return showToast('Remove failed');
+    await refreshPlaylistPanel();
+    await renderPlaylistsTab();
+  };
+  return (_rmChain = _rmChain.then(run, run));
 }
 // pilot 22203
 async function activatePlaylist(slug) {
@@ -9307,6 +9341,13 @@ function _rcmKey(e)  { if (e.key === 'Escape') { e.stopPropagation(); closeRowCt
 // pilot 5787
 function saveGenreGroups(groups) {
   try { localStorage.setItem('genre-groups', JSON.stringify(groups)); } catch (_) {}
+}
+// Right-click on a user-added chip. The legend promised it and the lift had dropped the
+// function (debug sweep, 2 Nov 2026).
+function removeGenreGroupPrompt(name) {
+  if (!confirm(`Remove the genre group “${name}”? The genres themselves stay.`)) return;
+  saveGenreGroups(loadGenreGroups().filter(g => g.name !== name));
+  if (typeof updateNeuralLegend === 'function') updateNeuralLegend('genre');
 }
 // pilot 5798
 function toggleGenreGroup(groupName) {
@@ -10279,6 +10320,6 @@ function closeFieldPicker() {
 }
 
 // Inline on*="" handlers and generated markup call these by global name.
-Object.assign(window, { closeFieldPicker, updateScanProgress, vecPathFind, vmMarkFrom, vmRouteTo, openSettings, closeSettings, setDrawerScale, setFilterFade, setAppSkin, setFog, setFieldSkin, saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbAddToSet, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
+Object.assign(window, { closeFieldPicker, updateScanProgress, vecPathFind, vmMarkFrom, vmRouteTo, openSettings, closeSettings, setDrawerScale, setFilterFade, setAppSkin, setFog, setFieldSkin, saveGenreGroups, toggleGenreGroup, toggleGenreFilter, addGenreGroupPrompt, removeGenreGroupPrompt, saveFormulaPatch, setVecWeight, deleteFieldView, exportFieldView, _weightEvent, vecKNN, vecKMeans, _yieldToBrowser, vecAdjacency, vmClampNum, _vecSnapshotAxes, vmPreview, vmAddHitsToPlaylist, vmFindSimilar, vmApplyPCAAxes, vmApplyTSNEAxes, vmRunClusters, vmColourByCluster, _sbCustomFn, sbMarkStart, sbMarkEnd, _sbAnchorsNote, sbSetAll, sbCompileCurve, _sbMetricValues, sbGenerate, sbShowPreview, sbAddToSet, sbDragStart, sbDragEnd, sbSaveAsPlaylist, toggleNeuralLegendFold, closeRowCtxMenu, _rcmAway, _rcmKey, rowCtxMenu, rowCtxAdd, audioFadeOut, toggleMute, savePlaybackRange, ntDialSeek, ntdBuildSegs, ntdRenderSegs, ntdSegRun, ntdApplyRun, renderPlaybackRangeUI, applyPlaybackRangeStart, setPlayMode, adoptPlaylistStrays, trackDisplayName, xResolveEnt, audioFadeIn, setVolume, syncVolumeDial, audioStop, clearAnchorVisuals, returnToAnchor, updateMatrixStopBtn, syncPlayPauseUI, audioPlayById, audioSeek, vecDist2, vecPathStats, vmSetArcFor, _reorderCost, computeSmoothOrder, plApplyOrder, plReorderSmooth, vmShowArcReport, neuralFlyTo, formatDuration, exploreTrailSave, exploreTrailPush, tfUndoPush, _tfUndoTop, tfUndoSync, tfUndoRun, flowSavePrint, _flowMetric, flowFeedback, _pbSeqPos, updateDialProgress, shouldApplyPreviewWindow, playbackSequence, _shuffleNext, ntNext, advanceToNextTrack, previousTrack, togglePlayPause, updateTransport, refreshPlaylistPanel, renderPlaylistSelect, _xcatResolve, renderPlaylistContent, _spScroller, _spWireGuards, _spPlayingRow, _spRowKey, _spInView, spNoteTrackChange, spFollowPlaying, setActivePlaylist, newPlaylistPrompt, renamePlaylistPrompt, deletePlaylistPrompt, showPlaylistDeleteUndo, _undoPlaylistDelete, toggleLock, addTrackToActivePlaylist, removeTrackAt, undoLastAdd, clearPlaylistPrompt, setAnchorTrack, matrixCommitIdx, playlistHue, previewPlaylistTrack, spCommitPlay, applyPlZoom, setPlZoom, renderPlaylistsTab, onTrackDragStart, onTrackDragOver, onTrackDragLeave, onTrackDrop, onTrackDragEnd, spTrackDragStart, spTrackDragOver, spTrackDrop, spTrackDragEnd, removePlaylistTrack, activatePlaylist, renamePlaylistById, toggleLockById, deletePlaylistById, duplicatePlaylist, syncTransportPos, moveEntry, deleteCatalogEntry, markFieldStale, renderTagFilterRow, toggleTagFilter, renderFieldChecks, toggleViewedCatalog, applyFiltersDebounced, refreshActiveFilterCount, togglePill, activatePillStyle, clearFilters, refreshDualRange, openFieldPicker, cycleWheelNotation, setWheelNotation, currentAnchorCamelotKey, setCompatMode, reapplyKeySelectionIfAuto, compatKeys, _applyRingBias, _syncModeIconUI, onModeIconClick, clearKeyFilter, syncKeyViewToFilter, camelotClick, toggleCamelotKey, updateKeyCount, renderCamelotWheel, syncCamelotCurrent, safeNeighbors, attachCamelotHover, showSafeHalo, hideSafeHalo, clearCamelotHighlight, _syncEdgeToggles, toggleEdgeFeature, toggleFilterFold, updateTabCounts, setActiveCatalog, newCatalogPrompt, deleteCatalogPrompt, renameCatalogPrompt, fieldShow, closeAllDrawers, _genreColorMap, genreColor, listGenres, genreIndex, loadGenreGroups, genreGroupMembers, getRating, getTrackTags, annoPush, _annoSnapshot, _annoFlush, catalogColor, camelotToOpenKey, noteToCamelot, loadCatalogMeta, loadCatalog, renderCatSelector, renderCombineChips, getFilteredCatalog, applyFilters, _fdDirty, applyFieldDrawer, fieldPickerAll, splitArtistTitle, trackArtistTitle, pct, esc, escJs, _drawerTouch, _drawerSetWanted, layoutEdgeDrawers, toggleDrawer, _syncNotationCycleBtn, compatKeysFor, ghostsInteractive, _keyFanHubIdx, toggleKeyFanPreview, audioFade, volTarget, anchorTrackId, tfSeekTo, isTypingContext, enterNeuralScrub, _plausibleYear, releasedValue, compileFormula, parseFormulaPatch, neuralFocusJump, disarmFocusFrame, toggleFocusFrame, lensShift, _lensSyncEdgeLines, neuralAxisPositions, toggleFormulaPanel, applyFormula, clearFormula, _syncAxisDropdownsToFormula, _formulaPatches, renderFormulaPatches, _patchByValue, loadFormulaPatch, deleteFormulaPatch, drawAxisGizmo, _vecCamPos, _viewsLoad, _viewsStore, captureFieldView, applyFieldView, saveFieldView, importFieldView, renderFieldViews, fieldEvent, _fieldEvFlush, _fieldSessionTick, _vecGroupSize, vecMatrix, vecPCA, vecArith, vecParseArith, vecTSNE, vecTSNECancel, _vecMapMetric, vecComputedMetrics, setVecEnabled, toggleVecPanel, vmResetView, vmRenderWeights, vmCurrentTrack, vmName, vmHitList, vmRunPCA, vmRunTSNE, vmRunArith, neuralTagMetrics, allNeuralMetrics, legendHTML, updateNeuralLegend, refreshNeuralAxisSelects, setPlaylistTrailMode, nmOpts, initNeural, pbEaseInOut, pbEffectiveZoom, pbCurrentNodeIdx, pbCameraStart, pbCameraStop, pbCameraFlyToNode, resetNeuralUser, exploreFlyOn, pbCameraTick, setFly, toggleFly, _fpsDragLookFallback, enterFPS, exitFPS, toggleFPS, fpvUnlocked, _fpvApplyLock, _fpvUnlock, _kbModalOpen, _kbBlocked, setKbSpeed, applyKeyNav, kbClearFocus, kbSetFocus, kbUpdateFocusRing, kbHopFocus, kbActivateFocus, toggleKbHelp, closeKbHelp, kbMaybeShowHint, renderTrackCount, _keyFanShortlist, neuralCompatNeighbours, refreshNeuralEdgeHighlight, togglePlaylistTrail, applyViewRange, setSpreadFill, syncSpreadDial, setNeuralSpread, neuralSpreadLiveMorph, commitNeuralSpread, toggleCoverOrbs, applyFilterFoldState, _getSphereGeo, _fibonacciSphere, _buildSpikeGeometry, _getSpikeGeos, setNeuralSpikeMetric, _nodeAlphaShader, neuralNodeMaterial, neuralGhostMaterial, _disposeInstanceLayers, neuralBuildInstances, neuralSyncMatrices, applyLens, neuralSyncColors, neuralSyncAlpha, neuralPickNode, _coverEvict, neuralUpdateCovers, sizeAxisLabels, rebuildPlaylistTrail, updatePlaylistTrailAnimation, neuralShowTooltip, neuralHideTooltip, fieldSkinName, FS, _fogK, applyFog, getNeuralBackground, setNeuralBackground, neuralNorm, neuralNormFold, neuralFieldSpread, _fieldGrowth, rebuildGraph, matrixPlaybackVisibleIds, updateMatrixVisibility, applyHighVisibility, resetNeural, showToast, trailTrackIds, matrixPreviewIdx, featUse, renderCatalog, renderRepair, setMode });
 
 export { catalog, activeCatalog, allCatalogs, loadCatalogMeta, loadCatalog, esc, showToast, MOOD_COLOR, RATINGS, activePlaylist, allTags, annoPush, applyFilters, audioCurrentId, camelotToOpenKey, catalogColor, currentMode, featUse, formulaAxes, getFilteredCatalog, getRating, getTrackTags, globalAudio, markFieldStale, neuralNodeData, noteToCamelot, pct, refreshNeuralAxisSelects, trackArtistTitle, trackTags, viewedCatalogs, wheelNotation, fmtTime, activePlaylistSlug, addTrackToActivePlaylist, allPlaylists, audioPlayById, audioStop, matrixCommitIdx, refreshPlaylistPanel, setAnchorTrack, anchorTrackId, vecMatrix, vecDist2, _vecCamPos, VEC_DIMS, vecKNN, vecArith, vecParseArith, vecPathFind, vecPathStats, _coverTexCache, renderCatalog };

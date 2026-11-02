@@ -858,6 +858,30 @@ def get_library_roots_raw():
     return [_root_entry(r) for r in (load_config().get("library_roots") or [])
             if _root_entry(r)["path"]]
 
+def migrate_library_roots():
+    """Portable mode on an external volume: fold absolute same-volume Music folders into
+    stored (../) form, as migrate_catalog_paths does for tracks — otherwise a stick rename
+    kept every track but lost its folder rows (debug sweep, 2 Nov 2026). Idempotent."""
+    if not _SAME_VOLUME_RELATIVE: return
+    cfg = load_config()
+    roots = cfg.get("library_roots") or []
+    changed = False
+    for i, r in enumerate(roots):
+        p = r.get("path") if isinstance(r, dict) else r
+        if not (isinstance(p, str) and os.path.isabs(p) and os.path.isdir(p)): continue
+        sp = store_path(p)
+        if sp == p: continue
+        if isinstance(r, dict): r["path"] = sp
+        else: roots[i] = sp
+        changed = True
+    if changed:
+        cfg["library_roots"] = roots
+        save_config(cfg)
+try:
+    migrate_library_roots()
+except Exception as _e:
+    print(f"  WARNING: library_roots migration incomplete ({_e}); continuing.")
+
 def all_cataloged_paths():
     """Return set of lowercased absolute paths already referenced by any entry."""
     seen = set()
@@ -1304,7 +1328,7 @@ def library_analyse():
                 "id":            entry_id,
                 "filename":      os.path.basename(path),
                 "analyzed_at":   datetime.now().isoformat(timespec="seconds"),
-                "scan_duration": duration,
+                "scan_duration": result.get("scan_fraction", duration),   # fraction actually decoded
                 "library_file":  store_path(path),   # in-place reference (relative when under root)
                 "genre":         (result.get("metadata", {}) or {}).get("genre", ""),
                 "data":          result,
@@ -3851,7 +3875,9 @@ def playlists_create():
     meta = pl_load_meta()
     # Collide against on-disk files too, not just meta — an orphaned playlist file
     # (surviving a meta corruption) must never be overwritten by a new empty one.
-    slug = make_slug(name, {m["slug"] for m in meta} | _pl_slugs_on_disk())
+    # "active" and "snapshots" are static /playlists/<word> routes: a set so named rendered
+    # permanently empty (debug sweep, 2 Nov 2026).
+    slug = make_slug(name, {m["slug"] for m in meta} | _pl_slugs_on_disk() | {"active", "snapshots"})
     now  = datetime.now().isoformat(timespec="seconds")
     pl   = {
         "slug": slug, "name": name, "locked": False,

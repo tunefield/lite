@@ -304,24 +304,25 @@ function renderCatalog() {
     out.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No tracks match current filters.</p></div>`;
     return;
   }
-  const rows = filtered.map(e => ({ id:e.id, filename:e.filename, status:'done', data:e.data, analyzedAt:e.analyzed_at, scanDuration:e.scan_duration, has_file:e.has_file, isCatalog:true }));
+  const rows = filtered.map(e => ({ id:e.id, filename:e.filename, status:'done', data:e.data, analyzedAt:e.analyzed_at, scanDuration:e.scan_duration, has_file:e.has_file, genre:e.genre, _cat:e._cat, has_cover:e.has_cover, isCatalog:true }));
   // A different filter result starts paged again; "Show all" is per result, not per session.
-  if (filtered.length !== _catLastCount) { _catLastCount = filtered.length; catShowAll = false; }
+  if (filtered.length !== _catLastCount) { _catLastCount = filtered.length; catPages = 1; }
   out.innerHTML = catalogView==='table' ? tableHTML(rows,'catalog') : cardsHTML(rows,'catalog');
 }
 // pilot 8875 (Lite): the table is one HTML string per visible row — at 30k rows that is
 // 156 MB and ~600k elements, which froze the window on every filter touch (review,
 // 2026-10-30). Draw the first LIST_PAGE sorted rows and offer the rest on request.
 const LIST_PAGE = 500;
-let catShowAll = false, _catLastCount = -1;
-function listShowAll() { catShowAll = true; renderCatalog(); }
+let catPages = 1, _catLastCount = -1;
+function listShowAll() { catPages++; renderCatalog(); }   // one more page, never all 30k at once
 function listPage(sorted, ctx) {
-  if (ctx !== 'catalog' || catShowAll || sorted.length <= LIST_PAGE) return { rows: sorted, hidden: 0 };
-  return { rows: sorted.slice(0, LIST_PAGE), hidden: sorted.length - LIST_PAGE };
+  const n = LIST_PAGE * catPages;
+  if (ctx !== 'catalog' || sorted.length <= n) return { rows: sorted, hidden: 0 };
+  return { rows: sorted.slice(0, n), hidden: sorted.length - n };
 }
 function showMoreHTML(hidden, cols) {
   if (!hidden) return '';
-  const cell = `<button class="btn-sm" onclick="listShowAll()">Show the other ${hidden} track${hidden === 1 ? '' : 's'}</button>`;
+  const cell = `<button class="btn-sm" onclick="listShowAll()">Show ${Math.min(LIST_PAGE, hidden)} more · ${hidden} not shown</button>`;
   return cols ? `<tr class="show-more"><td colspan="${cols}" style="text-align:center;padding:10px">${cell}</td></tr>`
               : `<div class="show-more" style="text-align:center;padding:10px">${cell}</div>`;
 }
@@ -577,7 +578,7 @@ function cellHTML(c, r, d, mc, i, ctx) {
 }
 // pilot 9147
 function tblSort(ctx, col) {
-  if (ctx==='catalog') { catSortDir=catSortCol===col?-catSortDir:1; catSortCol=col; renderCatalog(); }
+  if (ctx==='catalog') { catSortDir=catSortCol===col?-catSortDir:1; catSortCol=col; catPages = 1; renderCatalog(); }
   else                 { sortDir=sortCol===col?-sortDir:1; sortCol=col; renderAnalyse(); }
 }
 // pilot 9154
@@ -810,6 +811,7 @@ async function saveGenre(id, value) {
   const v = (value || '').trim();
   // Update local catalog cache immediately
   const entry = catalog.find(e => e.id === id);
+  if (entry && (entry.genre || '') === v) return;   // a blur without a change must not PATCH
   if (entry) entry.genre = v;
   try {
     await fetch(`/catalog/${id}`, {

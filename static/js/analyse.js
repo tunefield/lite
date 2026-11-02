@@ -507,7 +507,8 @@ async function resumeAnalysisQueue() {
   if (!_anQueue.length) return;
   await _anPump();
 }
-// pilot 7105 — a run lives in this page; closing or reloading mid-run asks first (resume covers the rest).
+// pilot 7105 — a run lives in this page; a browser tab asks before closing or reloading mid-run. The
+// native window does not (pywebview never shows beforeunload prompts) — resume covers it.
 window.addEventListener('beforeunload', (e) => {
   if (!_anActive || !(_anQueue.length + _anInFlight)) return;
   e.preventDefault();
@@ -628,8 +629,12 @@ function scanSignal(tok)      { return tok?.abort?.signal; }
 function isScanCancelled(tok) { return !!tok?.superseded || (tok === _scan.tok && _scan.cancelled); }
 
 function anRunEnded(cancelled) {
-  anShow('done', (cancelled || _anAborted) ? 'Stopped' : 'Done');
   renderLibRoots();
+  // A folder scan that started while this run was finishing owns the panel now: its own
+  // end (queue the new files, 'Nothing new', 'Couldn’t read') reports, not this one —
+  // otherwise 'Done' landed first and the folder was silently dropped (debug sweep, 2 Nov).
+  if (_anState === 'scanning') return;
+  anShow('done', (cancelled || _anAborted) ? 'Stopped' : 'Done');
 }
 // pilot 7344 (rewritten): offer an interrupted run back in the Analyse panel, not a toast.
 // Records whose Field was deleted are dropped; Not now keeps the file for next launch.
@@ -680,7 +685,7 @@ async function anAnalyseScanned(cat) {
   // A chunk finishing mid-scan flips the state back to 'running': that run is no reason to
   // drop the folder. Switching Field mid-scan is: those results belong to the old Field.
   if (_anState !== 'scanning' && !_anActive) return;
-  if (cat !== _analyseTargetCat()) { if (_anActive) _anUpdateBar(); return; }
+  if (cat !== _analyseTargetCat()) { if (_anActive) _anUpdateBar(); else anShow('done', 'Done'); return; }
   if (!libScanResults) {
     if (_anActive) { showToast('Couldn’t read that folder'); _anUpdateBar(); return; }
     anShow('done', 'Couldn’t read that folder'); return;
