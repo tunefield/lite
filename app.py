@@ -346,12 +346,10 @@ def _same_origin_ok():
 # picker open — up to 300 s).
 _LOCK_EXEMPT_ENDPOINTS = {
     "library_browse",          # native folder picker, no state mutation
-    "repair_discogs_lookup",   # external HTTP lookup, no state mutation
-    "repair_fetch_covers",     # external HTTP per track; writes cover FILES only
     "generated_cover",         # writes one cover file, never a catalog JSON
-    "repair_acoustid_lookup",  # fpcalc + external HTTP, no state mutation
     "batch_extract_covers",    # writes per-id cover files only, never a catalog JSON
     "library_analyse",         # librosa per track; takes _FS_LOCK around each commit
+    "rescan_entry",            # librosa for one track; takes _FS_LOCK around its save
     "batch_extract_genres",    # ffprobe per track; takes _FS_LOCK around its commit
     "batch_extract_metadata",  # ffprobe per track; takes _FS_LOCK around its commits
 }
@@ -511,7 +509,8 @@ _stamp_once(FIRST_LAUNCH_FILE)
 
 def migrate_catalog_paths():
     """Rewrite stored library_file values to point at the new data/ locations.
-    - Absolute paths that resolve and live under TUNEFIELD_ROOT → relativized
+    - Absolute paths that resolve and live under TUNEFIELD_ROOT (or on its volume, in
+      portable mode — see store_path) → relativized
     - Absolute paths that no longer resolve → try swapping pre-portable folders
       (TUNEFIELD_ROOT/library/X → DATA_DIR/library/X) and adopt if the file exists
     - Everything else (absolute external paths) → left alone
@@ -558,7 +557,7 @@ def resolve_path(stored):
     if not stored: return None
     if os.path.isabs(stored):
         return stored if os.path.exists(stored) else None
-    p = os.path.join(TUNEFIELD_ROOT, stored)
+    p = os.path.normpath(os.path.join(TUNEFIELD_ROOT, stored))   # resolves "../" forms
     return p if os.path.exists(p) else None
 
 def absolute_form(stored):
@@ -566,14 +565,29 @@ def absolute_form(stored):
     if not stored: return ""
     return stored if os.path.isabs(stored) else os.path.abspath(os.path.join(TUNEFIELD_ROOT, stored))
 
+# Portable root on an external volume: music elsewhere on the SAME stick is stored as a
+# "../" path too, so renaming the stick (/Volumes/OLD → /Volumes/NEW) keeps every link.
+# Boot-volume roots keep absolute paths outside the root — a moved app folder must not
+# break links to ~/Music.
+_SAME_VOLUME_RELATIVE = TUNEFIELD_ROOT_MODE == "portable" and TUNEFIELD_ROOT.startswith("/Volumes/")
+try: _ROOT_DEV = os.stat(TUNEFIELD_ROOT).st_dev
+except OSError: _ROOT_DEV = None
+
 def store_path(absolute):
-    """Convert an absolute path to its stored form: relative if it sits under TUNEFIELD_ROOT,
-    absolute otherwise. This is what lets the data/ folder roam with the drive."""
+    """Convert an absolute path to its stored form: relative if it sits under TUNEFIELD_ROOT
+    (or, in portable mode on an external volume, anywhere on the root's volume), absolute
+    otherwise. This is what lets the data/ folder roam with the drive."""
     if not absolute: return absolute
     absolute = os.path.abspath(absolute)
     root_with_sep = TUNEFIELD_ROOT.rstrip(os.sep) + os.sep
     if absolute == TUNEFIELD_ROOT or absolute.startswith(root_with_sep):
         return os.path.relpath(absolute, TUNEFIELD_ROOT)
+    if _SAME_VOLUME_RELATIVE and _ROOT_DEV is not None:
+        try:
+            if os.stat(absolute).st_dev == _ROOT_DEV:
+                return os.path.relpath(absolute, TUNEFIELD_ROOT)
+        except (OSError, ValueError):
+            pass
     return absolute
 
 # Now that store_path/resolve_path exist, run the path-repair migration once at import.
@@ -835,7 +849,7 @@ def get_library_roots(cat=None):
         if cat is not None and e["cat"] is not None and e["cat"] != cat:
             continue
         p = e["path"]
-        out.append(p if os.path.isabs(p) else os.path.join(TUNEFIELD_ROOT, p))
+        out.append(p if os.path.isabs(p) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, p)))
     return out
 
 def get_library_roots_raw():
@@ -904,7 +918,7 @@ def library_roots_list():
     out = []
     for e in get_library_roots_raw():
         r = e["path"]
-        absolute = r if os.path.isabs(r) else os.path.join(TUNEFIELD_ROOT, r)
+        absolute = r if os.path.isabs(r) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, r))
         out.append({
             "path":     r,            # stored form (may be relative)
             "absolute": absolute,
@@ -956,10 +970,10 @@ def library_roots_assign():
         return jsonify({"error": f"Unknown Field: {cat}"}), 400
     cfg = load_config()
     roots = [_root_entry(r) for r in (cfg.get("library_roots") or [])]
-    abs_target = path if os.path.isabs(path) else os.path.join(TUNEFIELD_ROOT, path)
+    abs_target = path if os.path.isabs(path) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, path))
     hit = False
     for e in roots:
-        r_abs = e["path"] if os.path.isabs(e["path"]) else os.path.join(TUNEFIELD_ROOT, e["path"])
+        r_abs = e["path"] if os.path.isabs(e["path"]) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, e["path"]))
         if e["path"] == path or r_abs == abs_target:
             e["cat"] = cat
             hit = True
@@ -973,7 +987,7 @@ def library_roots_assign():
 def _entries_under_root(slug, root_path):
     """Entries of one Field whose audio sits under a folder (realpath prefix, case-folded
     like every other path comparison here). Returns (all_entries, under)."""
-    absr = root_path if os.path.isabs(root_path) else os.path.join(TUNEFIELD_ROOT, root_path)
+    absr = root_path if os.path.isabs(root_path) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, root_path))
     pref = os.path.realpath(absr).lower().rstrip(os.sep) + os.sep
     entries = load_cat(slug)
     under = []
@@ -1001,61 +1015,6 @@ def library_roots_entries():
     return jsonify({"count": len(under)})
 
 
-@app.route("/library/roots/move-entries", methods=["POST"])
-def library_roots_move_entries():
-    """Move a folder's tracks from one Field to another. Body: {path, from, to}.
-    Copies every `from` entry under the folder into `to` (same clone as
-    /library/analyse — fresh id, provenance, cover), then removes them from `from`
-    (snapshotted, undoable). Tracks already in `to` are skipped, not duplicated.
-    This is the "I assigned the folder to the wrong Field" repair in one step
-    (Mark, 2026-08-22)."""
-    body = request.json or {}
-    path = (body.get("path") or "").strip()
-    src  = (body.get("from") or "").strip()
-    dst  = (body.get("to") or "").strip()
-    if not path or not src or not dst:
-        return jsonify({"error": "path, from and to required"}), 400
-    if src == dst:
-        return jsonify({"error": "from and to are the same Field"}), 400
-    slugs = {m["slug"] for m in ensure_default()}
-    if src not in slugs or dst not in slugs:
-        return jsonify({"error": "Field not found"}), 404
-    with _FS_LOCK:
-        src_all, under = _entries_under_root(src, path)
-        dst_all = load_cat(dst)
-        have = {absolute_form(e.get("library_file", "")).lower()
-                for e in dst_all if e.get("library_file")}
-        moved, skipped = [], 0
-        for e in under:
-            key = absolute_form(e.get("library_file", "")).lower()
-            if key in have:
-                skipped += 1; continue
-            c = copy.deepcopy(e)
-            new_id = str(uuid.uuid4())
-            c["id"] = new_id
-            c["copied_from"] = {"cat": src, "id": e["id"],
-                                "at": datetime.now().isoformat(timespec="seconds")}
-            cp = cover_path(e["id"])
-            if cp:
-                try: shutil.copyfile(cp, os.path.join(COVERS_DIR, f"{new_id}.jpg"))
-                except OSError: pass
-            moved.append(c); have.add(key)
-        snap = None
-        if under:
-            if moved:
-                save_cat(dst, dst_all + moved)
-            gone = {e["id"] for e in under}
-            snap = _snapshot_entries_trash("move-folder", {src: under})
-            save_cat(src, [e for e in src_all if e["id"] not in gone])
-            for e in under:
-                cp = cover_path(e["id"])
-                if cp:
-                    try: os.unlink(cp)
-                    except OSError: pass
-    return jsonify({"ok": True, "moved": len(moved), "already_there": skipped,
-                    "removed_from_source": len(under), "undoable": bool(snap), "snapshot": snap})
-
-
 @app.route("/library/roots", methods=["DELETE"])
 def library_roots_remove():
     """Remove a folder. ?cat=<slug>&purge=1 ALSO removes that Field's tracks under it —
@@ -1073,10 +1032,10 @@ def library_roots_remove():
     cfg = load_config()
     roots = [_root_entry(r) for r in (cfg.get("library_roots") or [])]
     # Match either the stored form or the absolute equivalent
-    abs_target = path if os.path.isabs(path) else os.path.join(TUNEFIELD_ROOT, path)
+    abs_target = path if os.path.isabs(path) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, path))
     def _keep(e):
         r = e["path"]
-        r_abs = r if os.path.isabs(r) else os.path.join(TUNEFIELD_ROOT, r)
+        r_abs = r if os.path.isabs(r) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, r))
         return r != path and r != abs_target and r_abs != abs_target
     cfg["library_roots"] = [e for e in roots if _keep(e)]
     save_config(cfg)
@@ -1153,7 +1112,7 @@ def library_scan():
     roots_all = []
     for e in get_library_roots_raw():
         p = e["path"]
-        absr = p if os.path.isabs(p) else os.path.join(TUNEFIELD_ROOT, p)
+        absr = p if os.path.isabs(p) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, p))
         roots_all.append({"abs": os.path.realpath(absr), "cat": e["cat"]})
     roots_all.sort(key=lambda r: len(r["abs"]), reverse=True)
 
@@ -1320,14 +1279,14 @@ def library_analyse():
     # ── Analyse in parallel (see _analysis_workers) ──
     def _work(path):
         # usage_event is safe from these pool threads — its appends serialise on
-        # _USAGE_LOCK. src distinguishes this path from /analyze uploads in usage.jsonl.
+        # _USAGE_LOCK. src distinguishes this path from /rescan in usage.jsonl.
         ext = os.path.splitext(path)[1].lower()
         try:
             entry_id = str(uuid.uuid4())
             t0       = time.time()
             result   = analyze(path, duration_limit=duration, verbose=False)
             # analyze() returns a clean error dict on undecodable/corrupt audio instead of
-            # raising (post-remediation contract, same as /analyze and /rescan). Route it
+            # raising (post-remediation contract, same as /rescan). Route it
             # to errors — cataloging it would strand an entry with no rhythm/harmony/
             # scores keys, which breaks the library table render client-side.
             if result.get("error"):
@@ -1389,8 +1348,14 @@ def library_analyse():
             # `cataloged` is request-local, so it cannot see tracks committed by a
             # CONCURRENT analyse request (two windows resuming the same queue would
             # both append every track). _COMMITTED_PATHS is process-global — seed the
-            # slug's set lazily from this request's snapshot, then dedup against both.
-            committed = _COMMITTED_PATHS.setdefault(slug, set(cataloged))
+            # slug's set lazily from a FRESH read (save_cat empties it, and this
+            # request's snapshot may predate another request's commits), then dedup
+            # against both.
+            committed = _COMMITTED_PATHS.get(slug)
+            if committed is None:
+                committed = _COMMITTED_PATHS[slug] = {
+                    absolute_form(e.get("library_file", "")).lower()
+                    for e in load_cat(slug) if e.get("library_file")}
             if path.lower() in committed or path.lower() in cataloged:
                 already += 1; continue
             # Durable per track exactly as before — an interrupt (USB pull, crash, quit)
@@ -1404,11 +1369,8 @@ def library_analyse():
             usage_event("analyze", src="copy" if copied else "scan", **telem)
         added.append({"id": entry["id"], "path": path, "copied": bool(entry.get("copied_from"))})
 
-    # Collapse the journal into the main catalog at the end of every batch. Bounded work
-    # (at most one batch of entries), and it keeps the on-disk file close to current for
-    # anything reading it outside this process.
-    try: fold_journal(slug)
-    except Exception as e: print(f"[library_analyse] fold_journal: {e}")
+    # No fold here: the client sends ~5 tracks per request, and folding each time
+    # rewrote the whole catalog every 5 tracks. load_cat folds at JOURNAL_FOLD_AT.
     return jsonify({"ok": True, "added": added, "errors": errors,
                     "copied_count": sum(1 for a in added if a.get("copied")),
                     "added_count": len(added), "error_count": len(errors),
@@ -1760,10 +1722,12 @@ def journal_file(slug):
 
 
 def append_journal(slug, entry):
-    """O(1) durable append. Cost does NOT grow with catalog size."""
+    """O(1) durable append. Cost does NOT grow with catalog size. The LEADING newline
+    terminates a torn line a crash may have left behind, so this record starts on a
+    line of its own instead of being glued to it (the reader skips blank lines)."""
     with _FS_LOCK:
         with open(journal_file(slug), "a") as f:
-            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+            f.write("\n" + json.dumps(entry, separators=(",", ":")) + "\n")
             f.flush()
             try: os.fsync(f.fileno())
             except OSError: pass
@@ -1936,80 +1900,6 @@ def _paths_referenced_outside(exclude_slug=None, exclude_ids=None):
                 pass
     return refs
 
-def _id3_apic_bytes(path):
-    """Pure-python art extractor for WAV/AIFF files carrying an ID3v2 block in a RIFF
-    'id3 ' / AIFF 'ID3 ' chunk (the Beatport/Rekordbox wav convention). ffmpeg's wav
-    demuxer IGNORES that chunk, so without this the art is invisible to the pipeline.
-    Walks the container to the ID3 block, then the ID3 frames to APIC, and returns the
-    raw image bytes — or None. No dependencies; any parse trouble returns None."""
-    try:
-        with open(path, "rb") as f:
-            head = f.read(12)
-            id3 = None
-            if head[:4] == b"RIFF":                     # WAV — little-endian chunk sizes
-                while True:
-                    hdr = f.read(8)
-                    if len(hdr) < 8:
-                        break
-                    cid, size = hdr[:4], int.from_bytes(hdr[4:8], "little")
-                    if cid.lower() == b"id3 ":
-                        id3 = f.read(min(size, 32 * 1024 * 1024))
-                        break
-                    f.seek(size + (size & 1), 1)
-                # Some taggers append a bare ID3 block AFTER the RIFF payload instead
-                if id3 is None:
-                    f.seek(0, 2)
-                    riff_end = 8 + int.from_bytes(head[4:8], "little")
-                    if f.tell() > riff_end + 10:
-                        f.seek(riff_end)
-                        maybe = f.read()
-                        if maybe[:3] == b"ID3":
-                            id3 = maybe
-            elif head[:4] == b"FORM":                   # AIFF — big-endian chunk sizes
-                while True:
-                    hdr = f.read(8)
-                    if len(hdr) < 8:
-                        break
-                    cid, size = hdr[:4], int.from_bytes(hdr[4:8], "big")
-                    if cid in (b"ID3 ", b"id3 "):
-                        id3 = f.read(min(size, 32 * 1024 * 1024))
-                        break
-                    f.seek(size + (size & 1), 1)
-        if not id3 or id3[:3] != b"ID3":
-            return None
-        ver = id3[3]
-        syncsafe = lambda b: (b[0] << 21) | (b[1] << 14) | (b[2] << 7) | b[3]
-        total = min(syncsafe(id3[6:10]) + 10, len(id3))
-        pos = 10
-        if id3[5] & 0x40:                               # skip extended header
-            ext = syncsafe(id3[pos:pos + 4]) if ver >= 4 else int.from_bytes(id3[pos:pos + 4], "big")
-            pos += max(ext, 4)
-        while pos + 10 <= total:
-            fid = id3[pos:pos + 4]
-            if fid == b"\x00\x00\x00\x00":
-                break
-            fsz = syncsafe(id3[pos + 4:pos + 8]) if ver >= 4 else int.from_bytes(id3[pos + 4:pos + 8], "big")
-            if fsz <= 0 or pos + 10 + fsz > len(id3):
-                break
-            if fid == b"APIC":
-                body = id3[pos + 10:pos + 10 + fsz]
-                enc = body[0]
-                i = body.index(b"\x00", 1) + 1          # end of MIME string
-                i += 1                                  # picture-type byte
-                if enc in (1, 2):                       # UTF-16 description → 2-byte NUL, aligned
-                    j = i
-                    while j + 1 < len(body) and body[j:j + 2] != b"\x00\x00":
-                        j += 2
-                    j += 2
-                else:                                   # latin-1 / utf-8 → single NUL
-                    j = body.index(b"\x00", i) + 1
-                data = bytes(body[j:])
-                return data if len(data) > 64 else None
-            pos += 10 + fsz
-    except Exception:
-        return None
-    return None
-
 def extract_cover(entry_id, audio_path, original_filename=None):
     """Embedded art → covers/<id>.jpg, or None. NEVER raises: artwork is decoration, and
     no failure to find a picture may cost the caller its analysis. That is not a
@@ -2052,8 +1942,8 @@ def _extract_cover(entry_id, audio_path, original_filename=None):
 
 
 def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
-    """Extract embedded cover via ffmpeg, then WAV/AIFF ID3-chunk art, then sidecar /
-    folder images. Returns dest path or None."""
+    """Extract embedded cover via ffmpeg (when installed), then sidecar / folder images.
+    Returns dest path or None. WAV/AIFF ID3-chunk art is tags.read_cover's job."""
     import subprocess as _sp
     dest = os.path.join(COVERS_DIR, f"{entry_id}.jpg")
     if os.path.exists(dest):
@@ -2073,23 +1963,6 @@ def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
             os.unlink(dest)
     except Exception:
         pass
-    # 1b. WAV/AIFF ID3-chunk art (Beatport-style) that ffmpeg's demuxer can't see.
-    art = _id3_apic_bytes(audio_path)
-    if art:
-        tmp = dest + ".artsrc"
-        try:
-            with open(tmp, "wb") as f:
-                f.write(art)
-            r = _sp.run(["ffmpeg", "-y", "-v", "quiet", "-i", tmp, "-vf", "scale=400:-1", dest], timeout=10)
-            if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 0:
-                return dest
-        except Exception:
-            pass
-        finally:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
     # 2. Fallback images on disk: a SIDE-CAR image sharing the track's basename
     #    ("Track.wav" + "Track.jpg"), then the usual folder-level cover names.
     candidates = []
@@ -2114,12 +1987,21 @@ def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
         p = os.path.join(audio_parent, name)
         if os.path.exists(p):
             candidates.append(p)
+    # Copied byte-for-byte, no resize: ffmpeg is not bundled, so the old ffmpeg resize
+    # meant shipped builds never picked up folder art. A PNG keeps its bytes under the
+    # .jpg name — embedded PNG art has always been stored that way, and browsers sniff
+    # the image format regardless of the declared type.
     for src in candidates:
         try:
-            r = _sp.run(["ffmpeg", "-y", "-v", "quiet", "-i", src, "-vf", "scale=400:-1", dest], timeout=10)
-            if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 0:
-                return dest
-        except Exception:
+            with open(src, "rb") as f:
+                blob = f.read(20 * 1024 * 1024 + 1)
+            if len(blob) > 20 * 1024 * 1024 or not blob.startswith((b"\xff\xd8\xff", b"\x89PNG")):
+                continue
+            os.makedirs(COVERS_DIR, exist_ok=True)
+            with open(dest, "wb") as f:
+                f.write(blob)
+            return dest
+        except OSError:
             continue
     return None
 
@@ -2128,12 +2010,48 @@ def req_slug():
     slug = request.values.get("cat", "").strip()
     return slug if slug else ensure_default()[0]["slug"]
 
+# id → library_file per catalog, so the stream route (hit again on every seek) does not
+# parse every catalog JSON per request. A slug is re-read only when its main file or
+# journal changes size/mtime. No lock: a rebuild only reads, and each slug's dict is
+# swapped in whole; a racing rebuild just does the same read twice.
+_ENTRY_INDEX = {}         # {slug: {id: library_file}}
+_ENTRY_INDEX_STAMPS = {}  # {slug: ((mtime_ns, size) | None, (mtime_ns, size) | None)}
+
+def _file_stamp(path):
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+def entry_index_lookup(entry_id):
+    """(slug, library_file) for an id in any catalog, or (None, None)."""
+    slugs = [m["slug"] for m in ensure_default()]
+    for slug in list(_ENTRY_INDEX):
+        if slug not in slugs:
+            _ENTRY_INDEX.pop(slug, None); _ENTRY_INDEX_STAMPS.pop(slug, None)
+    for slug in slugs:
+        stamp = (_file_stamp(cat_file(slug)), _file_stamp(journal_file(slug)))
+        ids = _ENTRY_INDEX.get(slug)
+        if ids is None or _ENTRY_INDEX_STAMPS.get(slug) != stamp:
+            ids = {}
+            for e in _load_cat_raw(slug) + _read_journal(slug):
+                if isinstance(e, dict) and e.get("id") and e["id"] not in ids:
+                    ids[e["id"]] = e.get("library_file")
+            _ENTRY_INDEX[slug] = ids
+            _ENTRY_INDEX_STAMPS[slug] = stamp     # taken BEFORE the read: a write in between re-reads next call
+        if entry_id in ids:
+            return slug, ids[entry_id]
+    return None, None
+
 def find_entry_anywhere(entry_id):
-    """Search all catalogs for an entry, return (entry, slug) or (None, None)."""
-    for m in ensure_default():
-        for e in load_cat(m["slug"]):
+    """Search all catalogs for an entry, return (entry, slug) or (None, None).
+    The index names the catalog, so only that one is parsed."""
+    slug, _lf = entry_index_lookup(entry_id)
+    if slug:
+        for e in load_cat(slug):
             if e["id"] == entry_id:
-                return e, m["slug"]
+                return e, slug
     return None, None
 
 
@@ -2178,6 +2096,9 @@ def delete_catalog(slug):
         return jsonify({"error": "Not found"}), 404
     if len(meta) == 1:
         return jsonify({"error": "Cannot delete the only catalog"}), 400
+    # Fold first so pending journal lines go to trash WITH the catalog — a leftover
+    # journal would otherwise reappear inside a Field re-created under the same slug.
+    fold_journal(slug)
     # Default-safe: keep audio files unless caller explicitly opts in via delete_files=true.
     # delete_files=true is destructive → requires confirm token. Legacy ?keep_files=false is
     # ALSO honoured but now requires the token for parity.
@@ -2260,86 +2181,6 @@ def move_entry(entry_id):
     return jsonify({"ok": True})
 
 
-@app.route("/analyze", methods=["POST"])
-def analyze_route():
-    if not _same_origin_ok():
-        return jsonify({"error": "cross-origin request refused"}), 403
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    f   = request.files["file"]
-    ext = os.path.splitext(f.filename)[1].lower()
-    if ext not in ALLOWED:
-        usage_event("analyze_reject", fmt=ext, reason="unsupported extension", src="upload")
-        return jsonify({"error": f"Unsupported format: {ext}"}), 400
-
-    slug     = req_slug()
-    duration = _scan_duration(request.form.get("duration"), 60)
-    if not _scan_duration_ok(duration):
-        return jsonify({"error": _SCAN_DURATION_ERR}), 400
-    # Reject slugs not registered in _meta.json — save_cat would create an unlisted
-    # catalog file whose entries are invisible to every meta-driven route.
-    if not any(m["slug"] == slug for m in ensure_default()):
-        return jsonify({"error": f"Target catalog not found: {slug}"}), 404
-    entry_id = str(uuid.uuid4())
-    lib_path = os.path.join(LIBRARY_DIR, entry_id + ext)
-    try:
-        f.save(lib_path)
-    except OSError as e:
-        # Disk full / permissions — clean up any partial file and say so plainly
-        # instead of a generic 500 with an orphan left behind.
-        try: os.unlink(lib_path)
-        except OSError: pass
-        app.logger.exception("upload save failed")
-        return jsonify({"error": "could not save the upload — is the disk full?"}), 507
-
-    try:
-        t0 = time.time()
-        result = analyze(lib_path, duration_limit=duration, verbose=False)
-        # analyze() returns a clean error dict on undecodable/corrupt audio — don't
-        # catalog a broken entry; clean up the saved copy and report 422 (bad input,
-        # not a server fault).
-        if result.get("error"):
-            try: os.unlink(lib_path)
-            except OSError: pass
-            usage_event("analyze_reject", fmt=ext, reason=str(result["error"])[:80],
-                        src="upload")
-            return jsonify({"error": result["error"]}), 422
-        result["original_filename"] = f.filename
-        extract_cover(entry_id, lib_path, f.filename)
-        entry = {
-            "id":            entry_id,
-            "filename":      f.filename,
-            "analyzed_at":   datetime.now().isoformat(timespec="seconds"),
-            "scan_duration": duration,
-            "library_file":  store_path(lib_path),
-            "genre":         (result.get("metadata", {}) or {}).get("genre", ""),
-            "data":          result,
-        }
-        entries = load_cat(slug)
-        entries.append(entry)
-        save_cat(slug, entries)
-        result["catalog_id"]    = entry_id
-        result["has_file"]      = True
-        result["has_cover"]     = cover_path(entry_id) is not None
-        result["scan_duration"] = duration
-        usage_event("analyze", fmt=ext, ms=int((time.time() - t0) * 1000),
-                    cover=result["has_cover"], src="upload")
-        return jsonify(result)
-    except Exception as e:
-        try: os.unlink(lib_path)
-        except OSError: pass
-        # Undecodable audio is already handled above: analyze() returns an error dict for
-        # that and we answer 422. Landing HERE means the server broke, not the file — so
-        # say so, and name the exception. Reporting our own bugs as "could not be decoded"
-        # sent a real investigation after the wrong cause for most of a day.
-        app.logger.exception("analyze failed")
-        usage_event("error", where="analyze", type=type(e).__name__)
-        return jsonify({
-            "error": f"internal error during analysis ({type(e).__name__}) — this is a bug, not your file",
-            "internal": True,
-        }), 500
-
-
 @app.route("/catalog", methods=["GET"])
 def get_catalog():
     slug    = req_slug()
@@ -2348,6 +2189,7 @@ def get_catalog():
         p = library_path(e)
         e["has_file"]  = bool(p)
         e["has_cover"] = bool(cover_path(e["id"]))
+        e["abs_path"]  = absolute_form(e.get("library_file"))   # exports; library_file stays stored-form
         if "genre" not in e:
             e["genre"] = (e.get("data", {}).get("metadata", {}) or {}).get("genre", "")
         # File creation date — fallback for the 'Released' metric when the audio carries
@@ -2386,10 +2228,17 @@ def rescan_entry(entry_id):
             return jsonify({"error": result["error"]}), 422
         result["original_filename"] = entry["filename"]
         extract_cover(entry_id, fpath, entry.get("filename"))
-        entry["data"]          = result
-        entry["analyzed_at"]   = datetime.now().isoformat(timespec="seconds")
-        entry["scan_duration"] = duration
-        save_cat(slug, entries)
+        # Exempt from the request-wide lock (librosa above takes seconds), so the
+        # snapshot read at the top may be stale by now: reload → set → save under the lock.
+        with _FS_LOCK:
+            entries = load_cat(slug)
+            entry   = next((e for e in entries if e["id"] == entry_id), None)
+            if not entry:
+                return jsonify({"error": "Entry was removed during the rescan"}), 404
+            entry["data"]          = result
+            entry["analyzed_at"]   = datetime.now().isoformat(timespec="seconds")
+            entry["scan_duration"] = duration
+            save_cat(slug, entries)
         result["catalog_id"]    = entry_id
         result["has_file"]      = True
         result["has_cover"]     = cover_path(entry_id) is not None
@@ -2570,10 +2419,10 @@ def _stream_pcm_path(entry_id, fpath):
 @app.route("/catalog/<entry_id>/stream")
 def stream_entry(entry_id):
     # Search specified catalog first, then all catalogs
-    entry, _ = find_entry_anywhere(entry_id)
-    if not entry:
+    slug, lf = entry_index_lookup(entry_id)
+    if not slug:
         return jsonify({"error": "Not found"}), 404
-    fpath = library_path(entry)
+    fpath = resolve_path(lf)
     if not fpath:
         return jsonify({"error": "File not in library"}), 404
     ext = os.path.splitext(fpath)[1].lower()
@@ -2622,6 +2471,7 @@ def tracks_resolve():
                     # Export support: playlist exports resolve cross-catalog tracks
                     # through here, so include the file path + encode metadata.
                     "library_file": e.get("library_file"),
+                    "abs_path": absolute_form(e.get("library_file")),
                     "genre": e.get("genre"),
                     "codec": md.get("codec"),
                     "bitrate_kbps": md.get("bitrate_kbps"),
@@ -2872,6 +2722,7 @@ def scan_health(slugs=None):
     seen_paths = {}
     seen_titles = {}
     total_entries = 0  # accumulate during main pass so the summary doesn't re-read every catalog
+    tag_undoable = False   # any scoped entry still carrying a tag-rewrite undo marker
     # Foreground courtesy (Mark, 2026-08-28): with ?fg=1 (the client sends it while the
     # user is on the Field or List tab) the walk yields briefly every 200 entries, so a
     # 24k-entry health scan hums along behind a live canvas instead of monopolising the
@@ -2881,6 +2732,8 @@ def scan_health(slugs=None):
         slug = m["slug"]
         for e in load_cat(slug):
             total_entries += 1
+            if e.get("original_filename"):   # same marker /repair/undo-tag-filenames consumes
+                tag_undoable = True
             if _fg and total_entries % 200 == 0:
                 time.sleep(0.002)
             # Per-entry guard: one malformed entry (e.g. hand-edited, missing "id") must
@@ -2973,6 +2826,7 @@ def scan_health(slugs=None):
     summary["duplicate_groups_titles"] = len(issues["duplicate_titles"])
     summary["total_entries"] = total_entries
     summary["ignored_total"] = sum(len(v) for v in ignored.values())
+    summary["tag_rewrites_undoable"] = tag_undoable
     return {"summary": summary, "issues": issues, "ignored": {k: sorted(list(v)) for k, v in ignored.items() if v}}
 
 
@@ -2987,24 +2841,18 @@ def repair_health():
 
 @app.route("/repair/ignore", methods=["POST"])
 def repair_ignore():
-    """Mark issues as ignored. Body: {category, ids: [...]}. ids may include current
-    visible entries or 'all' to grab every flagged id in that category right now."""
+    """Mark issues as ignored. Body: {category, ids: [...]} — the ids the user can see.
+    (The old ids:'all' form re-scanned and could ignore rows never shown; removed.)"""
     body = request.get_json(silent=True) or {}
     category = body.get("category")
     ids_in   = body.get("ids") or []
     if not category: return jsonify({"error": "category required"}), 400
+    if not isinstance(ids_in, list):
+        return jsonify({"error": "ids must be a list"}), 400
     state = repair_ignored_load()
     cur   = state.get(category, set())
-    if ids_in == "all":
-        snap = scan_health()["issues"].get(category, [])
-        if category in ("duplicate_files", "duplicate_titles"):
-            for g in snap:
-                for r in g: cur.add(r["id"])
-        else:
-            for r in snap: cur.add(r["id"])
-    else:
-        for i in ids_in:
-            cur.add(i)
+    for i in ids_in:
+        cur.add(i)
     state[category] = cur
     repair_ignored_save(state)
     return jsonify({"ok": True, "ignored_count": len(cur)})
@@ -3214,75 +3062,6 @@ def repair_relink(entry_id):
     return jsonify({"ok": True, "entry": target})
 
 
-def _discogs_search(token, artist, title):
-    """Search Discogs for releases matching artist+title. Returns list of suggestion dicts."""
-    import urllib.request, urllib.parse
-    if not token: return None
-    q = (artist + " " + title).strip()
-    if not q: return []
-    url = "https://api.discogs.com/database/search?" + urllib.parse.urlencode({
-        "q": q, "type": "release", "per_page": 5,
-    })
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Discogs token={token}",
-        "User-Agent": "Tunefield/1.0",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        return {"error": str(e)}
-    out = []
-    for r in (data.get("results") or [])[:5]:
-        title_full = r.get("title", "")  # "Artist - Title"
-        a, t = (title_full.split(" - ", 1) + [""])[:2] if " - " in title_full else ("", title_full)
-        genres = r.get("genre") or []
-        styles = r.get("style") or []
-        out.append({
-            "artist":      a.strip(),
-            "title":       t.strip(),
-            "year":        r.get("year", ""),
-            "label":       (r.get("label") or [""])[0] if r.get("label") else "",
-            "country":     r.get("country", ""),
-            "genre":       genres[0] if genres else (styles[0] if styles else ""),
-            "all_genres":  genres + styles,
-            "format":      ", ".join(r.get("format") or []),
-            "thumb":       r.get("thumb", ""),
-            "cover_image": r.get("cover_image", ""),
-            "uri":         r.get("uri", ""),
-            "discogs_id":  r.get("id"),
-        })
-    return out
-
-
-@app.route("/repair/discogs-lookup/<entry_id>", methods=["POST"])
-def repair_discogs_lookup(entry_id):
-    cfg = load_config()
-    token = cfg.get("discogs_token", "")
-    if not token:
-        return jsonify({"error": "Discogs token not configured. Open the API Keys panel and add one from discogs.com/settings/developers."}), 400
-    entry, slug = find_entry_anywhere(entry_id)
-    if not entry:
-        return jsonify({"error": "Entry not found"}), 404
-    # Query prefers embedded tags, falls back to the filename — the same precedence
-    # the batch cover pass and the exports use.
-    md = ((entry.get("data") or {}).get("metadata") or {})
-    a, t = (md.get("artist") or "").strip(), (md.get("title") or "").strip()
-    if not t:
-        base = os.path.splitext(entry.get("filename", ""))[0]
-        if " - " in base:
-            a, t = base.split(" - ", 1)
-        else:
-            a, t = "", base
-    body = request.json or {}
-    artist = (body.get("artist") or a).strip()
-    title  = (body.get("title")  or t).strip()
-    results = _discogs_search(token, artist, title)
-    if isinstance(results, dict) and results.get("error"):
-        return jsonify(results), 502
-    return jsonify({"query": {"artist": artist, "title": title}, "results": results or []})
-
-
 @app.route("/catalog/<entry_id>/generated-cover", methods=["POST"])
 def generated_cover(entry_id):
     """Save a client-generated cover (key-colour + artist/title, drawn on a canvas in
@@ -3313,85 +3092,6 @@ def generated_cover(entry_id):
         f.write(blob)
     usage_event("repair", op="gen_cover", changed=1)
     return jsonify({"ok": True})
-
-
-@app.route("/repair/fetch-covers", methods=["POST"])
-def repair_fetch_covers():
-    """Fill MISSING covers from Discogs — for files that genuinely carry no embedded
-    art (measured on the Beatport catalog: 36 of 127, mostly untagged WAV purchases,
-    zero of which have art in the file — local extraction has nothing to find there).
-    Only ever writes covers/<id>.jpg where none exists; never touches catalog JSON,
-    never overwrites art. Body: {ids: [...]}. Throttled to Discogs' authenticated
-    rate limit. Query prefers embedded tags, falls back to the filename — the same
-    precedence the exports use."""
-    cfg = load_config()
-    token = cfg.get("discogs_token", "")
-    if not token:
-        return jsonify({"error": "Discogs token not configured. Open the API Keys panel and add one from discogs.com/settings/developers."}), 400
-    ids = (request.get_json(silent=True) or {}).get("ids") or []
-    if not isinstance(ids, list) or not ids:
-        return jsonify({"error": "ids required"}), 400
-    import urllib.request
-    fetched = already = no_match = failed = 0
-    for entry_id in ids[:50]:            # bounded per request; the client chunks
-        entry, _slug = find_entry_anywhere(str(entry_id))
-        if not entry:
-            failed += 1
-            continue
-        dest = os.path.join(COVERS_DIR, f"{entry['id']}.jpg")
-        if os.path.exists(dest):
-            already += 1
-            continue
-        md = ((entry.get("data") or {}).get("metadata") or {})
-        artist, title = (md.get("artist") or "").strip(), (md.get("title") or "").strip()
-        if not title:
-            base = os.path.splitext(entry.get("filename", ""))[0]
-            artist, title = (base.split(" - ", 1) + [""])[:2] if " - " in base else ("", base)
-        results = _discogs_search(token, artist, title)
-        time.sleep(1.1)                  # authenticated limit is 60/min; stay under it
-        if isinstance(results, dict) and results.get("error"):
-            failed += 1
-            continue
-        img = next((r.get("cover_image") or r.get("thumb") for r in (results or [])
-                    if r.get("cover_image") or r.get("thumb")), None)
-        if not img:
-            no_match += 1
-            continue
-        from urllib.parse import urlparse as _urlparse
-        u = _urlparse(img)
-        host = (u.hostname or "")
-        if u.scheme not in ("http", "https") or not (host == "discogs.com" or host.endswith(".discogs.com")):
-            no_match += 1
-            continue
-        try:
-            req = urllib.request.Request(img, headers={"User-Agent": "Tunefield/1.0"})
-            MAX_COVER = 20 * 1024 * 1024
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                cl = resp.headers.get("Content-Length")
-                if cl and cl.isdigit() and int(cl) > MAX_COVER:
-                    no_match += 1
-                    continue
-                # read one byte past the cap so an over-limit body is detectable
-                # without ever buffering an unbounded response
-                blob = resp.read(MAX_COVER + 1)
-                if len(blob) > MAX_COVER:
-                    no_match += 1
-                    continue
-            # Magic bytes, not just size: whatever the URL claimed, only a real image
-            # may occupy a cover slot.
-            if len(blob) < 1000 or not (blob.startswith((b"\xff\xd8\xff", b"\x89PNG", b"GIF8"))
-                                        or (blob[:4] == b"RIFF" and blob[8:12] == b"WEBP")):
-                no_match += 1
-                continue
-            os.makedirs(COVERS_DIR, exist_ok=True)
-            with open(dest, "wb") as f:
-                f.write(blob)
-            fetched += 1
-        except Exception:
-            failed += 1
-    usage_event("repair", op="fetch_covers", changed=fetched)
-    return jsonify({"fetched": fetched, "already": already,
-                    "no_match": no_match, "failed": failed})
 
 
 def _sanitize_filename_chars(s):
@@ -3429,10 +3129,17 @@ def repair_dedup():
       2. earliest analyzed_at (original import)
       3. lower entry id (deterministic tiebreaker)
 
-    Returns the kept/deleted IDs per group so the UI can confirm before applying."""
+    Returns the kept/deleted IDs per group so the UI can confirm before applying.
+
+    Apply (dry_run false) with drop_ids: [id, ...] — the `drop` rows of the previewed
+    plan — deletes exactly those ids (within the scoped slugs) and nothing else, so
+    it can never remove an entry the user was not shown. `deleted` = entries actually
+    removed; `groups` = groups of the freshly computed plan holding at least one of
+    those ids. Without drop_ids, apply recomputes the plan and drops it (old form)."""
     body = request.get_json(silent=True) or {}
     category = body.get("category")
     dry_run  = bool(body.get("dry_run", True))
+    drop_ids = body.get("drop_ids")
     slugs    = body.get("slugs") if isinstance(body.get("slugs"), list) else None
     if category not in ("duplicate_files", "duplicate_titles"):
         return jsonify({"error": "category must be duplicate_files or duplicate_titles"}), 400
@@ -3457,12 +3164,13 @@ def repair_dedup():
     # listing instead of a stat per row.
     issues = scan_health(slugs)["issues"]
     groups = issues.get(category, [])
-    by_id = {}
+    by_id, slug_of = {}, {}
     for m in ensure_default():
         if slugs is not None and m["slug"] not in slugs:
             continue
         for e in load_cat(m["slug"]):
             by_id[e["id"]] = e
+            slug_of[e["id"]] = m["slug"]
     try:
         cover_ids = {fn[:-4] for fn in os.listdir(COVERS_DIR) if fn.endswith(".jpg")}
     except OSError:
@@ -3500,9 +3208,16 @@ def repair_dedup():
     # ONE load + save per catalog (the old per-entry rewrite made big libraries crawl:
     # a full JSON load + atomic dump for every deleted duplicate).
     drops_by_slug = {}
-    for p in plan:
-        for d in p["drop"]:
-            drops_by_slug.setdefault(d["slug"], set()).add(d["id"])
+    if isinstance(drop_ids, list):
+        wanted = {i for i in drop_ids if isinstance(i, str) and i in slug_of}
+        for i in wanted:
+            drops_by_slug.setdefault(slug_of[i], set()).add(i)
+        groups_n = sum(1 for p in plan if any(d["id"] in wanted for d in p["drop"]))
+    else:
+        for p in plan:
+            for d in p["drop"]:
+                drops_by_slug.setdefault(d["slug"], set()).add(d["id"])
+        groups_n = len(plan)
     for slug, ids in drops_by_slug.items():
         entries = load_cat(slug)
         gone = [e for e in entries if e["id"] in ids]
@@ -3515,7 +3230,7 @@ def repair_dedup():
         deleted += len(gone)
     snap = _snapshot_entries_trash("dedup-" + category, removed_by_slug)
     usage_event("repair", op="dedup", changed=deleted)
-    return jsonify({"ok": True, "category": category, "deleted": deleted, "groups": len(plan),
+    return jsonify({"ok": True, "category": category, "deleted": deleted, "groups": groups_n,
                     "undoable": bool(snap), "snapshot": snap})
 
 
@@ -3642,78 +3357,6 @@ def repair_apply(entry_id):
     return jsonify({"ok": True, "changed": changed, "entry": target})
 
 
-def _acoustid_lookup(key, audio_path):
-    """Fingerprint a track via fpcalc and look it up on AcoustID. Returns list or error dict."""
-    import shutil as _sh, subprocess, urllib.request, urllib.parse
-    if not _sh.which("fpcalc"):
-        return {"error": "fpcalc not found. Install with: brew install chromaprint (macOS) or apt-get install libchromaprint-tools (Linux)."}
-    try:
-        r = subprocess.run(["fpcalc", "-json", audio_path], capture_output=True, text=True, timeout=30)
-        if r.returncode != 0:
-            return {"error": f"fpcalc failed: {r.stderr.strip()[:200]}"}
-        fp = json.loads(r.stdout)
-    except Exception as e:
-        return {"error": f"fpcalc error: {e}"}
-    duration    = int(round(fp.get("duration", 0)))
-    fingerprint = fp.get("fingerprint", "")
-    if not fingerprint:
-        return {"error": "Could not generate fingerprint"}
-    url = "https://api.acoustid.org/v2/lookup?" + urllib.parse.urlencode({
-        "client":      key,
-        "duration":    duration,
-        "fingerprint": fingerprint,
-        "meta":        "recordings+releasegroups+compress",
-    })
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Tunefield/1.0"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        return {"error": f"AcoustID request failed: {e}"}
-    if data.get("status") != "ok":
-        return {"error": data.get("error", {}).get("message", "AcoustID returned an error")}
-    out = []
-    for r in (data.get("results") or [])[:5]:
-        score = r.get("score", 0)
-        for rec in (r.get("recordings") or [])[:3]:
-            artists = ", ".join(a.get("name", "") for a in (rec.get("artists") or []))
-            title   = rec.get("title", "")
-            rg      = (rec.get("releasegroups") or [{}])[0]
-            out.append({
-                "artist":     artists,
-                "title":      title,
-                "year":       rg.get("first_release_date", "")[:4] if rg.get("first_release_date") else "",
-                "label":      "",
-                "country":    "",
-                "genre":      "",
-                "all_genres": [],
-                "format":     rg.get("type", ""),
-                "thumb":      "",
-                "uri":        f"https://musicbrainz.org/recording/{rec.get('id')}" if rec.get('id') else "",
-                "discogs_id": None,
-                "score":      score,
-            })
-    return out
-
-
-@app.route("/repair/acoustid-lookup/<entry_id>", methods=["POST"])
-def repair_acoustid_lookup(entry_id):
-    cfg = load_config()
-    key = cfg.get("acoustid_key", "")
-    if not key:
-        return jsonify({"error": "AcoustID key not configured. Open the API Keys panel and add one from acoustid.org/api-key."}), 400
-    entry, slug = find_entry_anywhere(entry_id)
-    if not entry:
-        return jsonify({"error": "Entry not found"}), 404
-    fpath = library_path(entry)
-    if not fpath:
-        return jsonify({"error": "Library file missing for this entry"}), 404
-    results = _acoustid_lookup(key, fpath)
-    if isinstance(results, dict) and results.get("error"):
-        return jsonify(results), 502
-    return jsonify({"query": {"file": os.path.basename(fpath)}, "results": results or []})
-
-
 @app.route("/repair/config", methods=["GET", "POST"])
 def repair_config():
     if request.method == "GET":
@@ -3795,19 +3438,14 @@ def export_csv():
                     headers={"Content-Disposition": "attachment;filename=catalog.csv"})
 
 
-# ── Rekordbox export: bridge XML + direct collection write ─────────────────────
+# ── Rekordbox export: bridge XML ────────────────────────────────────────────────
 # Bridge: one fixed XML file that accumulates every exported playlist. The user
 # points Rekordbox's "Imported Library" preference at it ONCE; every later export
 # just appears in the rekordbox xml sidebar tree (right-click → Import Playlist).
-# Collection (experimental): writes the playlist straight into Rekordbox's
-# master.db via pyrekordbox — guarded by confirm token, a Rekordbox-must-be-
-# closed check, and an automatic timestamped backup of the database files.
 
 REKORDBOX_HOME         = os.path.expanduser(os.environ.get("TUNEFIELD_RB_HOME", "~/Music/Tunefield"))
 REKORDBOX_BRIDGE_XML   = os.path.join(REKORDBOX_HOME, "tunefield.xml")
-REKORDBOX_BACKUPS_DIR  = os.path.join(REKORDBOX_HOME, "rekordbox-backups")
 REKORDBOX_BRIDGE_STORE = os.path.join(DATA_DIR, "rekordbox_bridge.json")
-REKORDBOX_BACKUPS_KEEP = 10
 
 def _rb_esc(s):
     """XML attribute escaping (mirror of the frontend's escXml)."""
@@ -3968,112 +3606,6 @@ def rekordbox_export_bridge():
                     "playlists": len(store["playlists"]),
                     "tracks": sum(len(p["tracks"]) for p in store["playlists"])})
 
-def _rb_backup_db(db_dir):
-    """Timestamped copy of master.db + masterPlaylists6.xml before any write.
-    Returns the backup directory. Prunes to the newest REKORDBOX_BACKUPS_KEEP."""
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = os.path.join(REKORDBOX_BACKUPS_DIR, stamp)
-    os.makedirs(dest, exist_ok=True)
-    for fn in ("master.db", "master.db-wal", "master.db-shm", "masterPlaylists6.xml"):
-        src = os.path.join(db_dir, fn)
-        if os.path.exists(src):
-            shutil.copy2(src, os.path.join(dest, fn))
-    if not os.path.exists(os.path.join(dest, "master.db")):
-        raise RuntimeError("backup failed — master.db not copied, aborting export")
-    kept = sorted(os.listdir(REKORDBOX_BACKUPS_DIR))
-    for old in kept[:-REKORDBOX_BACKUPS_KEEP]:
-        shutil.rmtree(os.path.join(REKORDBOX_BACKUPS_DIR, old), ignore_errors=True)
-    return dest
-
-@app.route("/export/rekordbox/collection", methods=["POST"])
-def rekordbox_export_collection():
-    err = _require_confirm()
-    if err: return err
-    body   = request.get_json(force=True) or {}
-    name   = str(body.get("name", "")).strip()[:200] or "Tunefield"
-    tracks = _rb_clean_tracks(body.get("tracks"))
-    try:
-        from pyrekordbox import Rekordbox6Database
-    except ImportError:
-        return jsonify({"error": "pyrekordbox is not installed — run: pip install pyrekordbox"}), 501
-    allow_running = os.environ.get("TUNEFIELD_RB_ALLOW_RUNNING") == "1"  # test-copy runs only
-    if _rb_pid() and not allow_running:
-        return jsonify({"error": "Rekordbox is running — quit it completely (⌘Q) and try again"}), 409
-    db_path, db_dir = _rb_db_paths()
-    if not db_path:
-        return jsonify({"error": "Rekordbox database not found — has Rekordbox 6/7 been run on this Mac?"}), 404
-    backup = _rb_backup_db(db_dir)
-    if allow_running:
-        import pyrekordbox.db6.database as _rbdbmod
-        _rbdbmod.get_rekordbox_pid = lambda: 0
-    try:
-        db = Rekordbox6Database(path=db_path)
-    except Exception as e:
-        # Constructor failures (no sqlcipher wheel for this Python, unsupported newer
-        # Rekordbox schema, key extraction) previously surfaced as a blank 500.
-        app.logger.exception("rekordbox collection open failed")
-        return jsonify({"error": "could not open the Rekordbox database — this can happen on "
-                                 "Python versions without a sqlcipher3 wheel or with a newer "
-                                 f"Rekordbox release ({type(e).__name__}: {str(e)[:160]}). "
-                                 "Your Rekordbox database was NOT modified; the XML/bridge "
-                                 "exports still work."}), 500
-    try:
-        # unique playlist name: "Name", "Name (2)", …
-        final_name, n = name, 1
-        while db.get_playlist(Name=final_name).first() is not None:
-            n += 1
-            final_name = f"{name} ({n})"
-        added, reused, missing = 0, 0, []
-        contents = []
-        artist_write_failed = False
-        for t in tracks:
-            loc = t["location"]
-            if not os.path.exists(loc):
-                missing.append(loc)
-                continue
-            c = db.get_content(FolderPath=loc).first()
-            if c is None:
-                kwargs = {"Title": t["name"] or os.path.basename(loc)}
-                try:
-                    bpm = float(t["bpm"])
-                    if bpm > 0: kwargs["BPM"] = int(round(bpm * 100))
-                except ValueError:
-                    pass
-                c = db.add_content(loc, **kwargs)
-                added += 1
-                # Artist is a LINKED row (djmdArtist), not a content column — look it
-                # up or create it, then point the content at it. The artist API surface
-                # varies across pyrekordbox releases, so any failure here is logged
-                # once and the export proceeds exactly as before: Title/BPM only.
-                artist_name = (t.get("artist") or "").strip()
-                if artist_name and not artist_write_failed:
-                    try:
-                        art = db.get_artist(Name=artist_name).first()
-                        if art is None:
-                            art = db.add_artist(artist_name)
-                        c.ArtistID = art.ID
-                    except Exception as e:
-                        artist_write_failed = True
-                        app.logger.warning(
-                            "rekordbox artist write failed (%s: %s) — "
-                            "continuing Title/BPM only", type(e).__name__, str(e)[:160])
-            else:
-                reused += 1
-            contents.append(c)
-        if not contents:
-            return jsonify({"error": "no exportable tracks — all file paths are missing on disk",
-                            "missing": missing}), 400
-        pl = db.create_playlist(final_name)
-        for i, c in enumerate(contents):
-            db.add_to_playlist(pl, c, track_no=i + 1)
-        db.commit()
-    finally:
-        try: db.close()
-        except Exception: pass
-    return jsonify({"playlist": final_name, "tracks": len(contents), "added_to_collection": added,
-                    "already_in_collection": reused, "missing": missing, "backup": backup})
-
-
 @app.route("/export/als", methods=["POST"])
 def export_als():
     """Ableton Live Set download. Body: {name, tracks:[{location, artist, title,
@@ -4112,10 +3644,10 @@ def export_als():
                               scene_tempo=bool(body.get("scene_tempo", True)))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    name = re.sub(r'[\\/:*?"<>|]+', "_", str(body.get("name") or "tunefield-set")).strip() or "tunefield-set"
+    # No Content-Disposition: a set name with an en dash, emoji or curly quote in that
+    # header made the response hang. The client names the downloaded file itself.
     return Response(data, mimetype="application/octet-stream",
-                    headers={"Content-Disposition": f'attachment; filename="{name}.als"',
-                             "X-Tracks-Exported": str(len(entries)),
+                    headers={"X-Tracks-Exported": str(len(entries)),
                              "X-Tracks-Offline": str(offline)})
 
 

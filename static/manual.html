@@ -56,7 +56,7 @@
 <div class="wrap">
   <div class="masthead">
     <div class="brand">tunefield<b>.</b> user manual</div>
-    <div class="ver">version 1.0.0 · built 2026-10-29</div>
+    <div class="ver">version 1.0.0 · built 2026-11-02</div>
   </div>
   <h1 id="tunefield-lite--user-manual">Tunefield Lite — User Manual</h1>
 <p><em>Public beta. The exact version is in the <code>VERSION</code> file and at the top of every Feedback report.</em></p>
@@ -124,7 +124,7 @@
 </tbody>
 </table>
 <p>Every popup — Settings, Set tools, the set report, the pickers — can be dragged out of the way by its title bar.</p>
-<p>Whenever something breaks or confuses you, press <strong>Feedback</strong> (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. <strong>Copy &amp; open form ↗</strong> opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.</p>
+<p>Whenever something breaks or confuses you, press <strong>Feedback</strong> (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the name and track count of the Field you have open, your window size, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. <strong>Copy &amp; open form ↗</strong> opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.</p>
 <hr />
 <h2 id="2-the-analyse-tab">2. The Analyse tab</h2>
 <p>This is where music enters Tunefield.</p>
@@ -318,7 +318,7 @@
 <tr>
 <td>Broken file paths</td>
 <td>Entry points at a file that no longer exists</td>
-<td>Delete orphan entries, or relink</td>
+<td>Ignore a row, delete the orphan entries, or re-add the folder on the Analyse tab if the files only moved</td>
 </tr>
 <tr>
 <td>Missing cover art</td>
@@ -355,7 +355,7 @@
 <p><strong>Covers:</strong> <strong>Extract covers</strong> pulls the art embedded in your files; <strong>Generate key-colour covers</strong> draws a sleeve from the track's key colour, artist and title for whatever is left — so every track can end up with one. Long jobs show their progress on the Repair tab with a <strong>Cancel</strong>. Per-row buttons fix or <strong>ignore</strong> individual issues; ignored issues stay out of future scans until you clear the ignored list.</p>
 <p>When a file simply carries no tags, Repair says so plainly — <em>the remaining tracks have no artist/title tags in the file</em> — rather than reporting a failure. <strong>Rescan these tracks</strong> re-analyses only the tracks that finding lists, wherever their files live.</p>
 <blockquote>
-<p><strong>Caution: delete and dedup actions remove catalog entries</strong> — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of exactly what would be deleted, you confirm before anything runs, an Undo is offered straight after, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.</p>
+<p><strong>Caution: delete and dedup actions remove catalog entries</strong> — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of what would be deleted (the first 200 groups, with a count of the rest), you confirm before anything runs, a 10-second Undo toast follows, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.</p>
 </blockquote>
 <hr />
 <h2 id="11-exporting--rekordbox-traktor-ableton">11. Exporting — Rekordbox, Traktor, Ableton</h2>

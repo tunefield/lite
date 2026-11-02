@@ -46,10 +46,17 @@ done
 
 say "== Tunefield doctor — $(date '+%Y-%m-%d %H:%M') =="
 
+# `command -v python3` is not enough: on a Mac without developer tools it finds Apple's
+# stub, which pops an install dialog and then fails every call. Run it for real instead
+# (and skip even that when the stub is all there is, so no dialog is triggered).
 HAVE_PY3=1
-command -v python3 >/dev/null 2>&1 || HAVE_PY3=0
+if [ "$(command -v python3 2>/dev/null)" = "/usr/bin/python3" ] && ! xcode-select -p >/dev/null 2>&1; then
+  HAVE_PY3=0
+else
+  python3 -c 1 >/dev/null 2>&1 || HAVE_PY3=0
+fi
 if [ "$HAVE_PY3" = "0" ]; then
-  warn "python3 NOT FOUND — JSON checks are degraded and sections below will say SKIPPED"
+  warn "no working python3 — JSON checks are degraded (curl/grep used instead) and some sections below will say SKIPPED"
   warn "this run's verdict is WEAKER than normal; say so when pasting the output"
 fi
 
@@ -139,16 +146,59 @@ PY
   fi
 }
 
+# Read one string field from the health body left in $TMPBODY by probe().
+body_field() {  # $1 = key
+  if [ "$HAVE_PY3" = "1" ]; then
+    python3 - "$TMPBODY" "$1" <<'PY' 2>/dev/null
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get(sys.argv[2]) or "")
+except Exception:
+    print("")
+PY
+  else
+    sed -n 's/.*"'"$1"'": *"\([^"]*\)".*/\1/p' "$TMPBODY" 2>/dev/null | head -1
+  fi
+}
+
+norm_dir() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "${1%/}"; }
+
+# Which root should the server we audit report? A PORTABLE install: the folder holding the
+# marker. Otherwise: the per-user data folder on this Mac.
+if [ -n "$PORTABLE_DIR" ]; then
+  EXPECT_ROOT=$(norm_dir "$PORTABLE_DIR")
+else
+  EXPECT_ROOT="$HOME/Library/Application Support/Tunefield Lite"
+fi
+
+# Several Tunefields can be running at once (the desktop install AND one from a stick), and
+# the first one found is not necessarily the one being audited. Keep scanning until a
+# server's reported root matches EXPECT_ROOT; only if none does, fall back to the first found.
+FALLBACK_URL=""; FALLBACK_BODY=""; ROOT_MATCHED=0
 scan_ports() {
-  local p
+  local p r
+  URL=""; FALLBACK_URL=""; ROOT_MATCHED=0
   for p in $(seq 5050 5080); do
-    if probe "http://127.0.0.1:$p"; then URL="http://127.0.0.1:$p"; return 0; fi
+    probe "http://127.0.0.1:$p" || continue
+    r=$(body_field root)
+    if [ -n "$r" ] && [ "$(norm_dir "$r")" = "$EXPECT_ROOT" ]; then
+      URL="http://127.0.0.1:$p"; ROOT_MATCHED=1; return 0
+    fi
+    if [ -z "$FALLBACK_URL" ]; then
+      FALLBACK_URL="http://127.0.0.1:$p"
+      FALLBACK_BODY=$(cat "$TMPBODY")
+    fi
   done
+  if [ -n "$FALLBACK_URL" ]; then
+    URL="$FALLBACK_URL"
+    printf '%s' "$FALLBACK_BODY" > "$TMPBODY"
+    return 0
+  fi
   return 1
 }
 
 say "-- server --"
-[ "$HAVE_PY3" = "0" ] && note "python3 missing: server check degraded to a weaker substring match"
+[ "$HAVE_PY3" = "0" ] && note "no working python3: server check degraded to a weaker substring match"
 URL=""
 scan_ports || true
 if [ -z "$URL" ] && [ "$LAUNCH" = "1" ]; then
@@ -178,6 +228,9 @@ if [ -z "$URL" ]; then
   fi
 else
   pass "running at $URL"
+  if [ "$ROOT_MATCHED" = "0" ] && [ -z "$PORTABLE_DIR" ]; then
+    note "no server on ports 5050-5080 reported root $EXPECT_ROOT — showing the first Tunefield found; if you expected a different install, quit the others and re-run"
+  fi
   say "  health:"
   if [ "$HAVE_PY3" = "1" ]; then
     python3 -m json.tool "$TMPBODY" 2>/dev/null | sed 's/^/    /'
@@ -205,18 +258,15 @@ PY
     [ -n "$H_EXP" ] && note "$H_EXP = false is EXPECTED — Tunefield needs no external binaries; not a fault"
   else
     sed 's/^/    /' "$TMPBODY"
-    note "SKIPPED health grading (python3 missing)"
+    H_DATA=$(body_field data_dir); H_ROOT=$(body_field root)
+    note "SKIPPED health grading (no working python3)"
   fi
   # A PORTABLE-marker install must never be silently reported through some other
   # install's server: compare the running server's root against the marker directory.
   if [ -n "$PORTABLE_DIR" ]; then
     RCHK="${H_ROOT:-$H_DATA}"
     if [ -z "$RCHK" ]; then
-      if [ "$HAVE_PY3" = "1" ]; then
-        note "health reports no root/data_dir — cannot confirm this server is the portable install"
-      else
-        note "SKIPPED portable-install check (python3 missing)"
-      fi
+      note "health reports no root/data_dir — cannot confirm this server is the portable install"
     else
       case "$RCHK" in
         "$PORTABLE_DIR"|"$PORTABLE_DIR"/*)
@@ -264,7 +314,7 @@ for e, n in ev.most_common():
 if ms: print(f"analysis time    median {sorted(ms)[len(ms)//2]/1000:.1f}s over {len(ms)} tracks")
 PY
       else
-        note "SKIPPED usage summary (python3 missing) — raw error/reject counts below"
+        note "SKIPPED usage summary (no working python3) — raw error/reject counts below"
       fi
       # grep -c prints a count even when it exits 1 (no match); exit >= 2 means the
       # read itself failed — that must never be laundered into "0 errors".
@@ -317,7 +367,7 @@ PY
     fi
     EN=$(grep -c 'ERROR' "$LOG" 2>/dev/null); ERC2=$?
     TN=$(grep -c 'Traceback' "$LOG" 2>/dev/null); TRC2=$?
-    AN=$(grep -cE 'HTTP/1\.[01]" [345][0-9][0-9]' "$LOG" 2>/dev/null); ARC2=$?
+    AN=$(grep -cE 'HTTP/1\.[01][^"]*" [345][0-9][0-9]' "$LOG" 2>/dev/null); ARC2=$?
     if [ "$ERC2" -ge 2 ] || [ "$TRC2" -ge 2 ] || [ "$ARC2" -ge 2 ]; then
       warn "$B could not be read while counting errors — verdict unknown, NOT clean"
       continue
@@ -337,7 +387,7 @@ PY
       fi
       if [ "$AN" != "0" ]; then
         warn "$B: $AN request(s) answered non-2xx — last 5:"
-        grep -E 'HTTP/1\.[01]" [345][0-9][0-9]' "$LOG" | tail -5 | sed 's/^/    /'
+        grep -E 'HTTP/1\.[01][^"]*" [345][0-9][0-9]' "$LOG" | tail -5 | sed 's/^/    /'
       fi
     fi
   done

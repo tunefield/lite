@@ -196,7 +196,6 @@ const REPAIR_CATEGORIES = [
   { key:'filename_tag_mismatch', icon:REP_ICO('<path d="M3 7h4l10 10h4m0 0-2.5-2.5M21 17l-2.5 2.5M3 17h4l2.5-2.5M17 7h4m0 0-2.5-2.5M21 7l-2.5 2.5"/>'), title:'Stored name ↔ tag mismatch',  desc:'Embedded ID3 tags disagree with the name Tunefield stores for this track. Files on disk are never renamed.', sev:'warn',
     actions: () => [
       { label:'Auto-apply tags to stored names…', run: previewTagFilenames },
-      { label:'Undo all tag rewrites', danger:true, run: undoTagFilenames },
     ],
     rowExtra: r => `<span class="rep-meta">catalog: <strong>${esc(r.filename_artist || '?')}</strong> – <strong>${esc(r.filename_title || '?')}</strong> · tag: <strong>${esc(r.tag_artist || '?')}</strong> – <strong>${esc(r.tag_title || '?')}</strong></span>` },
   { key:'duplicate_files',  icon:REP_ICO('<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),  title:'Duplicate file references',  desc:'Same audio file referenced by multiple entries', sev:'warn',
@@ -209,6 +208,7 @@ const REPAIR_CATEGORIES = [
     actions: () => [],
     rowExtra: r => `<span class="rep-meta">root: ${esc(r.root)}</span>` },
 ];
+const REP_ROW_CAP = 200;
 // pilot 9645
 function renderRepair() {
   syncRepairFieldSelect();
@@ -273,6 +273,7 @@ function renderRepair() {
       }
     }
   }
+  syncTagUndoBtn();
   const igBtn = document.getElementById('repair-ignored-btn');
   if (igBtn) {
     igBtn.style.display = ignoredTotal ? 'inline-block' : 'none';
@@ -291,7 +292,10 @@ function renderRepair() {
     const catLocked = false;   // Lite: free, nothing locked
     // Built-in actions plus a universal "Ignore all in this category"
     const builtIn = catLocked ? [] : (cat.actions ? cat.actions(items) : []);
-    const allActions = [...builtIn, { label:`Ignore all ${n} (suppress in scan)`, danger:false, run: () => ignoreCategoryAll(cat.key) }];
+    // The ids in view (every member of every in-scope group): the server ignores exactly
+    // these, not the category across every Field.
+    const visibleIds = (cat.isGroups ? items.flat() : items).map(r => r.id);
+    const allActions = [...builtIn, { label:`Ignore all ${n} (suppress in scan)`, danger:false, run: () => ignoreCategoryAll(cat.key, visibleIds) }];
     // Repair card action buttons: pick a colour + emoji per action so each verb reads at a
     // glance — same palette as the Library toolbar so the whole app speaks one visual language.
     const styleFor = (lbl, danger) => {
@@ -310,9 +314,13 @@ function renderRepair() {
       return `<button class="lib-tb-btn ${s.cls}" onclick="repairAction('${cat.key}',${ai})">${s.icon} ${esc(a.label)}</button>`;
     }).join('');
     const ignoreBtn = id => `<button class="rep-row-btn" onclick="ignoreRepairRow('${cat.key}','${esc(id)}',this)" title="Hide this issue from future scans">🚫 ignore</button>`;
+    // Cap the rows drawn per card, like the dedup preview: 30k rows was 16 MB of HTML
+    // redrawn on every ignore. The card's bulk actions still cover every item.
+    const more = items.length > REP_ROW_CAP
+      ? `<div style="text-align:center;color:var(--muted);padding:6px">… and ${items.length - REP_ROW_CAP} more${cat.isGroups ? ' groups' : ''}</div>` : '';
     let body;
     if (cat.isGroups) {
-      body = items.map(group => `<div style="border:1px solid var(--border);border-radius:0;padding:8px 10px;margin-bottom:6px">
+      body = items.slice(0, REP_ROW_CAP).map(group => `<div style="border:1px solid var(--border);border-radius:0;padding:8px 10px;margin-bottom:6px">
         <div style="color:var(--muted);font-size:10px;text-transform:uppercase;margin-bottom:4px">${group.length} duplicates</div>
         ${group.map(r => `<div class="repair-row">
           <span class="rep-fname" title="${esc(r.filename)}">${esc(r.filename)}</span>
@@ -320,13 +328,13 @@ function renderRepair() {
           <button class="rep-row-btn" onclick="deleteDupRow('${esc(r.id)}','${esc(r.slug)}',this)" title="Delete just this entry">× delete</button>
           ${ignoreBtn(r.id)}
         </div>`).join('')}
-      </div>`).join('');
+      </div>`).join('') + more;
     } else {
-      body = items.map(r => `<div class="repair-row">
+      body = items.slice(0, REP_ROW_CAP).map(r => `<div class="repair-row">
         <span class="rep-fname" title="${esc(r.filename)}">${esc(r.filename)}</span>
         ${cat.rowExtra ? cat.rowExtra(r) : ''}
         ${ignoreBtn(r.id)}
-      </div>`).join('');
+      </div>`).join('') + more;
     }
     // Save the action set on the cat object so repairAction can find the synthetic ignore-all
     cat._lastActions = allActions;
@@ -373,9 +381,10 @@ async function ignoreRepairRow(category, id, btn) {
   }
 }
 // pilot 9808
-async function ignoreCategoryAll(category) {
+async function ignoreCategoryAll(category, ids) {
+  if (!ids?.length) return;
   if (!confirm(`Ignore every current issue in this category? They'll stop appearing in future scans. You can revert from "Ignored issues" at the top.`)) return;
-  await fetch('/repair/ignore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category, ids: 'all' }) });
+  await fetch('/repair/ignore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category, ids }) });
   await repairScan();
   showToast('Category cleared', { subtle: true });
 }
@@ -421,12 +430,13 @@ async function previewDedup(category) {
     const cfg = await (await fetch('/repair/config')).json();
     curPref = cfg.dedup_preferred_root || '';
   } catch (_) {}
-  const ddBody = (dryRun) => JSON.stringify({
+  const ddBody = (dryRun, extra) => JSON.stringify({
     // Same scope as the Repair tab's health scan (the chip selection).
     category, dry_run: dryRun, slugs: repairSlugs(),
     // duplicate_files groups share ONE path — a root preference can never separate
     // them, so don't send one (it would only mislead the response's echo).
     ...(curPref && category !== 'duplicate_files' ? { preferred_root: curPref } : {}),
+    ...extra,
   });
   let r, j;
   try {
@@ -533,7 +543,9 @@ async function previewDedup(category) {
     closeRepairModal();
     const _spTok = startScanProgress(`Deleting ${j.would_delete} duplicate entr${j.would_delete === 1 ? 'y' : 'ies'}…`, 0);
     try {
-      const ar = await tfConfirmFetch('/repair/dedup', { method:'POST', headers:{'Content-Type':'application/json'}, body: ddBody(false), signal: scanSignal(_spTok) });
+      // Delete exactly what the preview showed: the server could plan differently now.
+      const drop_ids = (j.plan || []).flatMap(p => (p.drop || []).map(d => d.id));
+      const ar = await tfConfirmFetch('/repair/dedup', { method:'POST', headers:{'Content-Type':'application/json'}, body: ddBody(false, { drop_ids }), signal: scanSignal(_spTok) });
       const aj = await ar.json().catch(() => ({}));
       if (!ar.ok) { showToast(aj.error || `Dedup failed (${ar.status})`); return; }
       const dmsg = `Deleted ${aj.deleted} entries · ${aj.groups} groups deduped`;
@@ -582,6 +594,7 @@ async function previewTagFilenames() {
     try {
       const ar = await fetch('/repair/apply-tag-filenames', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}', signal: scanSignal(_spTok) });
       const aj = await ar.json();
+      if (aj.applied) _tagRewroteThisSession = true;
       showToast(`Applied ${aj.applied} · skipped ${aj.skipped}`);
       await loadCatalog();
       await repairScan();
@@ -590,6 +603,19 @@ async function previewTagFilenames() {
     } finally { endScanProgress(_spTok); }
   };
 }
+// "Undo all tag rewrites" lives in the Repair toolbar, not the mismatch card: a full apply
+// empties that card, and the undo went with it. Shown while a rewrite can be undone — the
+// server's flag when the health scan reports one, else any loaded entry still carrying the
+// original_filename marker the undo consumes, or an apply made in this session.
+let _tagRewroteThisSession = false;
+function syncTagUndoBtn() {
+  const b = document.getElementById('repair-tag-undo-btn');
+  if (!b) return;
+  const flag = repairData?.summary?.tag_rewrites_undoable;
+  const on = flag !== undefined ? !!flag
+    : _tagRewroteThisSession || (catalog || []).some(e => e.original_filename);
+  b.style.display = on ? 'inline-block' : 'none';
+}
 // pilot 10102
 async function undoTagFilenames() {
   if (!confirm('Restore all entries to their original filenames? This will undo every tag-derived rewrite.')) return;
@@ -597,6 +623,7 @@ async function undoTagFilenames() {
   try {
     const r = await fetch('/repair/undo-tag-filenames', { method:'POST', signal: scanSignal(_spTok) });
     const j = await r.json();
+    if (r.ok) _tagRewroteThisSession = false;
     showToast(j.restored ? `Restored ${j.restored} filenames` : 'Nothing to undo — filenames are already original');
     _purgeMissingCoverCache();
     markFieldStale({ live: false });
@@ -729,9 +756,19 @@ async function generateCovers(ids) {
   const _spTok = startScanProgress(`Generating covers 0/${ids.length}`, ids.length);
   let made = 0, skipped = 0, failed = 0;
   try {
+    // The Repair Field need not be the open one: read its entries once, not the open catalog.
+    let byId;
+    try {
+      const r0 = await fetch(`/catalog?cat=${encodeURIComponent(repairSlugs()[0] || '')}`, { signal: scanSignal(_spTok) });
+      if (!r0.ok) throw new Error('HTTP ' + r0.status);
+      byId = new Map((await r0.json()).map(e => [e.id, e]));
+    } catch (err) {
+      if (err?.name !== 'AbortError') showToast('Could not read that Field: ' + (err.message || err));
+      return;
+    }
     for (let i = 0; i < ids.length; i++) {
       if (isScanCancelled(_spTok)) break;
-      const e = catalog.find(t => t.id === ids[i]);
+      const e = byId.get(ids[i]);
       if (!e) { failed++; continue; }
       try {
         const blob = await drawGeneratedCover(e);

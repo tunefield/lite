@@ -292,10 +292,10 @@ async function libAnalyseBatch(paths) {
   if (_anActive) {
     if (queued) {
       showToast(`${queued} file${queued === 1 ? '' : 's'} added to the analysis queue`, { subtle: true });
-      _anUpdateBar();
     } else {
       showToast('Those files are already in the queue', { subtle: true });
     }
+    _anUpdateBar();   // back from 'scanning' to the run's own bar
     return;
   }
   if (!_anQueue.length) { showToast('Nothing to analyse \u2014 those files are already queued'); return; }
@@ -565,7 +565,8 @@ function anShow(state, head) {
   _anState = state;
   $('an-progress').hidden = state === 'idle';
   $('an-progress').dataset.state = state;
-  $('an-cancel').hidden = state !== 'running';
+  // A folder scanned mid-run shows 'scanning' while the run goes on: Cancel stays reachable.
+  $('an-cancel').hidden = !(state === 'running' || (state === 'scanning' && _anActive));
   $('an-open').hidden = state !== 'done';
   $('an-resume').hidden = $('an-dismiss').hidden = state !== 'resume';
   $('lib-add-btn').disabled = state === 'scanning';
@@ -644,6 +645,7 @@ function offerAnalysisResume(pending) {
 function anResumeDismiss() { anShow('idle'); }
 
 function anNothingNew(total) {
+  if (_anActive) { showToast('Nothing new in that folder', { subtle: true }); _anUpdateBar(); return; }
   anShow('done', 'Nothing new');
   $('lib-scan-status').textContent = total
     ? `All ${total.toLocaleString()} files here are already in this Field.`
@@ -663,18 +665,26 @@ async function addMusic(fromInput) {
   }
   if (!inp.value.trim()) { inp.focus(); return; }
   anShow('scanning', 'Looking through your folder…');
+  const cat = _analyseTargetCat();
   await libRootAdd();
-  await anAnalyseScanned();
+  await anAnalyseScanned(cat);
 }
 // Re-walk every folder of this Field and analyse what's new since last time.
 async function checkForNew() {
   anShow('scanning', 'Looking for new music…');
+  const cat = _analyseTargetCat();
   await libScan();
-  await anAnalyseScanned();
+  await anAnalyseScanned(cat);
 }
-async function anAnalyseScanned() {
-  if (_anState !== 'scanning') return;
-  if (!libScanResults) { anShow('done', 'Couldn’t read that folder'); return; }
+async function anAnalyseScanned(cat) {
+  // A chunk finishing mid-scan flips the state back to 'running': that run is no reason to
+  // drop the folder. Switching Field mid-scan is: those results belong to the old Field.
+  if (_anState !== 'scanning' && !_anActive) return;
+  if (cat !== _analyseTargetCat()) { if (_anActive) _anUpdateBar(); return; }
+  if (!libScanResults) {
+    if (_anActive) { showToast('Couldn’t read that folder'); _anUpdateBar(); return; }
+    anShow('done', 'Couldn’t read that folder'); return;
+  }
   const target = _analyseTargetCat();
   _anKnown = libScanResults.files.filter(f => f.catalog_slugs && f.catalog_slugs.includes(target)).length;
   await libAnalyseAllNew();
@@ -695,7 +705,7 @@ function renderLibRoots() {
     return row;
   }));
 }
-window.onActiveCatalogChange = () => { renderLibRoots(); if (_anState !== 'running') anShow('idle'); };
+window.onActiveCatalogChange = () => { renderLibRoots(); if (_anState !== 'running' && !_anActive) anShow('idle'); };
 
 // Returns true when an interrupted run is waiting, so the app opens on this tab.
 async function analyseBoot() {

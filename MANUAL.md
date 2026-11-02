@@ -52,7 +52,7 @@ The five tabs across the top, in workflow order:
 
 Every popup — Settings, Set tools, the set report, the pickers — can be dragged out of the way by its title bar.
 
-Whenever something breaks or confuses you, press **Feedback** (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. **Copy & open form ↗** opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.
+Whenever something breaks or confuses you, press **Feedback** (top right). It shows the diagnostics it will attach — version, macOS, where your data lives, the name and track count of the Field you have open, your window size, the last error, how long it took you to reach your first export, and the tail of the crash log if there is one. **Copy & open form ↗** opens a short Google Form with those diagnostics already filled in (and copied to your clipboard as a backup). Nothing is sent until you press submit there.
 
 ---
 
@@ -242,7 +242,7 @@ Field health. Pick the Field, press **Scan health**, and the findings group into
 
 | Card | What it means | Fix offered |
 |---|---|---|
-| Broken file paths | Entry points at a file that no longer exists | Delete orphan entries, or relink |
+| Broken file paths | Entry points at a file that no longer exists | Ignore a row, delete the orphan entries, or re-add the folder on the Analyse tab if the files only moved |
 | Missing cover art | No embedded art, no folder cover.jpg | Extract covers, then Generate key-colour covers |
 | Missing artist / title | Tags never extracted | Backfill tags from files |
 | Missing genre | No genre tag | Extract genres |
@@ -254,7 +254,7 @@ Field health. Pick the Field, press **Scan health**, and the findings group into
 
 When a file simply carries no tags, Repair says so plainly — *the remaining tracks have no artist/title tags in the file* — rather than reporting a failure. **Rescan these tracks** re-analyses only the tracks that finding lists, wherever their files live.
 
-> **Caution: delete and dedup actions remove catalog entries** — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of exactly what would be deleted, you confirm before anything runs, an Undo is offered straight after, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.
+> **Caution: delete and dedup actions remove catalog entries** — the analysis, rating and tags for those entries go with them. Dedup always shows a preview of what would be deleted (the first 200 groups, with a count of the rest), you confirm before anything runs, a 10-second Undo toast follows, and orphan deletion refuses to run while a library drive is unplugged. Even so, read the preview before you confirm.
 
 ---
 

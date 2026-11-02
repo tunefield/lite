@@ -6,9 +6,9 @@ TUNEFIELD LITE — portable (USB) build
 
 WHAT THIS IS
   Tunefield runs entirely from this folder. Your Fields, sets, covers and
-  settings live in a data/ folder that appears HERE, next to the app — nothing
-  is written to the computer you plug into. Take the stick, take your analysis
-  with you.
+  settings live in a data/ folder that appears HERE, next to the app. Your music
+  data stays on the stick; small caches stay on the computer. Take the stick,
+  take your analysis with you.
 
   NOTE: the stick carries what Tunefield MEASURED, not your music - it never
   moves or changes your audio files. One exception: FLAC and Ogg tracks you PLAY

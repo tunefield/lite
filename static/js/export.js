@@ -27,6 +27,9 @@ function setExportSource(v) {
 const PRO_SIGNUP_URL = 'https://tunefield.app/pro?src=app';
 function exportLocked() { return true; }
 function openProCard() {
+  // Time to first export: while export is gated, opening the Pro card IS the export attempt
+  // (the stamp in exportAs sits past the gate until the licence check lands).
+  fetch('/diagnostics/first-export', { method: 'POST' }).catch(() => {});   // stamps once
   closeExportMenu();
   document.getElementById('pro-modal').style.display = 'flex';
   if (typeof featUse === 'function') featUse('pro_card');
@@ -80,7 +83,7 @@ async function exportRows() {
         if (r.ok) {
           const d = await r.json();
           Object.entries(d.found || {}).forEach(([id, x]) => foreign.set(id, {
-            id, filename: x.filename, library_file: x.library_file, genre: x.genre || '',
+            id, filename: x.filename, library_file: x.library_file, abs_path: x.abs_path, genre: x.genre || '',
             data: { original_filename: x.original_filename,
                     rhythm:   { bpm: x.bpm },
                     // key rides along so foreign rows take the same MUSICAL_KEY path as
@@ -139,8 +142,14 @@ function downloadBlob(name, content, mime) {
 }
 // pilot 8570
 function escXml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+  // Control characters (bar tab, LF, CR) are illegal in XML 1.0 even escaped: one in a tag
+  // made Rekordbox/Traktor reject the whole file. A space keeps the text readable.
+  return String(s ?? '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ')
+    .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 }
+// Where a track lives, for anything written into an export: abs_path (absolute, from the
+// server) first. library_file is relative on the portable build — useless to another app.
+const trackPath = e => e.abs_path || e.library_file || '';
 // pilot 8574
 function fileUri(absPath) {
   if (!absPath) return '';
@@ -155,10 +164,11 @@ function buildM3U8(rows, absolute) {
   for (const e of rows) {
     const dur = Math.round(e.data?.metadata?.duration_sec || 0);
     const { artist, title } = trackArtistTitle(e);
-    const label = artist ? `${artist} - ${title}` : title;
+    const label = (artist ? `${artist} - ${title}` : title).replace(/[\r\n]+/g, ' ');   // one line, or it splits the entry
     lines.push(`#EXTINF:${dur},${label}`);
-    const abs = e.library_file || e.filename;
-    const path = absolute ? abs : abs.split('/').pop();
+    const abs = trackPath(e) || e.filename;
+    let path = absolute ? abs : abs.split('/').pop();
+    if (path.startsWith('#')) path = './' + path;   // a bare "#…" line is an M3U comment
     lines.push(path);
   }
   return lines.join('\n') + '\n';
@@ -184,7 +194,7 @@ function rekordboxTrackAttrs(e) {
     bpm: (r.bpm||0).toFixed(2),
     tonality, rating: String(rating),
     comments: [camelot, ...tagNames].filter(Boolean).join(' / '),
-    location: e.library_file || '',
+    location: trackPath(e),
   };
 }
 // pilot 8659
@@ -230,7 +240,7 @@ async function exportAls(rows, name, baseName) {
   const payload = { name: name || baseName, tracks: rows.map(e => {
     const d = e.data || {}, md = d.metadata || {}, r = d.rhythm || {}, h = d.harmony || {};
     const { artist, title } = trackArtistTitle(e);
-    return { location: e.library_file || '', artist, title,
+    return { location: trackPath(e), artist, title,
              bpm: e.bpm_user || r.bpm,           // honour the user tempo override
              key: h.key || noteToCamelot(h.root, h.mode) || '',
              duration_sec: md.duration_sec, sample_rate_hz: md.sample_rate_hz };
@@ -295,7 +305,7 @@ function buildTraktorNml(rows, name) {
     const rating  = RATING_TO_255[getRating(e.id) || 0];
     const tagNames = [...getTrackTags(e.id)].map(tid => allTags.find(t => t.id === tid)?.name).filter(Boolean).join(' ');
     // Traktor location: VOLUME (root, e.g. ""), DIR (path with /::/), FILE (basename)
-    const abs = e.library_file || '';
+    const abs = trackPath(e);
     const slash = abs.lastIndexOf('/');
     const dir   = slash >= 0 ? abs.slice(0, slash + 1).replace(/\//g, '/:') : '/:';
     const file  = slash >= 0 ? abs.slice(slash + 1) : abs;
@@ -308,7 +318,7 @@ function buildTraktorNml(rows, name) {
   }).join('\n');
   const playlistName = name || activeCatalog || 'Field';
   const playlistEntries = rows.map(e => {
-    const abs = e.library_file || '';
+    const abs = trackPath(e);
     const slash = abs.lastIndexOf('/');
     const dir   = slash >= 0 ? abs.slice(0, slash + 1).replace(/\//g, '/:') : '/:';
     const file  = slash >= 0 ? abs.slice(slash + 1) : abs;

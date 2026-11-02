@@ -94,18 +94,27 @@ async function fixWorstJump() {
   const ids = needSet(2); if (!ids) return;
   const s = vecPathStats(ids);
   if (!s) return note('The set isn’t in this Field.');
-  const a = ids[s.worstAt], b = ids[s.worstAt + 1];
+  // worstFrom/worstTo are ids and worstFromAt/worstToAt set positions: worstAt counts only
+  // the set tracks the (filtered) matrix holds, so it can't index `ids`.
+  const a = s.worstFrom, b = s.worstTo, pa = s.worstFromAt + 1, pb = s.worstToAt + 1;
   show('<div class="vm-note">Looking for a stepping stone…</div>');
   const r = await vecPathFind(a, b, 12);
   const mids = r ? notInSet(r.ids.slice(1, -1)) : [];
-  if (!mids.length) return note(`The roughest step is ${s.worstAt + 1} → ${s.worstAt + 2}, and nothing in this Field sits between them.`);
+  if (!mids.length) return note(`The roughest step is ${pa} → ${pb}, and nothing in this Field sits between them.`);
   const pickId = mids[Math.floor(mids.length / 2)];
   lastIds = [pickId];
-  show(`<div class="vm-note">Roughest step: <b>${name(a)}</b> → <b>${name(b)}</b> (${s.worstAt + 1} → ${s.worstAt + 2}).</div>
+  show(`<div class="vm-note">Roughest step: <b>${name(a)}</b> → <b>${name(b)}</b> (${pa} → ${pb}).</div>
     <div class="vm-hit" onclick="vmPreview('${pickId}')"><span class="vm-rank">＋</span><span class="vm-title">${name(pickId)}</span></div>
-    <button class="btn-sm vm-add" onclick="toolsInsert('${pickId}', ${s.worstAt + 1})">Insert it between them</button>`);
+    <button class="btn-sm vm-add" onclick="toolsInsert('${pickId}', '${b}', ${s.worstToAt})">Insert it between them</button>`);
 }
-async function insertAt(id, at) { if (await addTrackToActivePlaylist(id, undefined, at)) showToast('Inserted'); }
+// Insert before `beforeId`, resolved against the set as it is NOW: a reorder or removal
+// after the button rendered would have made a frozen index land in the wrong place.
+async function insertAt(id, beforeId, hint) {
+  const ids = setIds();
+  const at = ids[hint] === beforeId ? hint : ids.indexOf(beforeId);
+  if (at < 0) return showToast('That step is no longer in the set');
+  if (await addTrackToActivePlaylist(id, undefined, at)) showToast('Inserted');
+}
 function oddOneOut() {
   const ids = needSet(3); if (!ids) return;
   const M = vecMatrix(), rows = ids.map(id => [id, M.idx.get(id)]).filter(([, i]) => i !== undefined);
@@ -118,7 +127,7 @@ function oddOneOut() {
   const at = ids.indexOf(worst);
   show(`<div class="vm-note">Sits furthest from the rest of the set:</div>
     <div class="vm-hit" onclick="vmPreview('${worst}')"><span class="vm-rank">${at + 1}</span><span class="vm-title">${name(worst)}</span></div>
-    <button class="btn-sm vm-add" onclick="removeTrackAt(${at}); toolsNote('Removed. Undo brings it back.')">Remove it from the set</button>`);
+    <button class="btn-sm vm-add" onclick="removeTrackAt(${at}, '${worst}'); toolsNote('Removed. Undo brings it back.')">Remove it from the set</button>`);
 }
 function buildSet() {
   if (!needTrack()) return;
@@ -140,17 +149,37 @@ function resetView() { window.vmResetView(); show(''); }
 
 // ── Library ─────────────────────────────────────────────────────────────────
 function nearDuplicates() {
-  const M = vecMatrix(), pairs = [];
-  const LIMIT = 0.15;   // shortcut: fixed distance threshold; tune once real libraries report back
-  for (let i = 0; i < M.n; i++) for (let j = i + 1; j < M.n; j++) {
-    const d = vecDist2(M, i, j);
-    if (d < LIMIT * LIMIT) pairs.push([M.ids[i], M.ids[j], Math.sqrt(d)]);
-  }
-  pairs.sort((a, b) => a[2] - b[2]);
+  const M = vecMatrix(), pairs = closePairs(M, 0.15);   // shortcut: fixed distance threshold; tune once real libraries report back
   show(pairs.length
     ? `<div class="vm-note">${pairs.length} pair${pairs.length === 1 ? '' : 's'} that sound almost identical${pairs.length > 30 ? ' (closest 30)' : ''}:</div>`
       + pairs.slice(0, 30).map(([a, b]) => `<div class="vm-pair"><span onclick="vmPreview('${a}')">${name(a)}</span><span onclick="vmPreview('${b}')">${name(b)}</span></div>`).join('')
     : '<div class="vm-empty">No near-duplicates in this Field.</div>');
+}
+
+// Every pair closer than `limit`, closest first. Sort-and-sweep on the widest column: a
+// pair's distance is at least its gap on any one axis, so once that gap reaches `limit`
+// nothing further along can match. Same pairs as the all-pairs loop, which froze ~30 s at 30k.
+function closePairs(M, limit) {
+  const { n, d, mat } = M, L2 = limit * limit;
+  let ax = 0, best = -1;
+  for (let j = 0; j < d; j++) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) { const v = mat[i * d + j]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (hi - lo > best) { best = hi - lo; ax = j; }
+  }
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => mat[a * d + ax] - mat[b * d + ax]);
+  const hits = [];
+  for (let p = 0; p < n; p++) {
+    const i = order[p], xi = mat[i * d + ax];
+    for (let q = p + 1; q < n; q++) {
+      const j = order[q];
+      if (mat[j * d + ax] - xi >= limit) break;
+      const d2 = vecDist2(M, i, j);
+      if (d2 < L2) hits.push(i < j ? [i, j, d2] : [j, i, d2]);
+    }
+  }
+  hits.sort((a, b) => a[2] - b[2] || a[0] - b[0] || a[1] - b[1]);
+  return hits.map(([i, j, d2]) => [M.ids[i], M.ids[j], Math.sqrt(d2)]);
 }
 
 function openTools() { $('settools-box').classList.add('open'); }

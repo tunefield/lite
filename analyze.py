@@ -901,13 +901,15 @@ def analyze(filepath, duration_limit=60, verbose=True):
     # ambiguous falls in the (0, 1] band.
     fractional = (0.0 < duration_limit <= 1.0) and duration > 0
     if fractional:
-        full_track = duration_limit >= 0.999
+        # Block sampling only pays off when the sample is long: under 60 s the six faded
+        # splices of a 4 s file BECOME the beat. Read such a file whole instead.
+        full_track = duration_limit >= 0.999 or duration * duration_limit < 60
         offset = 0.0
         # What we actually ask for — _load_sampled decodes this fraction, and the
         # short-decode warning below compares against load_dur. Using the full length
         # here flagged every healthy track longer than 30 s as "may be damaged" at the
         # 50% scan (117 s decoded of 233 s "expected").
-        load_dur = min(duration * duration_limit, FULL_TRACK_CAP)
+        load_dur = min(duration if full_track else duration * duration_limit, FULL_TRACK_CAP)
     elif full_track:
         offset = 0.0
         load_dur = min(duration, FULL_TRACK_CAP) if duration > 0 else FULL_TRACK_CAP

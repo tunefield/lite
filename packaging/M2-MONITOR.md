@@ -1,8 +1,8 @@
 # Tunefield Lite — monitoring brief for Claude on a test machine
 
 You are on a TEST machine for Tunefield Lite, an offline DJ track analyser (local Flask
-server + browser UI). Your job: help verify the install and interpret what the app has
-been doing. Everything is local — the app never phones home; all evidence is on disk.
+server; the UI is a native window, with a browser tab as fallback). Your job: help
+verify the install and interpret what the app has been doing. Everything is local — the app never phones home; all evidence is on disk.
 
 ## The one command
 
@@ -52,6 +52,8 @@ expected; each has a matching traceback in app.log).
 
 Any `error` event in usage.jsonl; any Traceback in app.log; analysis failing on a
 normal mp3/flac/aiff bought from a store; the server not answering any port in
-5050–5080 while the process runs. For those: save the doctor output plus the last
+5050–5080 while the process runs (but if the doctor reports "no working python3", its
+probes are degraded: check with `curl http://127.0.0.1:<port>/system/health` before
+calling it a bug). For those: save the doctor output plus the last
 ~50 lines of app.log (and `<data>/logs/crash.log` if it exists), and send them with
 the in-app Feedback button or to mark@tunefield.app.

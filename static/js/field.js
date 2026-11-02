@@ -265,7 +265,11 @@ async function loadCatalogMeta() {
   window.renderLibRoots?.();
 }
 // pilot 7548
+// Two overlapping loadCatalog calls (fast chip clicks) can resolve out of order; only the
+// newest one may write `catalog`.
+let _loadGen = 0;
 async function loadCatalog() {
+  const gen = ++_loadGen;
   if (!activeCatalog) { catalog = []; applyFilters(); return; }
   const slugs = [...viewedCatalogs];
   let results;
@@ -278,9 +282,11 @@ async function loadCatalog() {
       return entries;
     }));
   } catch (e) {
+    if (gen !== _loadGen) return;
     showToast('Could not load tracks: ' + (e.message || e));
     return;
   }
+  if (gen !== _loadGen) return;
   const seen = new Set();
   catalog = [];
   results.flat().forEach(e => { if (!seen.has(e.id)) { seen.add(e.id); catalog.push(e); } });
@@ -7278,7 +7284,10 @@ function vecDist2(M, a, b) {
 // pilot 12982
 function vecPathStats(ids) {
   const M = vecMatrix();
-  const rows = ids.map(id => M.idx.get(id)).filter(i => i !== undefined);
+  // at[k] = position in `ids` of rows[k]. A filter can hide set tracks from the matrix, so
+  // step indices (worstAt) count only the kept rows; worstFrom/To(At) map back to the set.
+  const at = [], rows = [];
+  ids.forEach((id, k) => { const r = M.idx.get(id); if (r !== undefined) { at.push(k); rows.push(r); } });
   if (rows.length < 2) return null;
   const steps = [];
   for (let i = 1; i < rows.length; i++) steps.push(Math.sqrt(vecDist2(M, rows[i-1], rows[i])));
@@ -7287,6 +7296,7 @@ function vecPathStats(ids) {
   const mean = steps.reduce((a,b)=>a+b,0) / steps.length;
   const worst = steps.reduce((m,s,i) => s > steps[m] ? i : m, 0);
   return { steps, mean, max: Math.max(...steps), worstAt: worst, energy: ene,
+           worstFromAt: at[worst], worstToAt: at[worst + 1], worstFrom: ids[at[worst]], worstTo: ids[at[worst + 1]],
            rise: ene.length > 1 ? ene[ene.length-1] - ene[0] : 0 };
 }
 // pilot 13616
@@ -7454,7 +7464,7 @@ function vmShowArcReport(name, ids, st, slugForReorder) {
   const bpmLo = bpms.length ? Math.min(...bpms) : null, bpmHi = bpms.length ? Math.max(...bpms) : null;
   const secs = rows.reduce((a, r) => a + (r.data?.metadata?.duration_sec || 0), 0);
   const hrs = Math.floor(secs/3600), mins = Math.round((secs%3600)/60);
-  const worstA = rows[st.worstAt], worstB = rows[st.worstAt + 1];
+  const worstA = byCat.get(st.worstFrom), worstB = byCat.get(st.worstTo);
   // Steps are feature distances; scale to the set's own mean so "smooth" is relative to
   // this set rather than an absolute nobody can interpret.
   const smooth = Math.max(0, Math.min(100, Math.round(100 * (1 - (st.mean / (st.max || 1))))));
@@ -8184,7 +8194,6 @@ function _xcatResolve(ids) {
 // pilot 21086
 function renderPlaylistContent() {
   const tracksEl = document.getElementById('sp-tracks');
-  const togCount = document.getElementById('sp-tog-count');
   const lockBtn  = document.getElementById('sp-lock');
   const undoBtn  = document.getElementById('sp-undo');
   const snapLbl  = document.getElementById('sp-snapshots-label');
@@ -8193,7 +8202,6 @@ function renderPlaylistContent() {
     tracksEl.innerHTML = '<div class="sp-empty">No active playlist.<br>Click ＋ to create one.</div>';
     document.getElementById('sp-count').textContent    = '0';
     document.getElementById('sp-duration').textContent = '0:00';
-    togCount.textContent = '0';
     snapLbl.textContent  = '0 saved';
     lockBtn.disabled = undoBtn.disabled = true;
   { const a = document.getElementById('sp-arc'); if (a) a.disabled = true; }
@@ -8244,13 +8252,12 @@ function renderPlaylistContent() {
         <div class="sp-title">${esc(title)}</div>
         <div class="sp-meta">${esc(meta)}${homeBadge}</div>
       </div>
-      <button class="sp-rm" onclick="event.stopPropagation();removeTrackAt(${i})" title="Remove from playlist">×</button>
+      <button class="sp-rm" onclick="event.stopPropagation();removeTrackAt(${i}, '${esc(t.track_id)}')" title="Remove from playlist">×</button>
     </div>`;
   }).join('') : '<div class="sp-empty">This set is empty.<br>Double-click a track in the Field to add it.</div>';
 
   document.getElementById('sp-count').textContent    = tracks.length;
   document.getElementById('sp-duration').textContent = formatDuration(totalSec);
-  if (togCount) togCount.textContent = tracks.length;   // Lite has no ♪ Playlist toggle
 
   const snaps = activePlaylist.snapshots?.length || 0;
   snapLbl.textContent = `${snaps} saved`;
@@ -8462,8 +8469,21 @@ async function addTrackToActivePlaylist(trackId, sourceMode, atIndex) {
   return true;
 }
 // pilot 21408
-async function removeTrackAt(idx) {
+// The server deletes by index, but a rendered index goes stale on reorder or after a fast
+// second ×. Removals queue behind each other (each sees the refreshed set) and, given the
+// track id, re-resolve the index against the current sequence just before the call.
+let _rmChain = Promise.resolve();
+function removeTrackAt(idx, trackId) {
+  const run = () => _removeTrackNow(idx, trackId);
+  return (_rmChain = _rmChain.then(run, run));
+}
+async function _removeTrackNow(idx, trackId) {
   if (!activePlaylist || activePlaylist.locked) return;
+  if (trackId != null) {
+    const seq = (activePlaylist.tracks || []).map(t => t.track_id);
+    if (seq[idx] !== trackId) idx = seq.indexOf(trackId);
+    if (idx < 0) return;   // already gone
+  }
   const r = await fetch(`/playlists/${activePlaylistSlug}/tracks/${idx}`, { method: 'DELETE' });
   if (r.status === 423) return showToast('Playlist is locked');
   if (!r.ok) return showToast('Failed to remove track');

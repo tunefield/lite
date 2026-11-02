@@ -58,11 +58,16 @@ def _decode_text(raw, enc):
             return ""
 
 
+# Control characters XML 1.0 forbids (everything below 0x20 except tab, LF, CR — NUL
+# included). One stray \x0b in a title made every XML export (Rekordbox, Traktor) invalid.
+_XML_FORBIDDEN = {c: " " for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)}
+
 def _clean(s):
-    """Trim, drop the trailing NULs taggers leave behind, collapse to None if empty."""
+    """Trim, blank out the NULs taggers leave behind and any other XML-forbidden control
+    character, collapse to None if empty."""
     if not s:
         return None
-    s = s.replace("\x00", " ").strip()
+    s = s.translate(_XML_FORBIDDEN).strip()
     return s or None
 
 

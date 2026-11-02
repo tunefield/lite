@@ -255,6 +255,8 @@
     <select class="cat-select" id="repair-field-select" onchange="setRepairField(this.value)"
             title="Which Field the health scan covers" style="max-width:240px"></select>
     <button class="lib-tb-btn lib-tb-export" id="repair-scan-btn" onclick="repairScan()" title="Re-scan the Field for issues"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12h4l2.5-6 4 12 2.5-6h4"/></svg> <strong>Scan health</strong></button>
+    <!-- Tag-rewrite undo — here, not in the mismatch card, which a full apply empties. Shown by syncTagUndoBtn. -->
+    <button class="lib-tb-btn lib-tb-cols" id="repair-tag-undo-btn" onclick="undoTagFilenames()" style="display:none" title="Put back the names Tunefield stored before the tags were applied (files on disk are never touched)"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14 4 9.5 8.5 5"/><path d="M4 9.5h10a6 6 0 0 1 0 12h-3"/></svg> Undo all tag rewrites</button>
     <!-- Ignored stash — only appears when there are entries hidden from scan; sits page-right. -->
     <button class="lib-tb-btn lib-tb-danger" id="repair-ignored-btn" onclick="unignoreAll()" style="display:none;margin-left:auto" title="Restore every ignored issue back into the next scan"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="18.4" x2="18.4" y2="5.6"/></svg> Ignored: <span id="rep-ignored-count">0</span> · clear all</button>
   </div>
