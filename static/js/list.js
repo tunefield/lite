@@ -539,7 +539,7 @@ function cellHTML(c, r, d, mc, i, ctx) {
     case 'vocals':   return `<td><span class="tbl-dot" style="background:${d.content.has_vocals?'#44dd88':'var(--border)'}"></span><span style="font-size:11px;color:var(--muted);margin-left:5px">${pct(d.content.voice_presence)}%</span></td>`;
     case 'duration': return `<td style="color:var(--muted)">${formatDur(d.metadata.duration_sec)}</td>`;
     case 'codec':    return `<td style="color:var(--muted)">${esc((d.metadata.codec||'').toUpperCase())}</td>`;
-    case 'bitrate':  return `<td style="color:var(--muted)">${d.metadata.bitrate_kbps} kbps</td>`;
+    case 'bitrate':  return `<td style="color:var(--muted)">${d.metadata.bitrate_kbps ? d.metadata.bitrate_kbps + ' kbps' : '—'}</td>`;
     case 'date': {
       // "Analysed" now shows scan-coverage (how much of the track was analysed) vs total
       // duration — "2:00 / 4:35" or "Full / 4:35". Date-of-scan moved to the cell tooltip.
@@ -714,7 +714,7 @@ function buildCard(d, entryId) {
     <div class="meta-strip">
       <div class="meta-item"><span class="meta-key">Duration</span><span class="meta-val">${formatDur(d.metadata.duration_sec)}</span></div>
       <div class="meta-item"><span class="meta-key">Format</span><span class="meta-val">${esc((d.metadata.codec||'').toUpperCase())}</span></div>
-      <div class="meta-item"><span class="meta-key">Bitrate</span><span class="meta-val">${d.metadata.bitrate_kbps} kbps</span></div>
+      <div class="meta-item"><span class="meta-key">Bitrate</span><span class="meta-val">${d.metadata.bitrate_kbps ? d.metadata.bitrate_kbps + ' kbps' : '—'}</span></div>
       <div class="meta-item"><span class="meta-key">Sample rate</span><span class="meta-val">${(d.metadata.sample_rate_hz/1000).toFixed(1)} kHz</span></div>
       <div class="meta-item"><span class="meta-key">Channels</span><span class="meta-val">${d.metadata.channels===2?'Stereo':d.metadata.channels===1?'Mono':d.metadata.channels}</span></div>
     </div>`;
