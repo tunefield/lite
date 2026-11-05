@@ -6,7 +6,7 @@ from werkzeug.exceptions import HTTPException
 from flask import Flask, request, jsonify, send_from_directory, Response, g
 
 sys.path.insert(0, os.path.dirname(__file__))
-from analyze import analyze
+from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
 from concurrent.futures import ThreadPoolExecutor
@@ -349,6 +349,7 @@ _LOCK_EXEMPT_ENDPOINTS = {
     "generated_cover",         # writes one cover file, never a catalog JSON
     "batch_extract_covers",    # writes per-id cover files only, never a catalog JSON
     "library_analyse",         # librosa per track; takes _FS_LOCK around each commit
+    "library_reanalyse",       # librosa per track; one journal append per result
     "rescan_entry",            # librosa for one track; takes _FS_LOCK around its save
     "batch_extract_genres",    # ffprobe per track; takes _FS_LOCK around its commit
     "batch_extract_metadata",  # ffprobe per track; takes _FS_LOCK around its commits
@@ -1686,10 +1687,33 @@ def load_cat(slug):
     if len(pending) >= JOURNAL_FOLD_AT:
         fold_journal(slug)
         return _apply_overrides(_load_cat_raw(slug))
-    base = _load_cat_raw(slug)
-    seen = {e.get("id") for e in base if isinstance(e, dict)}
-    return _apply_overrides(base + [e for e in pending
-                                    if isinstance(e, dict) and e.get("id") not in seen])
+    return _apply_overrides(_merge_journal(_load_cat_raw(slug), pending))
+
+
+# Fields a re-analysis record may replace on an existing entry. Everything else on the
+# entry (genre, filename, corrections, provenance) belongs to the user or to Repair.
+_PATCH_FIELDS = ("data", "analyzed_at", "scan_duration")
+
+def _merge_journal(base, pending):
+    """Apply journal records to `base`, in order. A plain record is a NEW entry (first
+    id wins). A record with "_patch" is a re-analysis of an existing entry: it replaces
+    only _PATCH_FIELDS, and is dropped if the entry is gone. A patch carries the entry's
+    own id, so readers that predate patches (1.0.0) skip it as an already-seen id."""
+    merged = list(base)
+    at = {e.get("id"): i for i, e in enumerate(merged) if isinstance(e, dict)}
+    for r in pending:
+        if not isinstance(r, dict):
+            continue
+        if r.get("_patch"):
+            i = at.get(r.get("id"))
+            if i is not None:
+                e = dict(merged[i])
+                e.update({k: r[k] for k in _PATCH_FIELDS if k in r})
+                merged[i] = e
+        elif r.get("id") not in at:
+            at[r.get("id")] = len(merged)
+            merged.append(r)
+    return merged
 
 
 def save_cat(slug, entries):
@@ -1862,7 +1886,8 @@ def migrate_energy_scale():
 
 def fold_journal(slug):
     """Merge pending journal entries into the main catalog and clear the journal.
-    Deduped by id, journal winning, so folding twice is harmless."""
+    New entries are deduped by id and re-analysis patches applied (_merge_journal), so
+    folding twice is harmless."""
     pending = _read_journal(slug)
     if not pending:
         return 0
@@ -1870,12 +1895,7 @@ def fold_journal(slug):
         pending = _read_journal(slug)          # re-read under the lock
         if not pending:
             return 0
-        base = _load_cat_raw(slug)
-        seen = {e.get("id") for e in base if isinstance(e, dict)}
-        merged = list(base)
-        for e in pending:
-            if isinstance(e, dict) and e.get("id") not in seen:
-                seen.add(e.get("id")); merged.append(e)
+        merged = _merge_journal(_load_cat_raw(slug), pending)
         atomic_json_dump(cat_file(slug), merged, compact=True)
         try: os.remove(journal_file(slug))
         except OSError: pass
@@ -2060,7 +2080,7 @@ def entry_index_lookup(entry_id):
         if ids is None or _ENTRY_INDEX_STAMPS.get(slug) != stamp:
             ids = {}
             for e in _load_cat_raw(slug) + _read_journal(slug):
-                if isinstance(e, dict) and e.get("id") and e["id"] not in ids:
+                if isinstance(e, dict) and e.get("id") and not e.get("_patch") and e["id"] not in ids:
                     ids[e["id"]] = e.get("library_file")
             _ENTRY_INDEX[slug] = ids
             _ENTRY_INDEX_STAMPS[slug] = stamp     # taken BEFORE the read: a write in between re-reads next call
@@ -2274,6 +2294,123 @@ def rescan_entry(entry_id):
         usage_event("analyze_reject", fmt=fmt,
                     reason=(str(e) or type(e).__name__)[:80], src="rescan")
         return jsonify({"error": str(e) or "rescan failed"}), 422
+
+
+# ── Re-analysis of existing tracks (1.1.0) ─────────────────────────────────────
+# A FEATURES_VERSION bump changes stored values (fv5: tempo), but tracks analysed
+# before it keep their old values forever unless re-analysed. These two routes let the
+# Analyse tab update a Field in place. Unlike /rescan (one track, full catalog rewrite),
+# each result is one journal "patch" record, so a 15,000-track update costs what the
+# first analysis did. Idempotent: what is left is simply what is still stale, so an
+# interrupted run needs no resume file.
+def _is_stale(e):
+    d = e.get("data")
+    if not isinstance(d, dict) or d.get("error"):
+        return False
+    try:
+        return int(d.get("features_version") or 0) < FEATURES_VERSION
+    except (TypeError, ValueError):
+        return True
+
+
+@app.route("/library/stale", methods=["GET"])
+def library_stale():
+    """Tracks in a Field analysed before the current FEATURES_VERSION whose file is
+    still on disk. Missing files are counted, never offered: they would only fail."""
+    slug = req_slug()
+    ids, missing = [], 0
+    for e in load_cat(slug):
+        if not _is_stale(e):
+            continue
+        if library_path(e):
+            ids.append(e["id"])
+        else:
+            missing += 1
+    return jsonify({"version": FEATURES_VERSION, "ids": ids, "count": len(ids),
+                    "missing": missing})
+
+
+@app.route("/library/reanalyse", methods=["POST"])
+def library_reanalyse():
+    """Re-analyse existing tracks in place. Body: {cat, ids:[...], duration, workers}.
+    Replaces only the analysis (_PATCH_FIELDS); genre, ratings, tags, corrections,
+    filenames and covers are untouched. Lock-exempt like /library/analyse: librosa runs
+    unlocked, and each result is one durable journal append under _FS_LOCK."""
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids required"}), 400
+    duration = _scan_duration(body.get("duration"), 0.5)
+    if not _scan_duration_ok(duration):
+        return jsonify({"error": _SCAN_DURATION_ERR}), 400
+    slug = (body.get("cat") or "").strip() or req_slug()
+    if not any(m["slug"] == slug for m in ensure_default()):
+        return jsonify({"error": f"Target catalog not found: {slug}"}), 404
+    want = set(map(str, ids))
+    with _FS_LOCK:
+        todo = [(e["id"], library_path(e), e) for e in load_cat(slug) if e.get("id") in want]
+    errors, current = [], 0
+    jobs = []
+    for eid, path, e in todo:
+        if not _is_stale(e):
+            current += 1                      # already up to date: a non-event
+        elif not path:
+            errors.append({"id": eid, "error": "file not found"})
+        else:
+            jobs.append((eid, path, e))
+    gone = len(want) - len(todo)              # deleted since the client asked
+
+    def _work(job):
+        eid, path, e = job
+        fmt = os.path.splitext(path)[1].lower()
+        t0 = time.time()
+        try:
+            result = analyze(path, duration_limit=duration, verbose=False)
+        except Exception as ex:
+            result = {"error": str(ex) or type(ex).__name__}
+        if result.get("error"):
+            usage_event("analyze_reject", fmt=fmt, reason=str(result["error"])[:80],
+                        src="reanalyse")
+            return eid, None, str(result["error"]), None
+        result["original_filename"] = e.get("filename")
+        # Repair's tag backfill writes blank artist/title/album/year into the old data;
+        # keep those where the file's tags are still blank.
+        old_md = (e.get("data") or {}).get("metadata") or {}
+        new_md = result.setdefault("metadata", {})
+        for k in ("artist", "title", "album", "year"):
+            if not new_md.get(k) and old_md.get(k):
+                new_md[k] = old_md[k]
+        rec = {"id": eid, "_patch": True, "data": result,
+               "analyzed_at": datetime.now().isoformat(timespec="seconds"),
+               "scan_duration": result.get("scan_fraction", duration)}
+        return eid, rec, None, {"fmt": fmt, "ms": int((time.time() - t0) * 1000)}
+
+    workers = _analysis_workers()
+    try:
+        rw = int(body.get("workers") or 0)
+        if rw > 0:
+            workers = max(1, min(rw, workers))
+    except (TypeError, ValueError):
+        pass
+    if workers > 1 and len(jobs) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            done = list(ex.map(_work, jobs))
+    else:
+        done = [_work(j) for j in jobs]
+
+    updated = 0
+    for eid, rec, err, telem in done:
+        if err:
+            errors.append({"id": eid, "error": err}); continue
+        with _FS_LOCK:
+            # A deleted Field must not get a ghost journal back (same check as analyse).
+            if not any(m["slug"] == slug for m in load_meta()):
+                errors.append({"id": eid, "error": "Field was deleted during the update"}); break
+            append_journal(slug, rec)         # dropped at merge if the entry is gone by then
+        updated += 1
+        usage_event("analyze", src="reanalyse", cover=False, **telem)
+    return jsonify({"ok": True, "updated_count": updated, "current_count": current,
+                    "gone_count": gone, "error_count": len(errors), "errors": errors})
 
 
 @app.route("/catalog", methods=["DELETE"])

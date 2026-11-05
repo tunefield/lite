@@ -569,7 +569,10 @@ function anShow(state, head) {
   // A folder scanned mid-run shows 'scanning' while the run goes on: Cancel stays reachable.
   $('an-cancel').hidden = !(state === 'running' || (state === 'scanning' && _anActive));
   $('an-open').hidden = state !== 'done';
-  $('an-resume').hidden = $('an-dismiss').hidden = state !== 'resume';
+  $('an-resume').hidden = state !== 'resume';
+  // Also after a stopped update or any run, while older tracks remain to update.
+  $('an-update').hidden = !(state === 'update' || (state === 'done' && _upIds.length > 0));
+  $('an-dismiss').hidden = !(state === 'resume' || state === 'update');
   $('lib-add-btn').disabled = state === 'scanning';
   // Scanning, or analysing before the first chunk lands, shows a moving band — never a stalled bar.
   $('an-progress').classList.toggle('waiting', state === 'scanning');
@@ -669,6 +672,7 @@ async function addMusic(fromInput) {
     } catch (e) { showToast('Could not open the folder picker: ' + e.message); return; }
   }
   if (!inp.value.trim()) { inp.focus(); return; }
+  if (_upActive) cancelScan();   // new music first; the update resumes from what is left
   anShow('scanning', 'Looking through your folder…');
   const cat = _analyseTargetCat();
   await libRootAdd();
@@ -676,6 +680,7 @@ async function addMusic(fromInput) {
 }
 // Re-walk every folder of this Field and analyse what's new since last time.
 async function checkForNew() {
+  if (_upActive) cancelScan();
   anShow('scanning', 'Looking for new music…');
   const cat = _analyseTargetCat();
   await libScan();
@@ -710,7 +715,108 @@ function renderLibRoots() {
     return row;
   }));
 }
-window.onActiveCatalogChange = () => { renderLibRoots(); if (_anState !== 'running' && !_anActive) anShow('idle'); };
+window.onActiveCatalogChange = () => {
+  renderLibRoots();
+  if (_anState !== 'running' && !_anActive) { anShow('idle'); staleCheck().then(offerUpdate); }
+};
+
+// ── Update older analyses (1.1.0) ─────────────────────────────────────────────
+// A track analysed by an older version keeps that version's values (1.1.0: tempo) until
+// it is re-analysed. The server lists this Field's stale tracks; updating is idempotent,
+// so an interrupted update needs no resume file: next time the offer shows what is left.
+let _upIds = [];          // stale track ids in the active Field, per the server
+let _upVersion = 0;       // the server's FEATURES_VERSION
+let _upActive = false;
+async function staleCheck() {
+  const cat = _analyseTargetCat();
+  let ids = [];
+  if (cat) {
+    try {
+      const r = await fetch('/library/stale?cat=' + encodeURIComponent(cat));
+      const j = r.ok ? await r.json().catch(() => null) : null;
+      if (j && Array.isArray(j.ids)) { ids = j.ids; _upVersion = j.version || 0; }
+    } catch (_) {}
+  }
+  if (cat === _analyseTargetCat()) _upIds = ids;   // the Field may have changed meanwhile
+  return _upIds.length;
+}
+// Shows the offer only when the panel is otherwise idle: never over a run, a scan or a
+// resume offer.
+function offerUpdate() {
+  if (_anActive || _upActive || !['idle', 'done'].includes(_anState) || !_upIds.length) return false;
+  const n = _upIds.length;
+  anShow('update', `${n.toLocaleString()} ${n === 1 ? 'track was' : 'tracks were'} analysed by an older version`);
+  $('an-fill').style.width = '0%';
+  $('an-eta').textContent = '';
+  $('lib-scan-status').textContent = 'This version measures tempo more precisely. Updating re-analyses '
+    + (n === 1 ? 'it' : 'them') + '; your ratings, tags, genres and BPM or key corrections stay as they are.';
+  return true;
+}
+async function updateOlderTracks() {
+  if (_anActive || _upActive || !_upIds.length) return;
+  const cat = _analyseTargetCat();
+  const queue = _upIds.slice();
+  const total = queue.length;
+  let done = 0, updated = 0, aborted = null;
+  const errs = [];
+  _upActive = true;
+  const tok = startScanProgress(`Updating ${total.toLocaleString()} ${total === 1 ? 'track' : 'tracks'}…`);
+  $('lib-scan-status').textContent = '';
+  const t0 = performance.now();
+  const CHUNK = 5;
+  try {
+    while (queue.length) {
+      if (isScanCancelled(tok)) break;
+      const slice = queue.splice(0, CHUNK);
+      let res, j = null;
+      try {
+        res = await fetch('/library/reanalyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cat, ids: slice, duration: scanDur(),
+                                 workers: uiForegroundBusy() ? BG_ANALYSE_WORKERS : 0 }),
+          signal: scanSignal(tok),
+        });
+        j = await res.json().catch(() => null);
+      } catch (e) {
+        if (e?.name !== 'AbortError') aborted = 'request failed — server unreachable?';
+        break;
+      }
+      if (!res.ok || !j) { aborted = (j && j.error) || `the app returned an error (${res.status})`; break; }
+      done += slice.length;
+      updated += j.updated_count || 0;
+      if (Array.isArray(j.errors)) errs.push(...j.errors);
+      if (isScanCancelled(tok)) break;
+      const per = (performance.now() - t0) / 1000 / done;
+      const eta = Math.round(per * queue.length);
+      anShow('running', `Updating ${done.toLocaleString()} of ${total.toLocaleString()}`);
+      $('an-progress').classList.remove('waiting');
+      $('an-fill').style.width = (Math.max(0.02, done / total) * 100).toFixed(1) + '%';
+      $('an-eta').textContent = eta <= 0 ? '' : eta < 60 ? 'less than a minute left' : `about ${fmtEta(eta)} left`;
+      $('lib-scan-status').textContent = `${updated.toLocaleString()} updated`
+        + (errs.length ? ` · ${errs.length.toLocaleString()} couldn’t be read` : '');
+      await bgBreather();
+    }
+  } finally {
+    const cancelled = isScanCancelled(tok);
+    endScanProgress(tok);
+    _upActive = false;
+    await staleCheck();
+    // A cancelled chunk still finishes on the server, so count what is no longer stale.
+    updated = Math.max(updated, total - _upIds.length);
+    if (updated > 0) await loadCatalog();
+    // A scan or analysis run that cancelled this update owns the panel now.
+    if (_scan.tok === tok && _anState === 'running' && !_anActive) {
+      anShow('done', (cancelled || aborted) ? 'Stopped' : 'Done');
+      const left = _upIds.length;
+      $('lib-scan-status').textContent = `${updated.toLocaleString()} ${updated === 1 ? 'track' : 'tracks'} updated`
+        + (errs.length ? ` · ${errs.length.toLocaleString()} couldn’t be read` : '')
+        + (left ? ` · ${left.toLocaleString()} still to update` : '');
+      showToast(cancelled ? `Update stopped: ${updated.toLocaleString()} updated so far`
+        : aborted ? `Update stopped — ${aborted}` : `Update finished: ${updated.toLocaleString()} updated`);
+    }
+  }
+}
 
 // Returns true when an interrupted run is waiting, so the app opens on this tab.
 async function analyseBoot() {
@@ -724,8 +830,20 @@ async function analyseBoot() {
       if (pending.length) return offerAnalysisResume(pending);
     }
   } catch (_) {}
+  // No interrupted run: offer to update tracks an older version analysed. The toast
+  // points at the offer once per analysis version, so it never nags.
+  if (await staleCheck()) {
+    offerUpdate();
+    try {
+      const k = 'update-offered-' + _upVersion;
+      if (!localStorage.getItem(k)) {
+        localStorage.setItem(k, '1');
+        showToast('This version measures tempo more precisely: update your tracks in Analyse.');
+      }
+    } catch (_) {}
+  }
   return false;
 }
 
-Object.assign(window, { addMusic, checkForNew, cancelScan, libRootRemove, renderLibRoots, resumeAnalysisQueue, anResumeDismiss });
+Object.assign(window, { addMusic, checkForNew, cancelScan, libRootRemove, renderLibRoots, resumeAnalysisQueue, anResumeDismiss, updateOlderTracks });
 export { analyseBoot, apiJson, bgBreather, showEntriesUndoToast, tfConfirmFetch, uiForegroundBusy };

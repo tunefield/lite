@@ -68,6 +68,7 @@ While it runs:
 - **Cancel** stops after the batch in flight. Everything analysed so far stays.
 - **You can use the Field while it runs.** Analysis slows itself down slightly while the Field or the List is on screen, so neither stutters.
 - **Interrupted runs come back.** If the app quits or crashes mid-run, the next launch opens on Analyse with *Analysis was interrupted — N files still to go* and a **Resume** button. Closing the native window mid-run does not ask; the run is simply offered back next time (a browser tab does ask first).
+- **Updating older tracks.** When a new version measures something better (1.1 measures tempo more precisely), tracks analysed by an older version keep their old values until you update them. Analyse then shows *N tracks were analysed by an older version* with an **Update** button. Updating re-analyses those tracks in the background with the same progress bar and **Cancel**. Your ratings, tags, genres, BPM and key corrections, renamed titles and covers stay exactly as they are. Cancelling loses nothing: the panel simply offers the rest next time.
 
 When it finishes, the panel says what happened: *120 tracks added · 30 already in this Field · 2 files couldn't be read*. **Tracks already in the Field are a count, never an error.** Files that genuinely can't be decoded are listed under *details* with the reason.
 
