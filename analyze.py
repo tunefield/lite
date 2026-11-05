@@ -26,8 +26,13 @@ import numpy as np
 #   3 = 2026-08-26: EDM (edma) key profiles + tuning measurement + key confidence.
 #   4 = 2026-08-27: key read from the WHOLE track (streamed) instead of the scan window
 #       — +6.6 MIREX on the library set, +8.9 on GiantSteps+.
+#   5 = 2026-11-04: sub-bin tempo refinement (refine_tempo) — BPM was quantised to the
+#       tempogram lag grid (2584/k; ~11 BPM apart at 172, 174 unrepresentable). Mean
+#       abs error 2.03 -> 0.57 BPM against independent ground truth, no metrical
+#       regressions. BPM changes for most tracks, so stored vectors shift library-wide.
+#       Same epoch, 2026-11-05: bpm_octave_rescue's 1.5x gate 0.95 -> 0.80.
 # Bump when a change alters stored values library-wide.
-FEATURES_VERSION = 4
+FEATURES_VERSION = 5
 
 warnings.filterwarnings("ignore")
 
@@ -601,7 +606,79 @@ def compute_danceability(tempo, pulse_clarity, y, sr):
     ))
 
 
-def bpm_octave_rescue(tempo, onset_env, sr):
+def tempo_salience(onset_env, sr, hop=512):
+    """Mean tempogram: salience per lag. refine_tempo and bpm_octave_rescue both read
+    it, so analyze() computes it once and passes it to both."""
+    return librosa.feature.tempogram(onset_envelope=onset_env, sr=sr, hop_length=hop).mean(axis=1)
+
+
+def refine_tempo(tempo, onset_env, sr, hop=512, search=2, salience=None):
+    """
+    Sub-bin tempo refinement. beat_track returns a TEMPOGRAM BIN, so without this the
+    reported BPM can only ever be 60*sr/hop / k for integer k — 2584/k here. Adjacent
+    bins are 6.2 BPM apart at 129 and 10.8 BPM apart at 172, so 174 BPM is simply not
+    representable, and two tracks four BPM apart collapse onto the same value.
+
+    Measured on this library (2026-11-04, research/bpm-fix): tunefield-sourced BPM held
+    only 49 distinct values across 9,513 tracks, against rekordbox's 235 across 1,352.
+
+    The tempogram's salience curve is sampled at integer lags but its true peak lies
+    between them, so fit a parabola through the peak bin and its neighbours and solve for
+    the vertex. Interpolation is in LAG space, where the grid is uniform — doing it in BPM
+    space biases every estimate downward, because BPM is 1/lag and the bins widen as tempo
+    rises, which is exactly where the error is worst.
+
+    Benchmarked against 120 tracks with INDEPENDENT ground truth (rekordbox/tag rows only;
+    tunefield-sourced rows excluded as circular): mean absolute error on tracks at the
+    correct metrical level 2.03 -> 0.57 BPM, median 1.95 -> 0.38, distinct values 21 -> 93,
+    Acc2 unchanged at 90.8% (no metrical regressions). Cost ~22 ms against 208 ms for
+    decode + beat_track.
+
+    Returns `tempo` unchanged whenever the evidence is weak — a flat or non-concave peak
+    carries no sub-bin information. Runs BEFORE bpm_octave_rescue so that rescue's exact
+    2x / 1.5x multipliers carry the refinement through.
+
+    NOTE: this does NOT address metrical level, which is the larger remaining error
+    (Acc1 62.5% vs Acc2 90.8% on the same benchmark — drum & bass reading 131 and jungle
+    112 against ~170 truth). That lives in bpm_octave_rescue's candidate set and gate, and
+    must not be touched without re-running the tempo benchmark (see bpm_octave_rescue).
+    """
+    if tempo is None or tempo <= 0:
+        return tempo
+    # Same guard as bpm_octave_rescue: under a full tempogram window there is no curve.
+    if onset_env is None or onset_env.size < 384:
+        return tempo
+    sal = tempo_salience(onset_env, sr, hop) if salience is None else salience
+    grid = 60.0 * sr / hop
+    k0 = int(round(grid / tempo))
+    if k0 < 2 or k0 >= sal.size - 1:
+        return tempo
+    # beat_track's prior can land a bin or two off the salience maximum; snap to the
+    # nearest local max before interpolating, or the parabola fits the wrong peak.
+    lo, hi = max(1, k0 - search), min(sal.size - 2, k0 + search)
+    k0 = int(lo + np.argmax(sal[lo:hi + 1]))
+    if k0 < 1 or k0 >= sal.size - 1:
+        return tempo
+    y1, y2, y3 = float(sal[k0 - 1]), float(sal[k0]), float(sal[k0 + 1])
+    if not (y2 >= y1 and y2 >= y3):
+        return tempo
+    denom = y1 - 2.0 * y2 + y3
+    if denom >= 0 or not np.isfinite(denom):
+        return tempo
+    delta = 0.5 * (y1 - y3) / denom
+    if not np.isfinite(delta):
+        return tempo
+    delta = float(np.clip(delta, -0.5, 0.5))   # never cross into a neighbouring bin
+    k = k0 + delta
+    if k <= 0:
+        return tempo
+    refined = grid / k
+    if not (20.0 <= refined <= 300.0):
+        return tempo
+    return float(refined)
+
+
+def bpm_octave_rescue(tempo, onset_env, sr, salience=None):
     """
     Upward-only octave correction: does the tempogram actually support 2× or
     1.5× the beat tracker's answer? beat_track's 120-centred prior halves fast
@@ -618,21 +695,29 @@ def bpm_octave_rescue(tempo, onset_env, sr):
     downward overrides halve correct detections. Do not "complete" the candidate
     set without re-running that benchmark.
 
+    The 1.5× gate was loosened to 0.80 on 2026-11-05 (tempo-bench): fitted on
+    2,681 tracks with independent ground truth, then confirmed on 2,664 tracks never
+    used for fitting. Exact tempo 83.7% → 85.4%, right tempo or a multiple 91.4% →
+    93.3%, 130–150 BPM 86.4% → 92.2%; 61 tracks fixed, 17 broken. The fixes are
+    120–140 BPM tracks read as a triplet at ~85. The known cost: some 95–126 BPM
+    pop, disco and hip-hop is lifted ×1.5 into the 150–190s, and it cannot be gated
+    away here, because drum & bass read at ⅔ speed (116 → 174) sits in the same base
+    range and the analyser has no genre. The 2× gate stays at 0.95.
+
     A fired candidate can legitimately land in 40–69 or 181–240 BPM — ranges the
     old blind fold never emitted but the tag path always admitted (40–250), so
     every consumer already handles them.
     """
     # Degenerate evidence → let the fold handle it. Under a full tempogram window
     # (384 frames ≈ 9 s) there is no real salience curve, and on a flat curve the
-    # 0.95 gate is a coin toss that systematically doubles weak-pulse material —
+    # gates are a coin toss that systematically doubles weak-pulse material —
     # a corner structurally outside the 539-track benchmark (tagged = rhythmic).
     # Both guards are inert for that benchmark: a 60 s scan yields ~2,580 frames
     # and rhythmic material has strongly peaked tempograms.
     if onset_env.size < 384:
         return None
-    tg = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr, hop_length=512)
-    sal_curve = tg.mean(axis=1)
-    freqs = librosa.tempo_frequencies(tg.shape[0], sr=sr, hop_length=512)
+    sal_curve = tempo_salience(onset_env, sr) if salience is None else salience
+    freqs = librosa.tempo_frequencies(sal_curve.size, sr=sr, hop_length=512)
     # freqs[0] is inf and the axis is descending — slice it off and reverse for interp
     xs, ys = freqs[1:][::-1], sal_curve[1:][::-1]
 
@@ -652,11 +737,12 @@ def bpm_octave_rescue(tempo, onset_env, sr):
 
     base = sal(tempo) * prior(tempo)
     best, best_score = None, 0.0
-    for c in (tempo * 2.0, tempo * 1.5):
+    # Per-candidate gates: 2x stays at 0.95, 1.5x loosened to 0.80 (see docstring).
+    for c, gate in ((tempo * 2.0, 0.95), (tempo * 1.5, 0.80)):
         if not (40.0 <= c <= 240.0):
             continue
         s = sal(c) * prior(c)
-        if s > 0.95 * base and s > best_score:
+        if s > gate * base and s > best_score:
             best, best_score = c, s
     return best
 
@@ -975,6 +1061,13 @@ def analyze(filepath, duration_limit=60, verbose=True):
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.atleast_1d(tempo)[0])
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        # Sub-bin refinement FIRST: beat_track hands back a tempogram bin (2584/k), which
+        # cannot express 174 BPM at all. Refine before any octave logic, so the rescue's
+        # exact 2x/1.5x multipliers carry the refined value through. See refine_tempo.
+        # Both tempo steps read the same tempogram; build it once. Both return before
+        # reading it under 384 frames, where it is left as None.
+        salience = tempo_salience(onset_env, sr) if onset_env.size >= 384 else None
+        tempo = refine_tempo(tempo, onset_env, sr, salience=salience)
         # Octave correction: beat_track frequently reports half time (its prior is
         # centred on 120), so first ask the tempogram whether 2× or 1.5× is better
         # supported (bpm_octave_rescue). Only when no candidate fires, fall back to
@@ -982,7 +1075,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
         # detected as 87 is "plausible" to it) but still catches out-of-band output
         # on beatless material. (Guarded on tempo>0 so a pure tone doesn't loop.)
         if tempo > 0:
-            _rescued = bpm_octave_rescue(tempo, onset_env, sr)
+            _rescued = bpm_octave_rescue(tempo, onset_env, sr, salience=salience)
             if _rescued is not None:
                 tempo = _rescued
             else:
