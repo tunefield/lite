@@ -231,7 +231,7 @@
     </div>
     <span class="lib-tb-sep"></span>
     <button class="lib-tb-btn lib-tb-cols" id="c-col-btn" onclick="openColPicker('c-col-btn','catalog')">⊞ Columns ▾</button>
-    <button class="lib-tb-btn lib-tb-export pro-badge" id="c-export-btn" onclick="openExportMenu(event)" title="Export what the filters show — Tunefield Pro, on sale in January">Export ▾</button>
+    <button class="lib-tb-btn lib-tb-export pro-badge" id="c-export-btn" onclick="openExportMenu(event)" title="Export what the filters show (Tunefield Pro)">Export ▾</button>
   </div>
   <div id="catalog-content"></div>
   </div>
@@ -638,7 +638,7 @@
     <div class="sp-footer">
       <button class="sp-undo" id="sp-undo" onclick="undoLastAdd()">↶ Undo</button>
       <button class="sp-tools" onclick="openSetToolsBox()" title="One-click vector tools: more like this, bridges, smoothing, groups">⋈ Set tools</button>
-      <button class="sp-export pro-badge" id="sp-export-btn" onclick="openExportMenu(event)" title="Export this set for Rekordbox, Traktor, Ableton or as M3U8 — Tunefield Pro, on sale in January">Export set</button>
+      <button class="sp-export pro-badge" id="sp-export-btn" onclick="openExportMenu(event)" title="Export this set for Rekordbox, Traktor, Ableton or as M3U8 (Tunefield Pro)">Export set</button>
       <button class="sp-lock" id="sp-lock" onclick="toggleLock()">Lock</button>
     </div>
   </aside>
@@ -765,8 +765,9 @@
     </div>
   </div>
 </div>
-<!-- Export is Pro (Mark, 29 Oct 2026): every export, on sale in January. Until then both
-     Export buttons open this card instead of the menu (export.js exportLocked). -->
+<!-- Export is Pro (Mark, 29 Oct 2026). Without a Pro key both Export buttons open this card
+     instead of the menu (export.js exportLocked). Copy is neutral (Mark, 9 Nov 2026) so it reads
+     right before and after the 12 Jan 2027 launch: no dates, no prices; tunefield.app/pro does the rest. -->
 <div id="pro-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)closeProCard()">
   <div data-drag role="dialog" aria-label="Tunefield Pro" style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(440px,95vw);display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
@@ -775,11 +776,22 @@
     </div>
     <div style="padding:20px;display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.6">
       <p style="margin:0">Pro sends your sets to <strong>Rekordbox</strong>, <strong>Traktor</strong> and <strong>Ableton Live</strong>, and saves them as <strong>M3U8</strong> or <strong>CSV</strong>. Everything else in Tunefield stays free.</p>
-      <p style="margin:0">Pro goes on sale in <strong>January</strong>: €79, a one-time purchase. Sign up now and you get the founder price, <strong>€59</strong>.</p>
-      <p style="margin:0;color:var(--muted);font-size:12px">Your sets are kept, ready to export when Pro arrives.</p>
+      <p style="margin:0">Pro is a one-time purchase and keeps working in every later version of Tunefield Lite. Get your key at <strong>tunefield.app/pro</strong>.</p>
+      <p style="margin:0;color:var(--muted);font-size:12px">Your sets are kept, ready to export as soon as Pro is unlocked.</p>
       <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
         <button class="btn-sm" onclick="closeProCard()">Not now</button>
-        <button onclick="proSignUp()" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Sign up for Pro ↗</button>
+        <button onclick="proSignUp()" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Get Pro ↗</button>
+      </div>
+      <!-- Pro key (1.1.0): checked offline by /api/license; export.js proUnlock. -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:8px">
+        <label for="pro-key-input" style="font-size:12px;font-weight:600">Have a Pro key? Paste it here</label>
+        <div style="display:flex;gap:8px">
+          <input id="pro-key-input" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="TF1-…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();proUnlock()}"
+                 style="flex:1;min-width:0;background:var(--surface2);border:1px solid var(--border);border-radius:0;color:var(--text);font:inherit;font-size:12px;padding:6px 8px">
+          <button class="btn-sm" id="pro-key-btn" onclick="proUnlock()">Unlock</button>
+        </div>
+        <div id="pro-key-msg" role="status" style="font-size:12px;color:var(--ink-red)" hidden></div>
       </div>
     </div>
   </div>
@@ -844,6 +856,12 @@
       <span class="settings-label">Help</span>
       <button class="lib-tb-btn" onclick="tfOpenExternal('/manual')"
               title="The full user manual — every tab, tool and shape, in plain words. Opens in a new tab.">📖 User manual</button>
+    </div>
+
+    <div class="settings-row">
+      <span class="settings-label" title="Tunefield Pro unlocks every export: Rekordbox, Traktor, Ableton Live, M3U8 and CSV. The key is checked on this Mac; nothing is sent anywhere.">Pro</span>
+      <span class="settings-val" id="pro-settings-state" style="flex:1">Not unlocked</span>
+      <button class="lib-tb-btn" id="pro-settings-btn" onclick="proSettingsAction()">Enter key</button>
     </div>
 
     <div class="settings-row">

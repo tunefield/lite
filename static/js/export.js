@@ -22,15 +22,82 @@ function setExportSource(v) {
   const csvItem = document.getElementById('exp-csv');
   if (csvItem) csvItem.style.opacity = (v === 'playlist') ? '0.4' : '1';
 }
-// Export is Pro (Mark, 29 Oct 2026): every format, on sale in January. Until then every way
-// into export opens the Pro card. In January this checks the licence instead.
+// Export is Pro (Mark, 29 Oct 2026): every format, on sale 12 Jan 2027. Without a Pro key every
+// way into export opens the Pro card. The key is checked offline by /api/license (app.py),
+// which also guards the server-side exports.
 const PRO_SIGNUP_URL = 'https://tunefield.app/pro?src=app';
-function exportLocked() { return true; }
+let _pro = { licensed: false };
+function exportLocked() { return !_pro.licensed; }
+function _proRender() {
+  const st = document.getElementById('pro-settings-state');
+  const btn = document.getElementById('pro-settings-btn');
+  const day = iso => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  // Customer keys are lifetime; only test keys carry an expiry (Mark, 9 Nov 2026).
+  if (st) st.textContent = !_pro.licensed ? 'Not unlocked'
+    : _pro.expires ? `Test key, until ${day(_pro.expires)}`
+    : `Unlocked${_pro.issued ? ' since ' + day(_pro.issued) : ''}`;
+  if (btn) btn.textContent = _pro.licensed ? 'Remove key' : 'Enter key';
+}
+async function proRefresh() {
+  try {
+    const r = await fetch('/api/license');
+    if (r.ok) _pro = await r.json();
+  } catch (_) {}
+  _proRender();
+}
+function _proMsg(text, ok) {
+  const m = document.getElementById('pro-key-msg');
+  if (!m) return;
+  m.textContent = text || '';
+  m.style.color = ok ? 'var(--ink-green)' : 'var(--ink-red)';
+  m.hidden = !text;
+}
+async function proUnlock() {
+  const input = document.getElementById('pro-key-input');
+  const key = (input?.value || '').trim();
+  if (!key) { _proMsg('Paste your Tunefield Pro key first.'); input?.focus(); return; }
+  const btn = document.getElementById('pro-key-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/license', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ key }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.licensed) { _proMsg(j.error || 'That key could not be checked. Try again.'); return; }
+    _pro = j;
+    _proRender();
+    if (input) input.value = '';
+    _proMsg('');
+    closeProCard();
+    if (typeof featUse === 'function') featUse('pro_unlocked');
+    showToast('Tunefield Pro unlocked: every export is on. Thank you!');
+  } catch (_) {
+    _proMsg('That key could not be checked. Try again.');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+async function proSettingsAction() {
+  if (!_pro.licensed) {
+    if (typeof window.closeSettings === 'function') window.closeSettings();
+    _proMsg('');
+    document.getElementById('pro-modal').style.display = 'flex';
+    document.getElementById('pro-key-input')?.focus();
+    return;
+  }
+  if (!confirm('Remove the Tunefield Pro key from this Mac?\n\nExports lock again until you paste the key back in. Keep the email with your key.')) return;
+  try {
+    const r = await fetch('/api/license', { method: 'DELETE' });
+    if (r.ok) _pro = await r.json();
+  } catch (_) {}
+  _proRender();
+}
+proRefresh();
 function openProCard() {
-  // Time to first export: while export is gated, opening the Pro card IS the export attempt
-  // (the stamp in exportAs sits past the gate until the licence check lands).
+  // Time to first export: without a key, opening the Pro card IS the export attempt
+  // (with a key, exportAs stamps it past the gate).
   fetch('/diagnostics/first-export', { method: 'POST' }).catch(() => {});   // stamps once
   closeExportMenu();
+  _proMsg('');
   document.getElementById('pro-modal').style.display = 'flex';
   if (typeof featUse === 'function') featUse('pro_card');
 }
@@ -352,4 +419,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

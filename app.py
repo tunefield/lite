@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
+from license_key import check_key, clean_key, LicenceError
 from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__, static_folder="static")
@@ -608,6 +609,39 @@ def load_config():
 
 def save_config(cfg):
     atomic_json_dump(CONFIG_FILE, cfg)
+
+
+# ── Tunefield Pro (exports) ─────────────────────────────────────────
+# Lite's own Ed25519 public key (new keypair, 9 Nov 2026; Mark: "New keypair, lifetime Lite").
+# Old pilot/beta TFL1 keys are signed by a different key and never unlock Lite.
+# The private key is not in this repo; the Tunefield store mints keys with it.
+LICENSE_PUBKEY_B64 = "XYkpxabYgM2S/uzHeBH6AEkDBxxGt8Y7M+clRkd0H8w="
+
+def _pro_licence():
+    """The stored key's payload if it is a valid Lite Pro key, else None."""
+    key = load_config().get("pro_key")
+    if not key:
+        return None
+    try:
+        return check_key(key, LICENSE_PUBKEY_B64)
+    except LicenceError:
+        return None
+
+def _licence_view(info):
+    if not info:
+        return {"licensed": False}
+    t = info.get("t")
+    x = info.get("x")
+    return {"licensed": True, "scope": info.get("s"),
+            "issued": datetime.fromtimestamp(t).date().isoformat() if isinstance(t, (int, float)) else None,
+            "expires": datetime.fromtimestamp(x).date().isoformat() if x is not None else None,   # test keys only
+            "ref": str(info.get("o") or "")[-8:]}
+
+def _needs_pro():
+    """403 for a server-side export without a Pro key; the UI checks first, so this is the backstop."""
+    if _pro_licence() is None:
+        return jsonify({"error": "Export is part of Tunefield Pro.", "pro_required": True}), 403
+    return None
 
 
 
@@ -3544,6 +3578,28 @@ def repair_config():
     return jsonify({"ok": True})
 
 
+@app.route("/api/license", methods=["GET", "POST", "DELETE"])
+def api_license():
+    """GET: is Pro unlocked here. POST {key}: check and store a key. DELETE: remove it.
+    The key is checked offline against LICENSE_PUBKEY_B64 and stored in config.json."""
+    if request.method == "GET":
+        return jsonify(_licence_view(_pro_licence()))
+    cfg = load_config()
+    if request.method == "DELETE":
+        cfg.pop("pro_key", None)
+        save_config(cfg)
+        return jsonify({"licensed": False})
+    body = request.get_json(silent=True) or {}
+    try:
+        key = clean_key(body.get("key"))
+        info = check_key(key, LICENSE_PUBKEY_B64)
+    except LicenceError as e:
+        return jsonify({"error": str(e)}), 400
+    cfg["pro_key"] = key
+    save_config(cfg)
+    return jsonify(_licence_view(info))
+
+
 def _csv_safe(v):
     """Spreadsheet formula-injection guard. Cells starting with =, +, -, or @ are
     interpreted as formulas by Excel/Sheets/LibreOffice; prefixing with a single
@@ -3558,6 +3614,7 @@ def export_csv():
     """Rewritten 2026-05-31 to use the stdlib csv module — correctly quotes / escapes
     commas / quotes / newlines in any field (filenames with these survive), and runs
     every user-controlled cell through _csv_safe to neutralise formula injection."""
+    if (denied := _needs_pro()): return denied
     slug    = req_slug()
     entries = load_cat(slug)
     buf = io.StringIO()
@@ -3740,6 +3797,7 @@ def rekordbox_export_status():
 
 @app.route("/export/rekordbox/bridge", methods=["POST"])
 def rekordbox_export_bridge():
+    if (denied := _needs_pro()): return denied
     body   = request.get_json(force=True) or {}
     name   = str(body.get("name", "")).strip()[:200] or "Tunefield"
     tracks = _rb_clean_tracks(body.get("tracks"))
@@ -3775,6 +3833,7 @@ def export_als():
     entry's library_file (absolute or root-relative — resolved here). Builds a
     Session-View set: two alternating deck tracks, one scene per track, clips
     warped to the detected BPM, per-scene tempo. Opens in any Live edition."""
+    if (denied := _needs_pro()): return denied
     body = request.get_json(silent=True) or {}
     raw = body.get("tracks")
     if not isinstance(raw, list) or not raw:

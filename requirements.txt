@@ -9,6 +9,8 @@ numpy>=1.26,<3
 scipy>=1.11,<2
 soundfile>=0.12,<1
 pyloudnorm>=0.1.1,<1
+# Checks Tunefield Pro keys offline (license_key.py). The release build pins it (46.0.7).
+cryptography>=42,<47
 # Not currently used — app.py serves via Flask's built-in server. Kept here for a
 # post-beta switch to production-style local serving; uncomment once app.py uses it.
 # waitress>=3.0,<4

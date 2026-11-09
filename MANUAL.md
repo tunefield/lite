@@ -36,7 +36,7 @@ It runs entirely on your own Mac. Your music, your analysis and your sets never 
 2. **Field.** Your tracks appear as coloured spheres — left to right is slow to fast, bottom to top is quiet to loud, colour is the key.
 3. **＋ New set**, then **double-click** tracks to add them. **Up next** under the set suggests what could follow.
 4. **▶ Play.** The set plays through, each track's preview section, and the camera flies to each track as it starts.
-5. **Export set.** Rekordbox, Traktor, Ableton or M3U8. Export is Tunefield Pro, on sale in January 2027 (see §11).
+5. **Export set.** Rekordbox, Traktor, Ableton or M3U8. Export is part of Tunefield Pro (see §11).
 
 Everything you create lives in `~/Library/Application Support/Tunefield Lite/data/` (on the USB stick, beside the app, for the portable build). Deleted audio goes to `data/_trash/` first, never straight to oblivion.
 
@@ -263,7 +263,9 @@ When a file simply carries no tags, Repair says so plainly — *the remaining tr
 
 ## 11. Exporting — Rekordbox, Traktor, Ableton
 
-> **Export is part of Tunefield Pro.** Pro goes on sale in January 2027: €79, a one-time purchase, or €59 at the founder price if you sign up at tunefield.app/pro before then. Until then both Export buttons say so and link to the sign-up. Your sets are kept, ready to export when Pro arrives. Everything else in Tunefield is free.
+> **Export is part of Tunefield Pro.** Pro is a one-time purchase and keeps working in every later version of Tunefield Lite. Get your key at tunefield.app/pro. Without a key both Export buttons open the Pro card, which links there. Your sets are kept, ready to export as soon as Pro is unlocked. Everything else in Tunefield is free.
+
+**Unlocking Pro.** When you buy Pro you get a key by email; it starts with `TF1-`. Click either Export button, or open **⚙ Settings → Pro → Enter key**, paste the whole key and press **Unlock**. The key is checked on your Mac; nothing is sent anywhere. It keeps working in every later version of Tunefield Lite. Keep the email: you need the key again on a new Mac. **Settings → Pro → Remove key** takes it off this one.
 
 **Export set** (set panel) exports the open set; **Export ▾** (List tab) exports what the filters show. You can switch the **Source** at the top of the menu either way.
 
