@@ -346,6 +346,13 @@ async function _anPump() {
     return;
   }
   const CHUNK = 5;
+  // The resume file is rewritten on the first chunk and then every PERSIST_EVERY chunks,
+  // not before every chunk: rewriting and fsyncing the whole remaining list each time
+  // cost ~10 GB of writes on a 30k-track run on a stick (debug sweep #8). Each write holds
+  // everything not yet finished, so a crash re-sends at most PERSIST_EVERY chunks, and the
+  // server's "already cataloged" pre-flight skips the ones that landed.
+  const PERSIST_EVERY = 50;
+  let sincePersist = 0;
   try {
     while (_anQueue.length) {
       if (isScanCancelled(_anSpTok)) break;
@@ -360,7 +367,8 @@ async function _anPump() {
       _anInFlightSlice = slice;     // _anPersist folds this in on every write
       // Persist BEFORE the fetch so a crash mid-chunk re-queues the in-flight files —
       // the server's "already cataloged" pre-flight absorbs any that did land.
-      _anPersist();
+      if (sincePersist === 0) _anPersist();
+      sincePersist = (sincePersist + 1) % PERSIST_EVERY;
       try {
         const res = await fetch('/library/analyse', {
           method: 'POST',

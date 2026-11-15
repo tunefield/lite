@@ -281,7 +281,7 @@ When a file simply carries no tags, Repair says so plainly — *the remaining tr
 
 ### The Rekordbox bridge
 
-Every exported set collects in **one fixed XML file** (`~/Music/Tunefield/tunefield.xml`) that Rekordbox watches. Set it up once — **setup** beside the menu item shows the path to copy:
+Every exported set collects in **one fixed XML file** (`~/Music/Tunefield/tunefield.xml`) that Rekordbox watches. A copy running from a USB stick keeps its own file in the same folder, named after the stick, so the two never overwrite each other's sets. Set it up once — **setup** beside the menu item shows the path to copy:
 
 1. **Rekordbox → Preferences → Advanced → Database** — under "rekordbox xml", set **Imported Library** to that file.
 2. **View → Layout** — tick **rekordbox xml** so the sidebar section shows.

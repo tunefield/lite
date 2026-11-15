@@ -238,19 +238,24 @@ def atomic_json_dump(path, data, compact=False):
     Wrapped by _FS_LOCK so concurrent read-modify-write sequences serialise cleanly."""
     with _FS_LOCK:
         tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            # Catalogs pass compact=True: indent=2 costs ~31% file size and ~15% of the
-            # save time on a 30 MB catalog, for whitespace nobody reads. Small config
-            # files stay indented — they ARE read by hand. (scripts/re_analyse.py has
-            # always written catalogs compact, so the app was re-inflating them after
-            # every re-analysis.)
-            if compact:
-                json.dump(data, f, separators=(",", ":"))
-            else:
-                json.dump(data, f, indent=2)
-            f.flush()
-            try: os.fsync(f.fileno())
-            except OSError: pass  # FAT32 may not support fsync; flush still helps
+        try:
+            with open(tmp, "w") as f:
+                # Catalogs pass compact=True: indent=2 costs ~31% file size and ~15% of the
+                # save time on a 30 MB catalog, for whitespace nobody reads. Small config
+                # files stay indented — they ARE read by hand. (scripts/re_analyse.py has
+                # always written catalogs compact, so the app was re-inflating them after
+                # every re-analysis.)
+                if compact:
+                    json.dump(data, f, separators=(",", ":"))
+                else:
+                    json.dump(data, f, indent=2)
+                f.flush()
+                try: os.fsync(f.fileno())
+                except OSError: pass  # FAT32 may not support fsync; flush still helps
+        except BaseException:
+            try: os.remove(tmp)       # a full disk must not also leave a half-written .tmp
+            except OSError: pass
+            raise
         os.replace(tmp, path)
 
 
@@ -355,6 +360,21 @@ _LOCK_EXEMPT_ENDPOINTS = {
     "batch_extract_genres",    # ffprobe per track; takes _FS_LOCK around its commit
     "batch_extract_metadata",  # ffprobe per track; takes _FS_LOCK around its commits
 }
+
+# Test-only: TUNEFIELD_TEST_NO_STORAGE=1 makes the page's localStorage throw on access, as a
+# browser that blocks site data does, so Release & QA can check the bundled app still works
+# with storage gone (review #43). It rewrites one script, before the guard in it runs.
+_TEST_NO_STORAGE = os.environ.get("TUNEFIELD_TEST_NO_STORAGE") == "1"
+
+@app.before_request
+def _test_block_storage():
+    if _TEST_NO_STORAGE and request.path == "/static/js/storage-guard.js":
+        with open(os.path.join(app.static_folder, "js", "storage-guard.js"), encoding="utf-8") as f:
+            guard = f.read()
+        block = ("Object.defineProperty(window, 'localStorage', { configurable: true, get() {"
+                 " throw new DOMException('blocked by TUNEFIELD_TEST_NO_STORAGE', 'SecurityError'); } });\n")
+        return Response(block + guard, mimetype="text/javascript",
+                        headers={"Cache-Control": "no-store"})
 
 @app.before_request
 def _serialize_mutations():
@@ -1536,9 +1556,19 @@ def _reconstruct_meta_from_disk():
     out = []
     try:
         for fn in sorted(os.listdir(CATALOGS_DIR)):
-            if not fn.endswith(".json") or fn.startswith("_"):
+            # Skip dotfiles: on a FAT32 stick macOS writes a '._<name>' AppleDouble sidecar
+            # beside every file, and adopting '._default' as a slug made every catalog
+            # route answer 400 (debug sweep #14). Only a valid slug of a real file counts.
+            # A leading '_' is a real Field ("!party" → _party); only _meta.json is ours.
+            if not fn.endswith(".json") or fn.startswith(".") or fn == "_meta.json":
                 continue
             slug = fn[:-5]
+            try:
+                _safe_slug(slug)
+            except ValueError:
+                continue
+            if not os.path.isfile(os.path.join(CATALOGS_DIR, fn)):
+                continue
             name = slug.replace("_", " ").strip().title() or slug
             out.append({"name": name, "slug": slug})
     except FileNotFoundError:
@@ -1719,9 +1749,22 @@ def load_cat(slug):
     if not pending:
         return _apply_overrides(_load_cat_raw(slug))
     if len(pending) >= JOURNAL_FOLD_AT:
-        fold_journal(slug)
-        return _apply_overrides(_load_cat_raw(slug))
+        try:
+            fold_journal(slug)
+            return _apply_overrides(_load_cat_raw(slug))
+        except OSError as e:
+            # A read must never fail because a write did: on a full stick the fold cannot
+            # be written, but main file + journal are intact, so serve them merged and
+            # fold on a later read (debug sweep #15: every catalog route answered 500).
+            _warn_once(f"fold:{slug}", f"journal fold for {slug!r} failed ({e}); serving it unfolded")
     return _apply_overrides(_merge_journal(_load_cat_raw(slug), pending))
+
+
+_WARNED = set()
+def _warn_once(key, msg):
+    if key not in _WARNED:
+        _WARNED.add(key)
+        app.logger.warning(msg)
 
 
 # Fields a re-analysis record may replace on an existing entry. Everything else on the
@@ -1898,7 +1941,7 @@ def migrate_energy_scale():
         return
     total = 0
     for fn in os.listdir(CATALOGS_DIR):
-        if not fn.endswith(".json") or fn == "_meta.json":
+        if not fn.endswith(".json") or fn == "_meta.json" or fn.startswith("."):   # FAT32 '._' sidecars
             continue
         slug = fn[:-5]
         try:
@@ -2531,7 +2574,16 @@ def delete_catalog_entry(entry_id):
 STREAM_PCM_EXTS  = {".flac", ".ogg", ".oga", ".opus"}
 STREAM_CACHE_DIR = os.path.join(DATA_DIR, "_stream_cache")
 STREAM_CACHE_CAP = 4 * 1024 ** 3
+# The cache never eats the last of the volume: on a nearly full stick a fixed 4 GB cap
+# filled it, and the next catalog write failed (debug sweep #15).
+STREAM_FREE_MARGIN = 512 * 1024 ** 2
 _STREAM_LOCKS, _STREAM_LOCKS_GUARD = {}, threading.Lock()
+
+def _stream_free():
+    try:
+        return shutil.disk_usage(STREAM_CACHE_DIR).free
+    except OSError:
+        return None
 
 def _ua_streams_pcm(ua):
     """True for WebKit media loaders. The media element's own requests arrive as
@@ -2543,7 +2595,9 @@ def _ua_streams_pcm(ua):
         return True
     return "AppleWebKit" in ua and not any(b in ua for b in ("Chrome", "Chromium", "Firefox", "Edg", "OPR"))
 
-def _stream_cache_trim():
+def _stream_cache_trim(reserve=0):
+    """Drop least-recently-played decodes until the cache fits its cap AND leaves the
+    volume STREAM_FREE_MARGIN (+ `reserve`, the size about to be written) free."""
     try:
         files = [(os.path.join(STREAM_CACHE_DIR, f), os.stat(os.path.join(STREAM_CACHE_DIR, f)))
                  for f in os.listdir(STREAM_CACHE_DIR) if f.endswith((".wav", ".tmp"))]
@@ -2560,8 +2614,11 @@ def _stream_cache_trim():
         keep.append((path, st))
     files = [(p, st) for p, st in keep if p.endswith(".wav")]
     total = sum(st.st_size for _, st in files)
+    free = _stream_free()
+    budget = STREAM_CACHE_CAP if free is None else \
+        min(STREAM_CACHE_CAP, total + free - STREAM_FREE_MARGIN - reserve)
     for path, st in sorted(files, key=lambda x: x[1].st_atime):
-        if total <= STREAM_CACHE_CAP:
+        if total <= budget:
             break
         try:
             os.remove(path); total -= st.st_size
@@ -2593,6 +2650,14 @@ def _stream_pcm_path(entry_id, fpath):
         # side clip instead, which saturates cleanly (review, 2026-09-17).
         lossless = info.subtype in ("PCM_16", "PCM_24", "PCM_32", "PCM_S8", "PCM_U8")
         dtype = ("int16" if subtype == "PCM_16" else "int32") if lossless else "float32"
+        need = info.frames * info.channels * {"PCM_16": 2, "PCM_24": 3}.get(subtype, 4)
+        free = _stream_free()
+        if free is not None and free - need < STREAM_FREE_MARGIN:
+            _stream_cache_trim(reserve=need)            # make room from older decodes first
+            free = _stream_free()
+            if free is not None and free - need < STREAM_FREE_MARGIN:
+                # No room: the caller serves the original file instead of filling the stick.
+                raise OSError(28, "no room on the volume for a playable copy")
         tmp = out + ".tmp"
         try:
             with sf.SoundFile(fpath) as src, \
@@ -3661,8 +3726,43 @@ def export_csv():
 # points Rekordbox's "Imported Library" preference at it ONCE; every later export
 # just appears in the rekordbox xml sidebar tree (right-click → Import Playlist).
 
+RB_BRIDGE_NAME_FILE = os.path.join(DATA_DIR, "rekordbox_bridge_name.txt")
+
+def _rb_bridge_name():
+    """One bridge file per install. Each data root rebuilds the whole XML from its OWN
+    store, so the installed app and a stick copy sharing one file wiped each other's
+    playlists (debug sweep #18). The installed app keeps tunefield.xml. Any other root
+    (the USB build, a dev checkout) gets tunefield-<volume or folder>-<random id>.xml,
+    chosen ONCE and kept in its own data/: two sticks both called "NO NAME" still get
+    different files, and a renamed stick keeps the file Rekordbox points at (Release & QA,
+    15 Nov 2026). A read-only data folder falls back to a name derived from the root path."""
+    root = os.path.abspath(TUNEFIELD_ROOT)
+    if root == os.path.abspath(_os_data_dir()):
+        return "tunefield.xml"
+    try:
+        with open(RB_BRIDGE_NAME_FILE) as f:
+            kept = f.read().strip()
+        if re.fullmatch(r"tunefield-[A-Za-z0-9_-]{1,60}\.xml", kept):
+            return kept
+    except OSError:
+        pass
+    parts = root.split(os.sep)
+    label = parts[2] if len(parts) > 2 and parts[1] == "Volumes" else os.path.basename(root)
+    label = re.sub(r"[^A-Za-z0-9_-]+", "-", label).strip("-")[:40] or "portable"
+    name = f"tunefield-{label}-{secrets.token_hex(2)}.xml"
+    try:
+        tmp = RB_BRIDGE_NAME_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(name + "\n")
+        os.replace(tmp, RB_BRIDGE_NAME_FILE)
+    except OSError:
+        name = f"tunefield-{label}-{hashlib.sha1(root.encode()).hexdigest()[:4]}.xml"
+    return name
+
+def _rb_bridge_xml():
+    return os.path.join(REKORDBOX_HOME, _rb_bridge_name())
+
 REKORDBOX_HOME         = os.path.expanduser(os.environ.get("TUNEFIELD_RB_HOME", "~/Music/Tunefield"))
-REKORDBOX_BRIDGE_XML   = os.path.join(REKORDBOX_HOME, "tunefield.xml")
 REKORDBOX_BRIDGE_STORE = os.path.join(DATA_DIR, "rekordbox_bridge.json")
 
 def _rb_esc(s):
@@ -3786,9 +3886,10 @@ def rekordbox_export_status():
         has_pyrb = False
     db_path, _ = _rb_db_paths() if has_pyrb else (None, None)
     store = _rb_store_load()
+    bridge = _rb_bridge_xml()
     return jsonify({
-        "bridge_path":      REKORDBOX_BRIDGE_XML,
-        "bridge_exists":    os.path.exists(REKORDBOX_BRIDGE_XML),
+        "bridge_path":      bridge,
+        "bridge_exists":    os.path.exists(bridge),
         "bridge_playlists": [p["name"] for p in store["playlists"]],
         "pyrekordbox":      has_pyrb,
         "rekordbox_db":     db_path,
@@ -3814,14 +3915,15 @@ def rekordbox_export_bridge():
     atomic_json_dump(REKORDBOX_BRIDGE_STORE, store)
     os.makedirs(REKORDBOX_HOME, exist_ok=True)
     xml = _rb_build_bridge_xml(store)
-    tmp = REKORDBOX_BRIDGE_XML + ".tmp"
+    bridge = _rb_bridge_xml()
+    tmp = bridge + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(xml)
         f.flush()
         try: os.fsync(f.fileno())
         except OSError: pass
-    os.replace(tmp, REKORDBOX_BRIDGE_XML)
-    return jsonify({"path": REKORDBOX_BRIDGE_XML, "playlist": name, "replaced": replaced,
+    os.replace(tmp, bridge)
+    return jsonify({"path": bridge, "playlist": name, "replaced": replaced,
                     "playlists": len(store["playlists"]),
                     "tracks": sum(len(p["tracks"]) for p in store["playlists"])})
 
@@ -4320,15 +4422,25 @@ def playlists_set_active():
 
 
 def find_free_port(start=5050, span=30):
-    """Scan upward for a free TCP port. Returns the first one or the start if none free."""
-    import socket
+    """Scan upward for a free TCP port. Returns the first one or the start if none free.
+    The window loads http://localhost:<port>, which macOS may resolve to [::1] first, so a
+    port that another server (a Node/Vite dev server, say) holds on [::1] would put THAT
+    server in our window (review #46). Free means free on both. The URL stays localhost:
+    switching to 127.0.0.1 would change the page's origin and lose every local setting."""
+    import socket, errno
     for p in range(start, start + span):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", p))
-                return p
         except OSError:
             continue
+        try:
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s6:
+                s6.bind(("::1", p))
+        except OSError as e:
+            if e.errno == errno.EADDRINUSE:
+                continue          # taken on [::1]: localhost could land there
+        return p                  # (no IPv6 at all is fine: localhost is then 127.0.0.1)
     return start
 
 

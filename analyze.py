@@ -1112,6 +1112,12 @@ def analyze(filepath, duration_limit=60, verbose=True):
         onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
         dur_s = max(1e-6, len(y) / float(sr))
         onset_density = float(len(onsets) / dur_s)
+        # Too little audio to hold a tempo: a 0.5 s drum hit came out at a confident
+        # 143.6 BPM and sat in the Field as a track (debug sweep #11). Under 5 s or
+        # 4 onsets the audio's answer is "no pulse" (bpm 0). A BPM tag from the release
+        # (a tagged loop) still wins below, as it does everywhere else.
+        if dur_s < 5.0 or len(onsets) < 4:
+            tempo = 0.0
 
         # A tempo written into the file by whoever released it beats one inferred from
         # the audio. Measured across this library on the tracks that carry a BPM tag,

@@ -7132,6 +7132,16 @@ document.addEventListener('keydown', e => {
     if (stb && stb.classList.contains('open')) { closeSetToolsBox(); return; }
     const cir = document.getElementById('ci-review-modal');
     if (cir && getComputedStyle(cir).display !== 'none') { cir.style.display = 'none'; return; }
+    // The Fields and Columns pickers and the FIELDS drawer close first too (review #44):
+    // Esc used to stop the music with a picker still open. Closing commits staged ticks,
+    // as clicking outside does. AXES/FILTERS/KEY stay: they are tools left open while
+    // playing, and Esc there still means stop.
+    const fpk = document.getElementById('field-picker');
+    if (fpk && fpk.style.display === 'block') { closeFieldPicker(); return; }
+    const cpk = document.getElementById('col-picker');
+    if (cpk && cpk.style.display === 'block') { window.closeColPicker?.(); return; }
+    if (document.body.classList.contains('on-tab-neural')
+        && document.getElementById('fields-drawer')?.dataset.open === '1') { toggleDrawer('fields-drawer'); return; }
     if (typeof _kbModalOpen === 'function' && _kbModalOpen()) return;
   }
   // Escape — return-to-anchor or full stop. Never while typing (a check-in text

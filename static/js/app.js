@@ -1,4 +1,5 @@
 // Entry: tabs and boot. Each tab is its own module (handover §5.7).
+import './storage-guard.js';   // first: makes localStorage safe before any module reads it
 import { catalog, allCatalogs, viewedCatalogs, loadCatalogMeta, loadCatalog } from './field.js';
 import { analyseBoot } from './analyse.js';
 import './list.js';
