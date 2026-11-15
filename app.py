@@ -10,6 +10,7 @@ from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
 import serato_crate
+import usb_install
 try:
     import tag_write             # needs mutagen; without it only tag writing is off (E4)
 except Exception as _e:          # pragma: no cover
@@ -3973,6 +3974,58 @@ def api_license():
     cfg["pro_key"] = key
     save_config(cfg)
     return jsonify(_licence_view(info))
+
+
+# ── USB stick: put Tunefield on one, or update the copy on it (1.1.0, U1) ─────────────────
+# The rules live in usb_install.py. Here: what this copy may offer, and the three routes.
+def _usb_context():
+    exe = os.path.abspath(sys.executable)
+    payload = usb_install.own_bundle(exe, getattr(sys, "frozen", False))
+    # The volume this app runs from (a DMG, say) is never offered as a stick.
+    exclude = [payload, _translocated_original(exe) if "/AppTranslocation/" in exe else None]
+    refusal = (usb_install.MSG["portable"] if TUNEFIELD_ROOT_MODE == "portable" else
+               usb_install.MSG["nobundle"] if not payload else None)
+    return payload, usb_install.my_version(TUNEFIELD_VERSION), exclude, refusal
+
+
+@app.route("/usb/sticks", methods=["GET"])
+def usb_sticks():
+    payload, mine, exclude, refusal = _usb_context()
+    return jsonify({"version": mine, "refusal": refusal,
+                    "sticks": [] if refusal else usb_install.sticks(payload, mine, exclude)})
+
+
+@app.route("/usb/run", methods=["POST"])
+def usb_run():
+    """{folder, action}. The folder must be one /usb/sticks offers right now, with that action:
+    nothing else on the disk can be named here. Choosing it is the approval for this run (E0);
+    nothing is recorded."""
+    bad = _require_confirm()
+    if bad:
+        return bad
+    payload, mine, exclude, refusal = _usb_context()
+    if refusal:
+        return jsonify({"refusal": refusal}), 409
+    body = request.get_json(silent=True) or {}
+    folder, action = str(body.get("folder") or ""), body.get("action")
+    offers = [o for s in usb_install.sticks(payload, mine, exclude)
+              for o in s["installs"] + ([s["fresh"]] if s["fresh"] else [])]
+    offer = next((o for o in offers if o["folder"] == folder), None)
+    if not offer or offer["action"] != action:
+        return jsonify({"refusal": usb_install.MSG["gone"]}), 409
+    if offer["refusal"]:
+        return jsonify({"refusal": offer["refusal"]}), 409
+    note = ("To use Pro on the stick, paste your key in its Settings > Pro once; it stays with the stick."
+            if _pro_licence() and action == "install" else "")
+    if not usb_install.start(folder, action, payload, note):
+        return jsonify({"refusal": usb_install.MSG["busy"]}), 409
+    usage_event("usb_run", action=action)
+    return jsonify({"ok": True})
+
+
+@app.route("/usb/job", methods=["GET"])
+def usb_job():
+    return jsonify(dict(usb_install.JOB))
 
 
 def _csv_safe(v):

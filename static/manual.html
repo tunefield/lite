@@ -92,6 +92,7 @@
 <li><strong>Export set.</strong> Rekordbox, Traktor, Ableton or M3U8. Export is part of Tunefield Pro (see §11).</li>
 </ol>
 <p>Everything you create lives in <code>~/Library/Application Support/Tunefield Lite/data/</code> (on the USB stick, beside the app, for the portable build). Deleted audio goes to <code>data/_trash/</code> first, never straight to oblivion.</p>
+<p><strong>On a USB stick.</strong> On your Mac, <strong>⚙ Settings → USB stick</strong> puts Tunefield on a stick, or updates the copy on one. It replaces only the app; the library on the stick and everything else on it stay as they are, and a stick pulled out halfway still has a working app. <strong>Repair</strong> copies the app fresh if it ever won't open. Don't drag the app or a folder onto a stick yourself.</p>
 <p>The five tabs across the top, in workflow order:</p>
 <table>
 <thead>
@@ -587,6 +588,10 @@
 <td>Every place outside its own folder Tunefield may write to, because you said yes; Remove to be asked again</td>
 </tr>
 <tr>
+<td><strong>USB stick</strong></td>
+<td>Puts Tunefield on a connected stick, updates the copy on it, or repairs it (§1). Only the app is replaced</td>
+</tr>
+<tr>
 <td><strong>Beta</strong></td>
 <td>Saves the local usage log, if you want to send it with feedback</td>
 </tr>
@@ -635,7 +640,7 @@
 <p><strong>My acapella or stem is classified wrong.</strong> Put a label in the filename or tags — <code>(Acapella)</code>, <code>(Instrumental)</code>, <code>Vocals Only</code> — and it overrides detection.</p>
 <p><strong>Filtered-out tracks disappear.</strong> A filter takes them off the screen. <strong>⚙ Settings → Filtered-out tracks</strong> keeps them as faint ghosts instead.</p>
 <p><strong>I deleted something I shouldn't have.</strong> Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to <code>data/_trash/</code> rather than being erased.</p>
-<p><strong>"Using this Mac's data, not the stick's."</strong> The stick (or the folder beside the app) couldn't be written to — a locked stick, or a copy macOS opened from a quarantined download — so Tunefield used this Mac's own data folder instead. Unlock the stick, or remove the quarantine flag once (<code>xattr -dr com.apple.quarantine</code> on the app), and relaunch.</p>
+<p><strong>"Using this Mac's data, not the stick's."</strong> The stick (or the folder beside the app) couldn't be written to — a locked stick, or a copy macOS opened from a quarantined download — so Tunefield used this Mac's own data folder instead. Unlock the stick, or put Tunefield on it again from your Mac with <strong>⚙ Settings → USB stick → Repair</strong>, and relaunch.</p>
 <p><strong>Start over cleanly.</strong> Quit, delete <code>~/Library/Application Support/Tunefield Lite</code> (or the <code>data/</code> folder on the stick, for the portable build), relaunch.</p>
 <hr />
 <h2 id="15-appendix-what-the-metrics-mean">15. Appendix: what the metrics mean</h2>

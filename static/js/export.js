@@ -27,6 +27,7 @@ function tfDialog({ title, html, ok = 'OK', cancel = 'Cancel' }) {
     document.getElementById('tfd-body').innerHTML = html;
     document.getElementById('tfd-ok').textContent = ok;
     document.getElementById('tfd-cancel').textContent = cancel;
+    document.getElementById('tfd-cancel').hidden = !cancel;   // a message with OK only
     const done = v => { m.style.display = 'none'; m.onclick = null; resolve(v); };
     const collect = () => Object.fromEntries([...m.querySelectorAll('[data-field]')].map(el =>
       [el.dataset.field, (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value]));

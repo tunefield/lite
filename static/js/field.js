@@ -10105,6 +10105,7 @@ function openSettings()  {
   if (m) m.style.display = 'block';
   window.renderExportApprovals?.();   // export.js: what Tunefield may write outside its folder
   window.tagsRefresh?.();             // export.js: the opt-in tag-writing switch
+  window.usbRefresh?.();              // usb.js: put Tunefield on a stick, or update one
 }
 // pilot 10766
 function closeSettings() {

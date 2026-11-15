@@ -18,6 +18,7 @@
 - Two windows rating different tracks keep both; ratings save per track.
 - USB sticks: hidden `._` files, a full stick and same-named sticks no longer break anything; a read-only stick says so instead of silently using the Mac's data; the analysis queue writes far less; the playback cache keeps space free.
 - Folder art is shrunk to 400 px; a folder of unreadable formats says which.
+- Settings → USB stick puts Tunefield on a stick, updates it or repairs it, from the Mac app. Only the app is replaced, beside the library; a stick pulled out halfway keeps a working app. The separate USB download is gone, and with it the folder that Finder could drag over a stick's library.
 
 **Field and sets**
 - No Field selected is never a dead end; Esc closes pickers before it stops the music; Next carries on into Up next; route tools show progress and can be cancelled; with a track twice in a set, Next follows the copy that played.

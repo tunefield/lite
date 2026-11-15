@@ -43,6 +43,7 @@
         <button class="btn-sm" onclick="addMusic(true)">Add</button>
       </div>
     </details>
+    <p class="an-hint" id="usb-hint" hidden style="margin-top:4px">Using Tunefield from a USB stick? <a href="#" onclick="openSettings();return false">Settings › USB stick</a> puts it on one or updates it.</p>
 
     <section class="an-progress" id="an-progress" hidden aria-live="polite">
       <div class="an-line">
@@ -912,6 +913,11 @@
     <div class="settings-row settings-row-col">
       <span class="settings-label" title="Places outside its own folder that Tunefield may write to, because you said yes (Rekordbox file, Serato crates, …). Remove one and Tunefield asks again next time.">Export locations</span>
       <div id="export-approvals" class="export-approvals"></div>
+    </div>
+
+    <div class="settings-row settings-row-col">
+      <span class="settings-label" title="Puts this Tunefield on a USB stick, or updates the copy on one. Only the app is replaced; the library on the stick and everything else on it stay as they are.">USB stick</span>
+      <div id="usb-sticks" class="export-approvals"></div>
     </div>
 
     <div class="settings-row">

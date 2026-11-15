@@ -40,6 +40,8 @@ It runs entirely on your own Mac. Your music, your analysis and your sets never 
 
 Everything you create lives in `~/Library/Application Support/Tunefield Lite/data/` (on the USB stick, beside the app, for the portable build). Deleted audio goes to `data/_trash/` first, never straight to oblivion.
 
+**On a USB stick.** On your Mac, **⚙ Settings → USB stick** puts Tunefield on a stick, or updates the copy on one. It replaces only the app; the library on the stick and everything else on it stay as they are, and a stick pulled out halfway still has a working app. **Repair** copies the app fresh if it ever won't open. Don't drag the app or a folder onto a stick yourself.
+
 The five tabs across the top, in workflow order:
 
 | Tab | What it's for |
@@ -370,6 +372,7 @@ Keys never fire while you're typing in a box or dragging a slider.
 | **Write tags into music files** | Off by default. On adds *Write BPM, key & energy into files* to Export (§11) |
 | **Rekordbox & Traktor fields** | What goes into Comments, Colour and Grouping (§11) |
 | **Export locations** | Every place outside its own folder Tunefield may write to, because you said yes; Remove to be asked again |
+| **USB stick** | Puts Tunefield on a connected stick, updates the copy on it, or repairs it (§1). Only the app is replaced |
 | **Beta** | Saves the local usage log, if you want to send it with feedback |
 | **Wheel labels** | Note names, Camelot (`1A/1B`) or Open Key (`1m/1d`) |
 | **Vector maths** | Opens the advanced ⋈ panel |
@@ -402,7 +405,7 @@ Keys never fire while you're typing in a box or dragging a slider.
 
 **I deleted something I shouldn't have.** Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to `data/_trash/` rather than being erased.
 
-**"Using this Mac's data, not the stick's."** The stick (or the folder beside the app) couldn't be written to — a locked stick, or a copy macOS opened from a quarantined download — so Tunefield used this Mac's own data folder instead. Unlock the stick, or remove the quarantine flag once (`xattr -dr com.apple.quarantine` on the app), and relaunch.
+**"Using this Mac's data, not the stick's."** The stick (or the folder beside the app) couldn't be written to — a locked stick, or a copy macOS opened from a quarantined download — so Tunefield used this Mac's own data folder instead. Unlock the stick, or put Tunefield on it again from your Mac with **⚙ Settings → USB stick → Repair**, and relaunch.
 
 **Start over cleanly.** Quit, delete `~/Library/Application Support/Tunefield Lite` (or the `data/` folder on the stick, for the portable build), relaunch.
 
