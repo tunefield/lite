@@ -772,6 +772,9 @@
     <div class="cp-item" onclick="exportAs('collect')" title="Copies of the set's audio, numbered in set order, plus a playlist file, into a folder you pick (a stick for the club). Shows the size first; never replaces a file without asking">
       <span style="flex:1">Collect set to folder</span><span style="color:var(--muted);font-size:11px">files</span>
     </div>
+    <div class="cp-item" id="exp-tags" hidden onclick="exportAs('tags')" title="Writes BPM, key and energy into the music files themselves (MP3, FLAC, M4A, AIFF). Shown first, old values saved, Undo puts them back. Switched on in Settings">
+      <span style="flex:1">Write BPM, key &amp; energy into files</span><span style="color:var(--muted);font-size:11px">tags</span>
+    </div>
     <div class="cp-item" onclick="exportAs('traktor')" title="Traktor NML — drop into Traktor's Playlists folder or import via File menu">
       <span style="flex:1">Traktor NML</span><span style="color:var(--muted);font-size:11px">.nml</span>
     </div>
@@ -889,6 +892,12 @@
       <span class="settings-label" title="Tunefield Pro unlocks every export: Rekordbox, Traktor, Ableton Live, M3U8 and CSV. The key is checked on this Mac; nothing is sent anywhere.">Pro</span>
       <span class="settings-val" id="pro-settings-state" style="flex:1">Not unlocked</span>
       <button class="lib-tb-btn" id="pro-settings-btn" onclick="proSettingsAction()">Enter key</button>
+    </div>
+
+    <div class="settings-row" id="tags-settings-row">
+      <span class="settings-label" title="Lets Export write BPM, key and energy into your music files (MP3, FLAC, M4A, AIFF). Off unless you turn it on; every run asks first and can be undone">Write tags into music files</span>
+      <span class="settings-val" id="tags-settings-state" style="flex:1">Off</span>
+      <button class="lib-tb-btn" id="tags-settings-btn" onclick="tagsToggle()">Turn on</button>
     </div>
 
     <div class="settings-row">

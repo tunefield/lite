@@ -27,6 +27,7 @@ preserved at the top of `three.module.js` per upstream.
 | soundfile | BSD-3-Clause | https://python-soundfile.readthedocs.io/ |
 | pyloudnorm | MIT | https://github.com/csteinmetz1/pyloudnorm |
 | cryptography | Apache-2.0 OR BSD-3-Clause | https://cryptography.io/ |
+| mutagen | GPL-2.0-or-later | https://github.com/quodlibet/mutagen |
 
 ## Bundled in the packaged macOS app (in addition to the above)
 

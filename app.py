@@ -10,6 +10,7 @@ from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
 import serato_crate
+import tag_write
 from license_key import check_key, clean_key, LicenceError
 from concurrent.futures import ThreadPoolExecutor
 
@@ -368,6 +369,8 @@ def _same_origin_ok():
 _LOCK_EXEMPT_ENDPOINTS = {
     "library_browse",          # native folder picker, no state mutation
     "export_collect",          # copies audio files out; never touches a catalog JSON
+    "export_tags_write",       # rewrites tags file by file; takes _FS_LOCK for its catalog update
+    "export_tags_restore",     # same, for Undo
     "generated_cover",         # writes one cover file, never a catalog JSON
     "batch_extract_covers",    # writes per-id cover files only, never a catalog JSON
     "library_analyse",         # librosa per track; takes _FS_LOCK around each commit
@@ -1127,6 +1130,8 @@ def walk_audio_files(root, skipped=None):
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         # Skip dotfolders and common non-music dirs
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("__pycache__", "node_modules")]
+        if any(fn.startswith((".tftmp-", "._.tftmp-")) for fn in filenames):
+            tag_write.cleanup_temps(dirpath)   # left by a tag write that was cut off (E4)
         for fn in filenames:
             if fn.startswith("."): continue
             ext = os.path.splitext(fn)[1].lower()
@@ -4270,6 +4275,198 @@ def rekordbox_export_bridge():
     return jsonify({"path": bridge, "playlist": name, "replaced": replaced,
                     "playlists": len(store["playlists"]),
                     "tracks": sum(len(p["tracks"]) for p in store["playlists"])})
+
+# ── Tag writing (1.1.0, E4) ───────────────────────────────────────────────────
+# BPM, key and energy into the user's own files (tag_write.py does the file work and its
+# safety). Strictly opt-in: Settings switches it on, every run is previewed and confirmed,
+# each music folder is approved once (E0), the old values are saved first and Undo puts
+# them back. The stored file_size follows each write (D13), so Tunefield never flags its
+# own write as a replaced file.
+TAGS_TRASH_DIR = os.path.join(DATA_DIR, "_trash", "tags")
+TAGS_INFLIGHT = os.path.join(DATA_DIR, "tags_inflight.json")
+_CAMELOT = {("C", "major"): "8B", ("G", "major"): "9B", ("D", "major"): "10B", ("A", "major"): "11B",
+            ("E", "major"): "12B", ("B", "major"): "1B", ("F#", "major"): "2B", ("C#", "major"): "3B",
+            ("G#", "major"): "4B", ("D#", "major"): "5B", ("A#", "major"): "6B", ("F", "major"): "7B",
+            ("A", "minor"): "8A", ("E", "minor"): "9A", ("B", "minor"): "10A", ("F#", "minor"): "11A",
+            ("C#", "minor"): "12A", ("G#", "minor"): "1A", ("D#", "minor"): "2A", ("A#", "minor"): "3A",
+            ("F", "minor"): "4A", ("C", "minor"): "5A", ("G", "minor"): "6A", ("D", "minor"): "7A"}
+
+def _tags_settings():
+    return {"enabled": bool(load_config().get("tag_write_enabled"))}
+
+@app.route("/export/tags/settings", methods=["GET", "POST"])
+def export_tags_settings():
+    if request.method == "POST":
+        on = (request.get_json(silent=True) or {}).get("enabled")
+        if not isinstance(on, bool):
+            return jsonify({"error": "enabled must be true or false"}), 400
+        cfg = load_config(); cfg["tag_write_enabled"] = on; save_config(cfg)
+    return jsonify(_tags_settings())
+
+def _tag_values(e, want, key_format):
+    """The values to write for one entry; None means "leave that field alone"."""
+    d = e.get("data") or {}
+    h, r, en = d.get("harmony") or {}, d.get("rhythm") or {}, d.get("energy") or {}
+    out = {"bpm": None, "key": None, "energy": None}
+    if want.get("bpm"):
+        try:
+            b = float(e.get("bpm_user") or r.get("bpm") or 0)
+            out["bpm"] = b if b > 0 else None
+        except (TypeError, ValueError):
+            pass
+    if want.get("key") and h.get("root") and h.get("root") != "unknown" and h.get("mode") in ("major", "minor"):
+        out["key"] = (_CAMELOT.get((h["root"], h["mode"])) if key_format == "camelot"
+                      else h["root"] + ("m" if h["mode"] == "minor" else ""))
+    if want.get("energy") and isinstance(en.get("level"), (int, float)):
+        out["energy"] = max(1, min(10, int(round(en["level"] * 9)) + 1))
+    return out
+
+def _tag_plan(body):
+    """[(entry, slug, abs path, values, reason-or-None)] for the ids asked."""
+    ids = body.get("ids")
+    want = body.get("fields") or {}
+    if not isinstance(ids, list) or not ids or len(ids) > 20000 or not all(isinstance(i, str) for i in ids):
+        raise ValueError("ids must be a non-empty list")
+    if not isinstance(want, dict) or not any(want.get(f) for f in tag_write.FIELDS):
+        raise ValueError("choose at least one of bpm, key, energy")
+    key_format = "camelot" if body.get("key_format") == "camelot" else "musical"
+    wanted, plan = set(ids), []
+    for m in ensure_default():
+        for e in load_cat(m["slug"]):
+            if e["id"] not in wanted:
+                continue
+            wanted.discard(e["id"])
+            path = library_path(e)
+            vals = _tag_values(e, want, key_format)
+            if not path:
+                reason = tag_write.R_MISSING
+            elif not _path_within_library(path):
+                reason = "outside your music folders"
+            elif all(v is None for v in vals.values()):
+                reason = "nothing to write"
+            else:
+                reason = tag_write.check(path, vals)
+            plan.append((e, m["slug"], path, vals, reason))
+    return plan
+
+def _tag_root(path):
+    """The music folder (deepest library root) that holds this file: what gets approved."""
+    rp = os.path.realpath(path)
+    best = None
+    for r in get_library_roots():
+        rr = os.path.realpath(r)
+        if rp.startswith(rr.rstrip(os.sep) + os.sep) and (best is None or len(rr) > len(best)):
+            best = rr
+    return best
+
+def _tags_set_sizes(by_slug):
+    """{slug: {id: size}} → the entries' stored file_size, so our own write is no 'change'."""
+    with _FS_LOCK:
+        for slug, sizes in by_slug.items():
+            ents = load_cat(slug)
+            for e in ents:
+                if e["id"] in sizes:
+                    e["file_size"] = sizes[e["id"]]
+            save_cat(slug, ents)
+
+def _cleanup_inflight():
+    """At startup: a tag write cut off mid-run (a yanked stick) left temps in these folders."""
+    try:
+        with open(TAGS_INFLIGHT) as f:
+            folders = json.load(f)
+    except (OSError, ValueError):
+        return
+    for d in folders if isinstance(folders, list) else []:
+        if isinstance(d, str):
+            try: tag_write.cleanup_temps(absolute_form(d), older_than_s=0)
+            except OSError: pass
+    try: os.remove(TAGS_INFLIGHT)
+    except OSError: pass
+
+try:
+    _cleanup_inflight()          # at import, so WSGI and the app both run it
+except Exception as _e:
+    print(f"  tag-write temp cleanup skipped: {_e}")
+
+@app.route("/export/tags/preview", methods=["POST"])
+def export_tags_preview():
+    if (denied := _needs_pro()): return denied
+    try:
+        plan = _tag_plan(request.get_json(silent=True) or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    ok = [p for p in plan if p[4] is None]
+    return jsonify({"count": len(plan), "writable": len(ok),
+                    "skipped": [{"path": p[2] or p[0].get("filename"), "reason": p[4]} for p in plan if p[4]],
+                    "folders": sorted({_tag_root(p[2]) for p in ok if _tag_root(p[2])})})
+
+@app.route("/export/tags/write", methods=["POST"])
+def export_tags_write():
+    if (denied := _needs_pro()): return denied
+    if not _tags_settings()["enabled"]:
+        return jsonify({"error": "Writing tags into files is switched off in Settings.", "tag_write_disabled": True}), 409
+    try:
+        plan = _tag_plan(request.get_json(silent=True) or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    ok = [p for p in plan if p[4] is None]
+    for root in sorted({_tag_root(p[2]) for p in ok if _tag_root(p[2])}):
+        if not _is_approved("tag_write", root):
+            return _approval_required("tag_write", root)
+    folders = sorted({os.path.dirname(p[2]) for p in ok})
+    atomic_json_dump(TAGS_INFLIGHT, [store_path(d) for d in folders])
+    run = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    done, skipped, sizes = [], [{"path": p[2] or p[0].get("filename"), "reason": p[4]} for p in plan if p[4]], {}
+    try:
+        for e, slug, path, vals, _ in ok:
+            try:
+                res = tag_write.write(path, vals)
+            except tag_write.TagWriteError as err:
+                skipped.append({"path": path, "reason": err.reason}); continue
+            done.append({"id": e["id"], "slug": slug, "path": store_path(path), "old": res["old"],
+                         "size": res["size"], "mtime": res["mtime"]})
+            sizes.setdefault(slug, {})[e["id"]] = res["size"]
+            # Saved after EVERY file, so a run cut off midway can still be undone.
+            os.makedirs(TAGS_TRASH_DIR, exist_ok=True)
+            atomic_json_dump(os.path.join(TAGS_TRASH_DIR, run + ".json"),
+                             {"run": run, "at": datetime.now().isoformat(timespec="seconds"), "files": done})
+    finally:
+        try: os.remove(TAGS_INFLIGHT)
+        except OSError: pass
+        if sizes:
+            _tags_set_sizes(sizes)
+    usage_event("export", fmt="tags", tracks=len(done))
+    return jsonify({"ok": True, "run": run if done else None, "written": len(done), "skipped": skipped})
+
+@app.route("/export/tags/restore", methods=["POST"])
+def export_tags_restore():
+    """Undo a tag-writing run: the old values go back into each file it wrote, unless the
+    file changed since (another app edited it), which is skipped with that reason."""
+    if (denied := _needs_pro()): return denied
+    run = (request.get_json(silent=True) or {}).get("run")
+    if not isinstance(run, str) or not re.fullmatch(r"\d{8}-\d{6}-\d{6}", run):
+        return jsonify({"error": "run required"}), 400
+    path = os.path.join(TAGS_TRASH_DIR, run + ".json")
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return jsonify({"error": "That tag write can no longer be undone."}), 404
+    restored, skipped, sizes = 0, [], {}
+    for rec in doc.get("files") or []:
+        ap = absolute_form(rec.get("path") or "")
+        try:
+            res = tag_write.restore(ap, rec.get("old") or {}, rec.get("size"), rec.get("mtime"))
+        except tag_write.TagWriteError as err:
+            skipped.append({"path": ap, "reason": err.reason}); continue
+        restored += 1
+        sizes.setdefault(rec.get("slug"), {})[rec.get("id")] = res["size"]
+    if sizes:
+        _tags_set_sizes({k: v for k, v in sizes.items() if k})
+    try: os.replace(path, path[:-5] + ".undone.json")
+    except OSError: pass
+    return jsonify({"ok": True, "restored": restored, "skipped": skipped})
+
 
 @app.route("/export/collect", methods=["POST"])
 def export_collect():

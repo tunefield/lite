@@ -10095,6 +10095,7 @@ function openSettings()  {
   const m = document.getElementById('settings-modal');
   if (m) m.style.display = 'block';
   window.renderExportApprovals?.();   // export.js: what Tunefield may write outside its folder
+  window.tagsRefresh?.();             // export.js: the opt-in tag-writing switch
 }
 // pilot 10766
 function closeSettings() {

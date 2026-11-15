@@ -16,7 +16,7 @@ function traktorKeyValue(root, mode) {
 }
 // Release switches (Boss, 15 Nov): the riskier 1.1.0 exports can be turned off before the
 // candidate with one line each. Off hides the menu item; nothing else changes.
-const EXPORT_SWITCHES = { arrangement: true };
+const EXPORT_SWITCHES = { arrangement: true, tagWrite: true };
 
 // A small modal for export choices (export.js only). `html` may hold inputs with a
 // data-field attribute; OK resolves with {field: value}, Cancel/×/backdrop with null.
@@ -116,6 +116,7 @@ async function proSettingsAction() {
   _proRender();
 }
 proRefresh();
+setTimeout(() => tagsRefresh(), 0);   // tag-writing switch state for the export menu (E4)
 function openProCard() {
   // Time to first export: without a key, opening the Pro card IS the export attempt
   // (with a key, exportAs stamps it past the gate).
@@ -139,6 +140,9 @@ function openExportMenu(ev) {
   for (const [k, id] of [['arrangement', 'exp-ableton-arr']]) {
     const el = document.getElementById(id); if (el) el.hidden = !EXPORT_SWITCHES[k];
   }
+  // Tag writing shows only when the release switch is on AND the user turned it on in Settings.
+  const tw = document.getElementById('exp-tags');
+  if (tw) tw.hidden = !(EXPORT_SWITCHES.tagWrite && _tagsOn);
   // Lite: two entry points. The set panel's button exports the open set; the List's exports
   // what the filters show.
   const btn   = ev?.currentTarget || document.getElementById('c-export-btn');
@@ -223,6 +227,7 @@ async function exportAs(kind) {
   if (kind === 'ableton-arr') { exportArrangement(rows, name, baseName); return; }
   if (kind === 'serato')      { exportSerato(rows, name, baseName); return; }
   if (kind === 'collect')     { exportCollect(rows, name, baseName); return; }
+  if (kind === 'tags')        { exportTags(rows); return; }
   if (kind === 'm3u8-abs') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, true),  'audio/x-mpegurl');
   if (kind === 'm3u8-rel') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, false), 'audio/x-mpegurl');
   if (kind === 'rekordbox') downloadBlob(`${baseName}.rekordbox.xml`, buildRekordboxXml(rows, name), 'application/xml');
@@ -456,6 +461,7 @@ async function exportAls(rows, name, baseName, extra) {
 // exact path and writes nothing; we ask, record the OK (per Mac, or on the stick for a
 // stick folder) and retry once. Declining writes nothing.
 const APPROVAL_TEXT = {
+  tag_write: p => `Tunefield will write BPM, key and energy into music files in this folder:\n\n${p}\n\nEach run is shown first, old values are saved and Undo puts them back.\n\nAllow this ${p.startsWith('/Volumes/') ? 'for that drive' : 'on this Mac'}? You can remove it later in Settings → Export locations.`,
   collect_folder: p => `Tunefield will copy sets into this folder (a sub-folder per set):\n\n${p}\n\nIt never replaces a file there without asking.\n\nAllow this? You can remove it later in Settings → Export locations.`,
   serato_crate: p => `Tunefield will write Serato crates into Serato's own folder:\n\n${p}\n\nOnly crate files it is asked to export; it never changes your Serato library or other crates.\n\nAllow this ${p.startsWith('/Volumes/') ? 'for that drive' : 'on this Mac'}? You can remove it later in Settings → Export locations.`,
   rekordbox_bridge: p => `Tunefield will write its Rekordbox file here, and update it on every Rekordbox bridge export:\n\n${p}\n\nRekordbox only reads it; your Rekordbox collection is never changed.\n\nAllow this on this Mac? You can remove it later in Settings → Export locations.`,
@@ -573,6 +579,66 @@ async function exportCollect(rows, name, baseName) {
               + (j.failed.length ? ` · ${j.failed.length} failed (${j.failed[0].reason})` : ''), { duration: 6000 });
   } catch (err) { showToast('Collect failed: ' + err.message); }
 }
+// ── Tags into your files (1.1.0, E4) ────────────────────────────────────────
+// Strictly opt-in (Settings), previewed and confirmed every run, each music folder
+// approved once, old values saved first, Undo in the header. tag_write.py on the server
+// never writes a file in place and checks the audio is untouched.
+let _tagsOn = false;
+async function tagsRefresh() {
+  try { _tagsOn = !!(await fetch('/export/tags/settings').then(r => r.json())).enabled; } catch (_) { _tagsOn = false; }
+  const st = document.getElementById('tags-settings-state'), b = document.getElementById('tags-settings-btn');
+  if (st) st.textContent = _tagsOn ? 'On' : 'Off';
+  if (b) b.textContent = _tagsOn ? 'Turn off' : 'Turn on';
+  const row = document.getElementById('tags-settings-row');
+  if (row) row.hidden = !EXPORT_SWITCHES.tagWrite;
+}
+async function tagsToggle() {
+  if (!_tagsOn) {
+    const v = await tfDialog({ title: 'Write tags into music files', ok: 'Turn on', html:
+      `<p style="margin:0">Adds <b>Write BPM, key &amp; energy into files</b> to Export. It writes only those three fields into MP3, FLAC, M4A/AAC/ALAC and AIFF files (never title, artist or genre); other formats are left alone.</p>
+       <p style="margin:0">Every run shows what it will change and asks first. The old values are saved, and Undo puts them back.</p>
+       <p style="margin:0;color:var(--muted);font-size:12px">The file is replaced with an updated copy, so Rekordbox, Traktor or a CDJ may read it again. The audio itself is never changed.</p>` });
+    if (!v) return;
+  }
+  await fetch('/export/tags/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !_tagsOn }) });
+  await tagsRefresh();
+  showToast(_tagsOn ? 'Tag writing is on: find it under Export' : 'Tag writing is off');
+}
+async function exportTags(rows) {
+  const ids = rows.map(e => e.id).filter(Boolean);
+  if (!ids.length) { showToast('No tracks to write'); return; }
+  const pick = await tfDialog({ title: 'Write BPM, key & energy into files', ok: 'Next', html:
+    `<div><label style="margin-right:12px"><input type="checkbox" data-field="bpm" checked> BPM</label>
+      <label style="margin-right:12px"><input type="checkbox" data-field="key" checked> Key</label>
+      <label><input type="checkbox" data-field="energy"> Energy (1–10)</label></div>
+     <div>Key as <label style="margin-right:10px"><input type="radio" name="kf" data-field="musical" checked> Am, C#</label>
+      <label><input type="radio" name="kf" data-field="camelot"> Camelot 8A</label></div>` });
+  if (!pick) return;
+  const body = { ids, fields: { bpm: !!pick.bpm, key: !!pick.key, energy: !!pick.energy }, key_format: pick.camelot ? 'camelot' : 'musical' };
+  const post = (url, b) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+  const plan = await (await post('/export/tags/preview', body)).json().catch(() => null);
+  if (!plan || plan.error) { showToast('Tag writing: ' + (plan?.error || 'no answer')); return; }
+  const fields = ['bpm', 'key', 'energy'].filter(f => body.fields[f]).map(f => f === 'bpm' ? 'BPM' : f[0].toUpperCase() + f.slice(1)).join(', ');
+  const why = {}; plan.skipped.forEach(s => { why[s.reason] = (why[s.reason] || 0) + 1; });
+  const ok = await tfDialog({ title: 'Write tags — check before writing', ok: `Write into ${plan.writable} file${plan.writable === 1 ? '' : 's'}`, html:
+    `<p style="margin:0">Writes <b>${esc(fields)}</b> into <b>${plan.writable}</b> of ${plan.count} file${plan.count === 1 ? '' : 's'}.</p>
+     ${Object.keys(why).length ? `<p style="margin:0;color:var(--muted)">Left alone: ${Object.entries(why).map(([r, n]) => `${n} (${esc(r)})`).join(', ')}.</p>` : ''}
+     <p style="margin:0">The old values are saved first; <b>Undo</b> (top bar) puts them back.</p>` });
+  if (!ok || !plan.writable) return;
+  showToast(`Writing tags into ${plan.writable} file${plan.writable === 1 ? '' : 's'}…`, { duration: 60000 });
+  try {
+    const r = await withApproval(() => post('/export/tags/write', body));
+    if (!r) { showToast('Nothing written: the music folder needs your OK first'); return; }
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    showToast(`Tags written into ${j.written} file${j.written === 1 ? '' : 's'}` + (j.skipped.length ? ` · ${j.skipped.length} left alone` : ''), { duration: 6000 });
+    if (j.run) window.tfUndoPush?.(`writing tags into ${j.written} files`, async () => {
+      const u = await (await post('/export/tags/restore', { run: j.run })).json().catch(() => ({}));
+      showToast(u.error ? 'Undo failed: ' + u.error
+        : `Old tags restored in ${u.restored} file${u.restored === 1 ? '' : 's'}` + (u.skipped?.length ? ` · ${u.skipped.length} changed since, left alone` : ''));
+    });
+  } catch (err) { showToast('Tag writing failed: ' + err.message); }
+}
 // ── Arrangement mix (1.1.0, E6) ─────────────────────────────────────────────
 // One continuous mix in Live's Arrangement view. Mark: end to end at one tempo with the
 // user's overlap, and the dialog says plainly that downbeats are not lined up.
@@ -688,4 +754,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportCollect, editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportTags, tagsToggle, tagsRefresh, exportCollect, editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
