@@ -68,11 +68,17 @@ sed -E 's/ · built [0-9-]+/ · built -/' static/manual.html > "$MT/committed"
 cmp -s "$MT/fresh" "$MT/committed" || {
   rm -rf "$MT"; echo "manual.html does not match MANUAL.md — run: python3 scripts/build_manual.py, commit"; exit 1; }
 rm -rf "$MT"
+# 1.1.0: sticks are made by the app (Settings > USB stick), never by dragging. The DMG must say so
+# (Mark's ruling via Boss, 15 Nov 2026); Lite owns DMG-README.txt, this only refuses a release without it.
+grep -qF "Settings > USB stick" packaging/DMG-README.txt \
+  || { echo "DMG-README.txt lacks the 'Settings > USB stick' line for stick users; refusing" >&2; exit 1; }
 if [ "$CHECK_ONLY" = "1" ]; then
   echo "preflight OK: $VER at $(git rev-parse --short HEAD), tree clean, not tagged, manual current"; exit 0
 fi
-# Debug #51: a run that dies at notarization used to leave a NEW DMG beside an OLD USB zip under the
-# final release names. Clear both before anything is built, so a failed run never leaves a mixed pair.
+# Debug #51: a run that dies at notarization used to leave a NEW DMG beside an OLD artifact under the
+# final release names. Clear them before anything is built. The USB zip is retired from 1.1.0 (Mark's
+# U1 ruling, 15 Nov 2026: the app puts itself on a stick, Settings > USB stick); a stale one of this
+# version is still removed so nobody uploads it by mistake.
 rm -f "dist/Tunefield-Lite-$VER-arm64.dmg" "dist/Tunefield-Lite-$VER-arm64-USB.zip"
 # A --no-notarize build must never carry the names the GitHub Release expects.
 SUFFIX=""; [ "$NOTARIZE" = "0" ] && SUFFIX="-UNNOTARIZED"
@@ -82,6 +88,11 @@ trap 'rm -rf "$STAGE"' EXIT
 
 echo "== build ($VER) =="
 "$VENV/bin/pyinstaller" --noconfirm Tunefield.spec
+# Settings > USB stick writes these next to the app on a stick; a bundle without them cannot do it.
+for f in USB-README.txt tunefield-doctor.sh M2-MONITOR.md; do
+  cmp -s "packaging/$f" "$APP/Contents/Resources/usb/$f" \
+    || { echo "bundle lacks usb/$f (or it differs from packaging/$f): Settings > USB stick would fail; aborting" >&2; exit 1; }
+done
 
 echo "== sign =="
 find "$APP" -type f \( -name "*.dylib" -o -name "*.so" \) \
@@ -97,13 +108,14 @@ echo "signature verifies"
 
 if [ "$NOTARIZE" = "1" ]; then
   echo "== notarize app (waits for Apple) =="
-  # The app is stapled first and THEN copied into the DMG and the USB zip, so both carry a
+  # The app is stapled first and THEN copied into the DMG, so the DMG copy, and every stick copy
+  # Settings > USB stick makes from it, carries a
   # ticket. Stapling only the DMG left the app inside it unstapled (debug sweep, 2 Nov 2026).
   APPZIP="$STAGE/notarize-app.zip"
   rm -f "$APPZIP"
   ditto -c -k --keepParent "$APP" "$APPZIP"
   xcrun notarytool submit "$APPZIP" --keychain-profile tunefield-notary --wait
-  xcrun stapler staple "$APP" || { echo "app staple failed — neither the DMG nor the USB zip would verify offline; aborting" >&2; exit 1; }
+  xcrun stapler staple "$APP" || { echo "app staple failed — neither the DMG nor a stick copy would verify offline; aborting" >&2; exit 1; }
 fi
 
 echo "== dmg =="
@@ -123,34 +135,14 @@ if [ "$NOTARIZE" = "0" ]; then
   echo "   The DMG is signed but NOT notarized and NOT stapled."
   echo "   Gatekeeper will refuse it on another Mac until it is."
   echo "   To finish: re-run this script without --no-notarize (it notarizes and staples the"
-  echo "   app first, so the DMG and the USB zip both carry it, then notarizes the DMG)."
+  echo "   app first, so the DMG and every stick copy carry it, then notarizes the DMG)."
 else
 echo "== notarize (waits for Apple) =="
 xcrun notarytool submit "$DMG" --keychain-profile tunefield-notary --wait
 xcrun stapler staple "$DMG"
 fi
-echo "== USB zip =="
-mkdir -p "$STAGE/usb/Tunefield-USB"
-cp -R "$APP" "$STAGE/usb/Tunefield-USB/"
-touch "$STAGE/usb/Tunefield-USB/PORTABLE"
-cp packaging/USB-README.txt "$STAGE/usb/Tunefield-USB/READ ME FIRST.txt"
-cp LICENSE NOTICE.md "$STAGE/usb/Tunefield-USB/"
-cp packaging/tunefield-doctor.sh packaging/M2-MONITOR.md "$STAGE/usb/Tunefield-USB/"
-ZIP="dist/Tunefield-Lite-$VER-arm64-USB$SUFFIX.zip"
-rm -f "$ZIP"
-# --norsrc --noextattr --noqtn: keep AppleDouble (._*) entries OUT of the zip. Plain ditto -c
-# wrote 1,378 of them into the beta8 zip (one per file carrying an xattr). On APFS they fold
-# back into invisible attributes on extract, so every local test passed; on a FAT32 stick —
-# what a DJ's USB actually is, because CDJs need it — extracting them produces DOUBLED junk
-# (._._X__, 2,742 files INSIDE the sealed bundle), the seal breaks ("a sealed resource is
-# missing or invalid"), Gatekeeper rejects it and the kernel SIGKILLs it at exec (exit 137,
-# empty log). The ._ sidecars FAT32 writes by itself for a normal Finder copy (1,371) are
-# tolerated — seal valid, app runs — so a clean zip needs no user workaround. Found
-# 2026-09-25 on Mark's own TUNEFIELD stick. COPYFILE_DISABLE=1 does NOT affect ditto.
-ditto --norsrc --noextattr --noqtn -c -k --keepParent "$STAGE/usb/Tunefield-USB" "$ZIP"
-
 echo "== verdicts =="
 spctl -a -t open --context context:primary-signature -v "$DMG" || true
 spctl -a -t exec -v "$APP" || true
-shasum -a 256 "$DMG" "$ZIP"
+shasum -a 256 "$DMG"
 echo "release $VER done"

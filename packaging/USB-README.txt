@@ -1,5 +1,5 @@
-TUNEFIELD LITE — portable (USB) build
-=====================================
+TUNEFIELD LITE — on a USB stick
+===============================
 
   Needs a Mac with Apple Silicon (M1 or newer) and macOS 14 Sonoma or newer.
   Intel Macs are not supported.
@@ -22,45 +22,29 @@ WHAT THIS IS
   "not found" until the drive holding them is connected.
 
 FIRST LAUNCH
-  Releases are signed and notarized by Apple: double-click Tunefield.app and it
-  opens like any other app, in its own window, on every machine you plug into.
-  It starts on Add music — pick a folder and it analyses everything in it.
-  (On some setups it opens a browser tab at http://localhost:5050 instead —
-  that page is the app, same thing.)
+  Double-click Tunefield.app. It opens like any other app, in its own window,
+  on every Mac you plug into. It starts on Add music — pick a folder and it
+  analyses everything in it. (On some setups it opens a browser tab at
+  http://localhost:5050 instead — that page is the app, same thing.)
 
   macOS may ask before Tunefield reads a folder you pick (Music, Documents, an
   external drive). Allow it: Tunefield only reads the folders you add.
 
-ONLY IF macOS BLOCKS IT — unsigned test builds
-  An unsigned or un-notarized test build is blocked once per machine.
+UPDATING TO A NEW VERSION
+  On your Mac, open Tunefield (from Applications, or straight from the
+  download), then Settings > USB stick > Update. It swaps only the app;
+  data/ and PORTABLE stay as they are, and so does your library.
+  Quit Tunefield on the stick first. Don't drag an app or a folder onto the
+  stick yourself: Settings > USB stick does it the safe way.
 
-  macOS 15 Sequoia and NEWER (incl. 26 Tahoe):
-    1. Double-click Tunefield.app. You get a warning. Click Done/Cancel.
-    2. Apple menu > System Settings > Privacy & Security
-    3. Scroll to Security: "Tunefield.app was blocked to protect your Mac"
-    4. Click "Open Anyway", then authenticate (Touch ID or password)
-    5. Double-click Tunefield.app again, and click Open
+YOUR LIBRARY HAS A BACKUP
+  Tunefield keeps a copy of your library in a hidden folder at the top of this
+  stick, .tunefield-backup. Leave it there: if this Tunefield-USB folder is ever
+  replaced or deleted, Tunefield offers to bring your library back.
 
-  macOS 14 Sonoma:
-    1. RIGHT-CLICK (or Ctrl-click) Tunefield.app > Open
-    2. Click Open in the dialog
-
-  ALWAYS WORKS, either version — paste into Terminal, replacing the path with
-  wherever this folder actually is (drag the .app onto the Terminal window to
-  fill the path in for you). The "Operation not permitted" lines it prints on
-  a stick are harmless:
-
-      xattr -dr com.apple.quarantine /Volumes/YOUR-STICK/Tunefield-USB/Tunefield.app
-
-IF IT WON'T OPEN FROM A USB STICK AT ALL (no warning, it just never appears)
-  Sticks formatted for CDJs (FAT32/exFAT) can't hold Mac file attributes, so
-  macOS parks them in hidden "._" files beside each real file. Normally harmless -
-  but if a copy ever went wrong, they can break the app's Apple seal and macOS
-  silently refuses to start it. One line in Terminal cleans them up:
-
-      dot_clean -m /Volumes/YOUR-STICK/Tunefield-USB
-
-  Then double-click the app again.
+IF IT WON'T OPEN FROM THE STICK
+  On your Mac, open Tunefield, then Settings > USB stick > Repair. It puts a
+  fresh copy of the app on the stick and leaves your library alone.
 
 FREE, EXCEPT EXPORT
   The Field, sets, Up next, Set tools and Repair are free, with no account.
@@ -84,24 +68,9 @@ HOW PORTABLE MODE WORKS
   computer's own data folder instead, so the library on this stick appears to
   have vanished. Nothing is lost - put the file back and it returns.
 
-UPDATING TO A NEW VERSION
-  Your library lives in the data/ folder next to the app, not in the app. To
-  update, swap ONLY the app:
-    1. Quit Tunefield.
-    2. Unzip the new download on your Mac, not on the stick.
-    3. On the stick, drag the old Tunefield.app to the Trash. Leave data/ and
-       the PORTABLE file where they are.
-    4. Drag the new Tunefield.app from the unzipped folder into the stick's
-       Tunefield-USB folder, next to data/.
-  Don't drag the whole new Tunefield-USB folder onto the stick: Finder would
-  replace the old folder, data/ included, and your library with it.
-  The first launch asks once to open an app from the internet, as before.
-
 SOMETHING BROKEN, OR JUST CONFUSING?
   Use the Feedback button (top right) - it opens a short form with a
   diagnostics snapshot already filled in. Or email mark@tunefield.app.
-  For a quick health check of this stick, run tunefield-doctor.sh (next to the
-  app) in Terminal and paste what it prints.
 
 NOTES
   * Quit by closing the Tunefield window in the menu bar / Dock, or Cmd-Q.

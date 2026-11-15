@@ -90,6 +90,12 @@ datas += [
     # .app nor the .dmg nor the USB zip carried it (2026-08-29 legal sweep).
     ("LICENSE", "."),
     ("NOTICE.md", "."),
+    # Settings > USB stick (1.1.0) puts the app on a stick and writes these beside it, read from
+    # <bundle>/usb/ (sys._MEIPASS). LICENSE and NOTICE.md come from "." above. They replace the
+    # retired USB zip, which used to carry them (Mark's U1 ruling, 15 Nov 2026).
+    ("packaging/USB-README.txt", "usb"),
+    ("packaging/tunefield-doctor.sh", "usb"),
+    ("packaging/M2-MONITOR.md", "usb"),
 ]
 
 import os as _os
