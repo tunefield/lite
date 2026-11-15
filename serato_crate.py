@@ -80,7 +80,9 @@ def read_crate(data):
 
 
 def crate_filename(name):
-    s = re.sub(r'[\x00-\x1f\x7f/\\:]', "_", str(name))
+    # Windows-forbidden characters too (\ / : * ? " < > |): a stick goes to Windows
+    # laptops, where Serato also runs, and those names arrive mangled (Release & QA).
+    s = re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]', "_", str(name))
     s = s.lstrip(". ").rstrip(". ")
     while "%%" in s:
         s = s.replace("%%", "%")

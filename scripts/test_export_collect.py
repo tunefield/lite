@@ -89,6 +89,11 @@ try:
     finally:
         shutil.disk_usage = real
     check("no temp file left behind", not [f for f in os.listdir(dest) if f.startswith((".tftmp-", "._"))])
+    odd = os.path.join(src, 'Best Of? <3 "live".mp3'); open(odd, "wb").write(b"x" * 10)
+    j = J(c.post("/export/collect", json={"name": 'Set*? <1>|', "target": target, "tracks": [{"path": odd, "label": "x"}]}))
+    pd = os.path.join(target, "Set__ _1__")
+    check("Windows-forbidden characters are replaced in folder and file names",
+          j.get("dest") == pd and os.listdir(pd) and sorted(os.listdir(pd))[0] == '01 Best Of_ _3 _live_.mp3', (j, os.listdir(pd) if os.path.isdir(pd) else None))
     check("bad bodies answer 400", [c.post("/export/collect", json=b).status_code for b in (
         {"name": "x", "target": "rel/dir", "tracks": tracks},
         {"name": "x", "target": target, "tracks": []},

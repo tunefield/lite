@@ -97,6 +97,8 @@ try:
     xml = gzip.decompress(r.data) if r.status_code == 200 else b""
     check("E6 route: Arrangement set with clips in ArrangerAutomation", r.status_code == 200 and xml.count(b"<AudioClip ") >= 3
           and b'SelectedDocumentViewInMainWindow Value="0"' in xml, r.status_code)
+    check("Windows-forbidden characters never reach a crate name",
+          serato_crate.crate_filename('Best Of? <3 "live"*|') == "Best Of_ _3 _live___.crate", serato_crate.crate_filename('Best Of? <3 "live"*|'))
     check("bad bodies answer 400", [c.post("/export/serato", json=b).status_code for b in
           ({"name": "", "paths": paths}, {"name": "x", "paths": []}, {"name": "x", "paths": ["rel/a.mp3"]})] == [400, 400, 400])
 finally:

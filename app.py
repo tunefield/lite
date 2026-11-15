@@ -4290,7 +4290,10 @@ def export_collect():
         return jsonify({"error": "tracks must be a non-empty list with absolute paths"}), 400
     if not os.path.isdir(target):
         return jsonify({"error": "That folder doesn't exist any more."}), 400
-    safe = re.sub(r'[\x00-\x1f/\\:]', "_", name.strip()).strip(". ")[:120] or "Tunefield set"
+    # Names that work on every system the copy may travel to: Windows forbids \ / : * ? " < > |
+    # and trailing dots/spaces, and a collected stick often ends up on a Windows laptop.
+    portable = lambda n: re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]', "_", n).rstrip(". ") or "_"
+    safe = portable(name.strip()).strip(". ")[:120] or "Tunefield set"
     dest = os.path.join(target, safe)
     width = max(2, len(str(len(tracks))))
     plan, missing = [], []
@@ -4298,7 +4301,7 @@ def export_collect():
         src = t["path"]
         if not os.path.isfile(src):
             missing.append(src); continue
-        fname = f"{i:0{width}d} {os.path.basename(src)}"
+        fname = portable(f"{i:0{width}d} {os.path.basename(src)}")
         out = os.path.join(dest, fname)
         size = os.path.getsize(src)
         there = os.path.getsize(out) if os.path.isfile(out) else None
