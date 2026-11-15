@@ -33,19 +33,30 @@ ONLY IF macOS BLOCKS IT — unsigned test builds
 
 FREE, EXCEPT EXPORT
   The Field, sets, Up next, Set tools and Repair are free, with no account.
-  Export (Rekordbox, Traktor, Ableton, M3U8, CSV) is Tunefield Pro: on sale
-  in January 2027 for €79, one-time, or €59 if you sign up at
-  tunefield.app/pro before then. Your sets are kept, ready to export when
-  Pro arrives.
+  Export is Tunefield Pro: Rekordbox, Traktor, Ableton (Session or
+  Arrangement), Serato crates, M3U8, CSV, a set sheet, collecting a set into a
+  folder, and (if you switch it on) writing BPM, key and energy into your
+  files. Pro is a one-time purchase and keeps working in every later version.
+  Get your key at tunefield.app/pro. Your sets are kept, ready to export as
+  soon as Pro is unlocked.
+
+  Have a key? Settings > Pro, paste it, Unlock. It is checked on this Mac, no
+  account.
 
 WHERE YOUR DATA LIVES
   ~/Library/Application Support/Tunefield Lite
   Fields, sets, covers, ratings and tags live there; display settings live in
   the app's own browser storage.
-YOUR MUSIC IS NEVER MOVED OR CHANGED - Tunefield analyses your files where they
-  already are. Besides its measurements it keeps one thing: a playback cache of
-  FLAC and Ogg tracks you have played in the app (max 4 GB, oldest dropped
-  first, safe to delete). Deleting the app does not touch your music.
+YOUR MUSIC IS NEVER MOVED - Tunefield analyses your files where they already
+  are. It changes them only if you switch on Settings > Write tags into music
+  files and confirm a run (BPM, key and energy only; Undo puts the old values
+  back). Besides its measurements it keeps one thing: a playback cache of FLAC
+  and Ogg tracks you have played in the app (max 4 GB, oldest dropped first,
+  safe to delete). Deleting the app does not touch your music.
+
+UPDATING TO A NEW VERSION
+  Drag the new Tunefield.app onto the Applications folder and choose Replace.
+  Your library in ~/Library/Application Support/Tunefield Lite stays as it is.
 
 SOMETHING BROKEN, OR JUST CONFUSING?
   Use the Feedback button (top right) - it opens a short form with a
