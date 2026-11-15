@@ -4066,6 +4066,28 @@ def _backup_loop():
         time.sleep(1800)
 
 
+_COVERS_REBUILD = {"state": None, "made": 0}
+
+def _rebuild_covers():
+    """After a restore: the backup holds no covers, so make them again (embedded art, then
+    side-car and folder art) for every track whose file is reachable. Fill-only, in the
+    background; tracks whose music isn't connected can be done later from Repair."""
+    marker = os.path.join(DATA_DIR, stick_backup.COVERS_MARKER)
+    _COVERS_REBUILD["state"] = "running"
+    for m in ensure_default():
+        for e in load_cat(m["slug"]):
+            if not cover_path(e["id"]):
+                p = library_path(e)
+                if p and extract_cover(e["id"], p, e.get("filename")):
+                    _COVERS_REBUILD["made"] += 1
+    try:
+        os.remove(marker)
+    except OSError:
+        pass
+    _COVERS_REBUILD["state"] = "done"
+    usage_event("covers_rebuilt", made=_COVERS_REBUILD["made"])
+
+
 @app.route("/backup/status", methods=["GET"])
 def backup_status():
     """On a stick: the backup there, the last run, and a backup to offer back, if any."""
@@ -4077,7 +4099,8 @@ def backup_status():
     meta = stick_backup.read_meta(h) if h else None
     return jsonify({"on_stick": True, "where": h, "backup": meta and {k: meta.get(k) for k in
                     ("made_at", "tracks", "fields", "sets", "bytes")}, "last": _BACKUP_LAST,
-                    "offer": stick_backup.offer(TUNEFIELD_ROOT), "restored": restored})
+                    "offer": stick_backup.offer(TUNEFIELD_ROOT), "restored": restored,
+                    "covers": _COVERS_REBUILD})
 
 
 @app.route("/backup/choose", methods=["POST"])
@@ -4103,7 +4126,7 @@ def backup_choose():
         def _quit():
             _wait_for_requests()
             os._exit(0)
-        threading.Timer(1.5, _quit).start()
+        threading.Timer(4.0, _quit).start()     # time to read "Tunefield is closing" (U-13)
     return jsonify({"ok": True, "quitting": True})
 
 
@@ -5377,6 +5400,8 @@ _WINDOW_MODE_ON = os.environ.get("TUNEFIELD_WINDOW", "1") != "0"
 if __name__ == "__main__":
     if ON_STICK:
         threading.Thread(target=_backup_loop, daemon=True).start()
+        if os.path.isfile(os.path.join(DATA_DIR, stick_backup.COVERS_MARKER)):
+            threading.Thread(target=_rebuild_covers, daemon=True).start()
     desired = int(os.environ.get("PORT", 5050))
     existing = _existing_instance(desired)
     if existing:

@@ -15,9 +15,10 @@ stick, beside the old app, and swaps by rename. The rules, which Release & QA te
     run tidies up or rolls back before anything else.
   * It refuses while Tunefield runs from that folder (by real path, translocated copies
     included), on a read-only stick, short of space, or when the stick is newer.
-  * The copy carries no extended attributes, resource forks or quarantine, so FAT32
-    gets no ._ files inside the bundle and the stick app opens without a Gatekeeper
-    prompt or translocation on any Mac.
+  * The copy carries no quarantine and no copied extended attributes or resource forks,
+    so the stick app opens without a Gatekeeper prompt or translocation on any Mac.
+    FAT32/exFAT still get one com.apple.provenance ._ sidecar per file (the kernel adds
+    it); codesign, stapler and spctl accept those, and the space rule counts them.
 
 Choosing the stick and confirming is the approval (E0) for that one run; nothing is
 recorded. Test hooks (env, as TUNEFIELD_TEST_HOST_ID; a double-click never sets them):
@@ -37,13 +38,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 MSG = {
     "running": "Tunefield is open from this stick. Quit it there, then try again.",
-    "newer": "This stick has Tunefield {v}, newer than this Mac's {mine}. Update Tunefield on this Mac first.",
-    "readonly": "This stick is read-only.",
+    "newer": "This stick has Tunefield {v}, newer than this Mac's {mine}. Update Tunefield on this Mac first, "
+             "from the latest download.",
+    "readonly": "This stick is read-only: locked, or formatted for Windows (NTFS). Unlock it, or use a stick "
+                "formatted as FAT32, exFAT or APFS.",
     "space": "Not enough space on this stick: needs {need} free, has {free}.",
     "portable": "This copy runs from a stick. To update a stick, open Tunefield on your Mac "
                 "(from Applications, or straight from the download).",
     "nobundle": "Only the downloaded app can put itself on a stick.",
-    "notfolder": "{name} on this stick is a file, not a folder.",
+    "notfolder": "{name} on this stick is a file, not a folder. Rename or move it, then look again.",
     "busy": "A stick is already being written. Wait for it to finish.",
     "verify": "The copy on the stick didn't check out, so the old app was left as it was. Try again.",
     "gone": "That folder is no longer on a connected stick.",
@@ -370,8 +373,9 @@ def _doc_source(src):
 
 
 def _copy(payload, dest, total):
-    """ditto --norsrc --noextattr --noqtn: no ._ files, xattrs or quarantine on the stick (the
-    flags the USB zip was made with, for the same reason). Progress is the staged byte count."""
+    """ditto --norsrc --noextattr --noqtn: no quarantine and no copied xattrs or resource forks
+    on the stick (the flags the USB zip was made with). FAT32/exFAT still get a provenance ._
+    sidecar per file, which the seal accepts. Progress is the staged byte count."""
     proc = subprocess.Popen(["/usr/bin/ditto", "--norsrc", "--noextattr", "--noqtn", payload, dest],
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     hit = set()
@@ -397,9 +401,11 @@ def _restore(folder):
     meta = stick_backup.read_meta(stick_backup.home(folder)) or {}
     _set(phase="restore", pct=0)
     kept = stick_backup.restore(folder)
-    return (f"The library is back from the backup of {(meta.get('made_at') or '')[:16].replace('T', ' ')} "
-            f"({meta.get('tracks', 0)} track{'' if meta.get('tracks') == 1 else 's'})."
-            + (f" What was there before is kept in {os.path.basename(kept)}, beside it." if kept else ""))
+    return (f"The library is back from the stick's backup ({meta.get('tracks', 0)} track"
+            f"{'' if meta.get('tracks') == 1 else 's'})."
+            + (f" What was there before is in {os.path.basename(kept)}, beside it; delete that folder "
+               "once you are happy with the library." if kept else "")
+            + " Cover art is made again from your music files the first time Tunefield opens from the stick.")
 
 
 def run(folder, action, payload, note="", restore=None, version=""):

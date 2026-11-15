@@ -112,6 +112,18 @@ try:
           and manifest(kept) == replaced, kept)
     check("…nothing is offered any more", sb.offer(F) is None)
 
+    check("…and marked for its cover art to be made again", os.path.isfile(os.path.join(data, sb.COVERS_MARKER)))
+    # the stick app rebuilds covers from the music files (embedded, side-car, folder art) and clears the mark
+    music = os.path.join(TMP, "music"); os.makedirs(music)
+    open(os.path.join(music, "a.mp3"), "wb").write(b"\x00" * 2000)
+    open(os.path.join(music, "cover.jpg"), "wb").write(b"\xff\xd8\xff\xe0" + b"0" * 500)
+    os.remove(os.path.join(data, "catalogs", "_meta.json")); tf.ensure_default()
+    tf.save_cat("default", [{"id": "cv1", "filename": "a.mp3", "library_file": tf.store_path(os.path.join(music, "a.mp3")), "data": {}},
+                            {"id": "cv2", "filename": "gone.mp3", "library_file": "/nowhere/gone.mp3", "data": {}}])
+    tf._rebuild_covers()
+    check("cover rebuild: art for the reachable track, the mark cleared", tf.cover_path("cv1") and not tf.cover_path("cv2")
+          and tf._COVERS_REBUILD == {"state": "done", "made": 1} and not os.path.exists(os.path.join(data, sb.COVERS_MARKER)), tf._COVERS_REBUILD)
+
     # Start fresh
     shutil.rmtree(data); os.makedirs(data, exist_ok=True); library(data, 2, sets=0)
     r = c.post("/backup/choose", json={"choice": "fresh"}, headers=TOKEN)

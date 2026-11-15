@@ -12,14 +12,19 @@ let _usbPoll = null, _usbVersion = '';
 
 const _size = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.round(n / 1e6) + ' MB';
 const _name = p => p.split('/').pop();
-const _when = iso => (iso || '').slice(0, 16).replace('T', ' ');
+// The same date form as the tag Undo (export.js _tagsWhen): "15 Nov, 22:49" in the user's locale.
+const _when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
 const _n = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const _lib = b => `${_n(b.tracks, 'track')} in ${_n(b.fields, 'Field')}, ${_n(b.sets, 'set')}`;
+const _now = b => b.now_tracks ? `now has ${_n(b.now_tracks, 'track')}` : 'is empty now';
+const COVERS = 'Cover art is not in the backup: Tunefield makes it again from your music files, '
+             + 'in the background, the first time it opens after the library is back.';
 let _usbOffers = {};
 
 async function usbRefresh() {
   const el = document.getElementById('usb-sticks');
   if (!el || _usbPoll) return;                     // a run draws its own progress
+  if (!el.innerHTML.trim()) el.innerHTML = '<span class="ea-none">Looking for sticks…</span>';
   const job = await fetch('/usb/job').then(r => r.ok ? r.json() : null).catch(() => null);
   if (job && !job.done) { usbWatch(); return; }    // Settings reopened mid-run
   const j = await fetch('/usb/sticks').then(r => r.ok ? r.json() : null).catch(() => null);
@@ -43,7 +48,7 @@ async function usbRefresh() {
       // The stick's library backup, when the library there is gone or much smaller: always
       // offered, never automatic (U1 safety net). A fresh install asks inside its own dialog.
       if (o.restore && s.installs.length && (!o.refusal || o.action === 'newer'))
-        rows.push(`<div class="usb-row"><span class="ea-path">Backup from ${esc(_when(o.restore.made_at))}: ${esc(_lib(o.restore))}</span>
+        rows.push(`<div class="usb-row"><span class="ea-path">The library here ${_now(o.restore)}. Backup from ${esc(_when(o.restore.made_at))}: ${esc(_lib(o.restore))}</span>
           <button class="btn-sm" data-folder="${esc(o.folder)}" data-action="restore" data-stick="${esc(s.name)}">Bring library back</button></div>`);
     }
   }
@@ -60,7 +65,8 @@ async function usbRun(folder, action, stick) {
   if (action === 'restore') {
     const ok = await window.tfDialog({ title: 'Bring the library back on ' + on, ok: 'Bring it back',
       html: `<p>The backup from ${esc(_when(b.made_at))} holds ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included).</p>
-             <p>The library in <b>${where}</b> now has ${_n(b.now_tracks, 'track')}. It is kept in a folder beside it, not deleted.</p>` });
+             <p>The library in <b>${where}</b> ${_now(b)}. Whatever is there is moved to a folder beside it (data-before-restore-…), not deleted; you can delete that folder once you are happy with the library.</p>
+             <p>${COVERS}</p>` });
     if (ok) _usbStart(folder, action);
     return;
   }
@@ -114,9 +120,14 @@ async function backupRefresh() {
   row.hidden = false;
   const why = { space: 'skipped: not enough space on the stick', toobig: 'skipped: the library is too big for it',
                 failed: 'could not be written', shrunk: 'kept as it was: the library here is much smaller' }[j.last?.status];
+  // Where it is, in plain sight (Mark, 23:04: no prompt, so the disclosure must be visible).
+  const where = 'in the hidden .tunefield-backup folder at the top of this stick';
   document.getElementById('backup-settings-state').textContent = j.backup
-    ? `Saved ${_when(j.backup.made_at)} on this stick (${_n(j.backup.tracks, 'track')})` + (why ? `; last try ${why}` : '')
-    : (why ? `Not saved yet: ${why}` : 'Not saved yet. Tunefield saves one shortly after it starts.');
+    ? `Saved ${_when(j.backup.made_at)} (${_n(j.backup.tracks, 'track')}), ${where}` + (why ? `. Last try ${why}` : '')
+    : (why ? `Not saved yet: ${why}` : `None yet. Tunefield saves one ${where} a minute after it starts, once the library has tracks.`);
+  // "Ask me later" leaves the offer standing; this is the way back to it without a relaunch.
+  const btn = document.getElementById('backup-restore-btn');
+  if (btn) { btn.hidden = !j.offer; btn.onclick = () => backupOffer(j.offer); }
   return j;
 }
 
@@ -126,16 +137,22 @@ async function backupBoot() {
   const j = await backupRefresh();
   if (!j?.on_stick) return;
   if (j.restored) {
-    showToast(j.restored.ok ? 'The library is back from the stick\'s backup.' + (j.restored.kept ? ` What was here before is kept in ${j.restored.kept}.` : '')
-                            : 'The library could not be brought back: ' + j.restored.error, { duration: 9000 });
+    showToast(j.restored.ok ? 'The library is back from the stick\'s backup.'
+                              + (j.restored.kept ? ` What was here before is in ${j.restored.kept}; delete that folder once you are happy.` : '')
+                              + ' Cover art is being made again from your music files.'
+                            : 'The library could not be brought back: ' + j.restored.error, { duration: 12000 });
     return;
   }
-  const b = j.offer;
-  if (!b) return;
-  const ok = await window.tfDialog({ title: 'Bring your library back?', ok: 'Continue', cancel: 'Ask me later',
-    html: `<p>This stick has a backup of your library from ${esc(_when(b.made_at))}: ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included). The library here now has ${_n(b.now_tracks, 'track')}.</p>
-      <label style="display:block"><input type="radio" name="bk-r" data-field="back" checked> Bring it back. Tunefield closes; open it again and the library is there. What is here now is kept in a folder beside it.</label>
-      <label style="display:block"><input type="radio" name="bk-r" data-field="fresh"> Start fresh. The backup is put aside and not offered again.</label>` });
+  if (j.offer) backupOffer(j.offer);
+}
+
+async function backupOffer(b) {
+  // The OK button names the choice, so nothing reads as a vague "Continue" (Application Tests U-3).
+  const pick = (label) => `onchange="document.getElementById('tfd-ok').textContent='${label}'"`;
+  const ok = await window.tfDialog({ title: 'Bring your library back?', ok: 'Bring it back', cancel: 'Ask me later',
+    html: `<p>This stick has a backup of your library from ${esc(_when(b.made_at))}: ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included). The library here ${_now(b)}.</p>
+      <label style="display:block"><input type="radio" name="bk-r" data-field="back" checked ${pick('Bring it back')}> Bring it back. Tunefield closes; open it again and the library is there. What is here now is moved to a folder beside it, not deleted. ${COVERS}</label>
+      <label style="display:block;margin-top:6px"><input type="radio" name="bk-r" data-field="fresh" ${pick('Start empty')}> Start with an empty library (the backup is put aside and not offered again; the library in it stays gone).</label>` });
   if (!ok) return;
   const r = await tfConfirmFetch('/backup/choose', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                      body: JSON.stringify({ choice: ok.back ? 'restore' : 'fresh' }) });
@@ -143,7 +160,10 @@ async function backupBoot() {
   if (!r.ok) { showToast(k.error || 'That did not work.', { duration: 7000 }); return; }
   if (k.quitting) window.tfDialog({ title: 'Tunefield is closing', ok: 'OK', cancel: '',
     html: '<p>Open Tunefield again: your library is brought back as it starts.</p>' });
-  else backupRefresh();
+  else {
+    showToast('The backup is put aside. Tunefield saves a new one once this library has tracks.', { duration: 7000 });
+    backupRefresh();
+  }
 }
 
 // Add music's hint, for a stick user who opened the download only to update a stick: shown

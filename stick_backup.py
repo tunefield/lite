@@ -28,6 +28,7 @@ SKIP_FILES = {"analysis_queue.json"}
 CAP = 300 * 1024 * 1024
 HEADROOM = 100 * 1024 * 1024
 STAGING, MARKER = "data.restoring", ".restore-complete"
+COVERS_MARKER = ".covers-rebuild"        # in a restored data/: make the cover art again
 REQUEST = ".tunefield-restore"          # in the install folder: "restore at the next start"
 META = "backup.json"
 VOLUMES_PREFIX = "/Volumes/"            # tests point this and volume_of at fake sticks
@@ -275,6 +276,9 @@ def restore(folder):
     _copy_files([(os.path.join(dp, n), os.path.join(stg, os.path.relpath(os.path.join(dp, n), cur)))
                  for dp, _, fns in os.walk(cur) for n in fns if n != META and not n.startswith("._")],
                 "restore-copy")
+    # The backup holds no covers (they are made again): the stick app rebuilds them from the
+    # music files at its next start, in the background, and removes this marker (U-2).
+    open(os.path.join(stg, COVERS_MARKER), "w").close()
     open(os.path.join(stg, MARKER), "w").close()
     _pause("restore-swap")
     data = os.path.join(folder, "data")

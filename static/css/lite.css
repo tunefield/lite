@@ -58,6 +58,7 @@
 /* Settings → USB stick: a heading per stick, then one row per install with its button. */
 .usb-head { margin-top: 6px; }
 .usb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding-left: 10px; }
+.usb-row .ea-path { white-space: normal; overflow: visible; }
 .usb-why { padding-left: 10px; color: var(--muted); }
 .field-empty-msg { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 /* The cover never hides the way out: FIELDS stays above it, so another Field can always be
