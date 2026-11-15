@@ -763,6 +763,9 @@
     <div class="cp-item" onclick="exportAs('ableton')" title="Ableton Live Set — two alternating deck tracks, one scene per track, clips warped to detected BPM, scene tempo follows the set. Opens in any Live edition">
       <span style="flex:1">Ableton Live Set</span><span style="color:var(--muted);font-size:11px">.als</span>
     </div>
+    <div class="cp-item" id="exp-ableton-arr" onclick="exportAs('ableton-arr')" title="Ableton Live Set as one continuous mix in Arrangement view: tracks end to end on two decks at one tempo, overlapping by the bars you choose. Tempos are matched; downbeats are not">
+      <span style="flex:1">Ableton Live Set — Arrangement mix</span><span style="color:var(--muted);font-size:11px">.als</span>
+    </div>
     <div class="cp-item" onclick="exportAs('traktor')" title="Traktor NML — drop into Traktor's Playlists folder or import via File menu">
       <span style="flex:1">Traktor NML</span><span style="color:var(--muted);font-size:11px">.nml</span>
     </div>
@@ -796,6 +799,21 @@
         </div>
         <div id="pro-key-msg" role="status" style="font-size:12px;color:var(--ink-red)" hidden></div>
       </div>
+    </div>
+  </div>
+</div>
+<!-- One small dialog for export choices that need words and a number (Arrangement overlap,
+     Serato targets, tag fields, collect size). export.js tfDialog() fills and resolves it. -->
+<div id="tf-dialog" style="display:none;position:fixed;inset:0;z-index:320;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
+  <div data-drag role="dialog" aria-labelledby="tfd-title" style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(500px,95vw);max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
+      <span id="tfd-title" style="font-weight:700;font-size:15px"></span>
+      <button class="cp-close" id="tfd-x">×</button>
+    </div>
+    <div id="tfd-body" style="padding:18px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.6;overflow-y:auto"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 18px 16px">
+      <button class="btn-sm" id="tfd-cancel">Cancel</button>
+      <button class="btn-sm an-open" id="tfd-ok">OK</button>
     </div>
   </div>
 </div>

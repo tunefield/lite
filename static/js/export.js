@@ -14,6 +14,30 @@ function traktorKeyValue(root, mode) {
   if (mode === 'minor') return 12 + i;
   return null;
 }
+// Release switches (Boss, 15 Nov): the riskier 1.1.0 exports can be turned off before the
+// candidate with one line each. Off hides the menu item; nothing else changes.
+const EXPORT_SWITCHES = { arrangement: true };
+
+// A small modal for export choices (export.js only). `html` may hold inputs with a
+// data-field attribute; OK resolves with {field: value}, Cancel/×/backdrop with null.
+function tfDialog({ title, html, ok = 'OK', cancel = 'Cancel' }) {
+  return new Promise(resolve => {
+    const m = document.getElementById('tf-dialog');
+    document.getElementById('tfd-title').textContent = title;
+    document.getElementById('tfd-body').innerHTML = html;
+    document.getElementById('tfd-ok').textContent = ok;
+    document.getElementById('tfd-cancel').textContent = cancel;
+    const done = v => { m.style.display = 'none'; m.onclick = null; resolve(v); };
+    const collect = () => Object.fromEntries([...m.querySelectorAll('[data-field]')].map(el =>
+      [el.dataset.field, el.type === 'checkbox' ? el.checked : el.value]));
+    document.getElementById('tfd-ok').onclick = () => done(collect());
+    document.getElementById('tfd-cancel').onclick = () => done(null);
+    document.getElementById('tfd-x').onclick = () => done(null);
+    m.onclick = ev => { if (ev.target === m) done(null); };
+    m.style.display = 'flex';
+    document.getElementById('tfd-ok').focus();
+  });
+}
 // pilot 8459
 let exportSource = 'filtered'; // 'filtered' | 'playlist'
 // pilot 8460
@@ -112,6 +136,9 @@ function openExportMenu(ev) {
   if (ev) ev.stopPropagation();
   if (exportLocked()) { openProCard(); return; }
   const popup = document.getElementById('export-menu');
+  for (const [k, id] of [['arrangement', 'exp-ableton-arr']]) {
+    const el = document.getElementById(id); if (el) el.hidden = !EXPORT_SWITCHES[k];
+  }
   // Lite: two entry points. The set panel's button exports the open set; the List's exports
   // what the filters show.
   const btn   = ev?.currentTarget || document.getElementById('c-export-btn');
@@ -191,6 +218,7 @@ async function exportAs(kind) {
   if (kind === 'ableton') {
     exportAls(rows, name, baseName); return;
   }
+  if (kind === 'ableton-arr') { exportArrangement(rows, name, baseName); return; }
   if (kind === 'm3u8-abs') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, true),  'audio/x-mpegurl');
   if (kind === 'm3u8-rel') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, false), 'audio/x-mpegurl');
   if (kind === 'rekordbox') downloadBlob(`${baseName}.rekordbox.xml`, buildRekordboxXml(rows, name), 'application/xml');
@@ -335,8 +363,8 @@ function rbExportName() {
   return (exportSource === 'playlist' ? activePlaylist?.name : activeCatalog) || 'Field';
 }
 // pilot 8697
-async function exportAls(rows, name, baseName) {
-  const payload = { name: name || baseName, tracks: rows.map(e => {
+async function exportAls(rows, name, baseName, extra) {
+  const payload = { name: name || baseName, ...(extra || {}), tracks: rows.map(e => {
     const d = e.data || {}, md = d.metadata || {}, r = d.rhythm || {}, h = d.harmony || {};
     const { artist, title } = trackArtistTitle(e);
     return { location: trackPath(e), artist, title,
@@ -401,6 +429,29 @@ async function renderExportApprovals() {
     _rbStatus = null;
     renderExportApprovals();
   });
+}
+// ── Arrangement mix (1.1.0, E6) ─────────────────────────────────────────────
+// One continuous mix in Live's Arrangement view. Mark: end to end at one tempo with the
+// user's overlap, and the dialog says plainly that downbeats are not lined up.
+async function exportArrangement(rows, name, baseName) {
+  const first = rows.find(e => (e.bpm_user || e.data?.rhythm?.bpm) > 0);
+  const tempo = first ? Math.round((first.bpm_user || first.data.rhythm.bpm) * 10) / 10 : 120;
+  let last = 8;
+  try { last = Math.max(0, Math.min(64, parseInt(localStorage.getItem('arr-overlap') || '8', 10) || 0)); } catch (_) {}
+  const v = await tfDialog({
+    title: 'Ableton Live Set — Arrangement mix',
+    ok: 'Export',
+    html: `<p style="margin:0">One continuous mix in Arrangement view: ${rows.length} tracks end to end on two decks at
+        <b>${tempo} BPM</b> (the first track's), each fading into the next.</p>
+      <label style="display:flex;align-items:center;gap:8px">Overlap
+        <input type="number" data-field="overlap" min="0" max="64" step="1" value="${last}" style="width:64px"> bars</label>
+      <p style="margin:0;color:var(--muted);font-size:12px">Tempos are matched, but downbeats and phrases are <b>not</b> lined up:
+        Tunefield doesn't know where each track's bar starts. In Live, nudge each clip onto the beat of the one before.</p>`,
+  });
+  if (!v) return;
+  const bars = Math.max(0, Math.min(64, parseInt(v.overlap, 10) || 0));
+  try { localStorage.setItem('arr-overlap', String(bars)); } catch (_) {}
+  exportAls(rows, name, `${baseName}-mix`, { view: 'arrangement', overlap_bars: bars });
 }
 // pilot 8724
 async function exportRbBridge(rows, name) {
@@ -493,4 +544,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

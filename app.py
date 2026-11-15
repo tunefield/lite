@@ -4263,9 +4263,15 @@ def export_als():
     if not entries:
         return jsonify({"error": "no exportable tracks (missing file paths)"}), 400
     try:
+        # view "arrangement" (1.1.0, E6): one continuous mix, clips end to end at one
+        # tempo with the user's overlap in bars. Tempo-matched only: no downbeat data.
+        view = "arrangement" if body.get("view") == "arrangement" else "session"
+        kw = {"view": view}
+        if view == "arrangement":
+            kw["overlap_bars"] = body.get("overlap_bars", 8)
         data = build_live_set(entries,
                               warp=bool(body.get("warp", True)),
-                              scene_tempo=bool(body.get("scene_tempo", True)))
+                              scene_tempo=bool(body.get("scene_tempo", True)), **kw)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     # No Content-Disposition: a set name with an en dash, emoji or curly quote in that
