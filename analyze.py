@@ -153,6 +153,21 @@ def get_metadata(filepath):
         t = _tags.read_tags(filepath)
     except Exception:
         t = {}
+    # A VBR MP3 without a Xing/Info frame: libsndfile guesses its length from the first
+    # frame's bitrate (57.8 s for a 240 s file) AND stops decoding there, so duration,
+    # bitrate and the scanned region were all wrong (debug sweep #10). CoreAudio (via
+    # audioread, header + packet scan, ~50 ms) knows the real length; when the two
+    # disagree by more than 5 %, take its length and decode through it too.
+    if filepath.lower().endswith(".mp3") and md.get("duration_sec"):
+        try:
+            import audioread
+            with audioread.audio_open(filepath) as f:
+                ad = float(f.duration)
+            if ad > 0 and abs(ad - md["duration_sec"]) > 0.05 * ad:
+                md["duration_sec"] = round(ad, 1)
+                md["_decode_via"] = "audioread"
+        except Exception:
+            pass
     # soundfile reports no bitrate, and it is a column users read. For constant-rate
     # files size/duration is exact; for VBR it is the average, which is what a bitrate
     # column means anyway.
@@ -854,7 +869,40 @@ FULL_TRACK_CAP = 300       # seconds (5 min) — ceiling for "full track". 900 s
                            # per worker on a 48-min mix, 12 GB for a 4-worker chunk (debug sweep, 2 Nov 2026)
 
 
-def _load_sampled(filepath, duration, frac, sr=22050):
+def _load_via_audioread(filepath, sr=22050, offset=0.0, duration=None, mono=True):
+    """Decode through audioread (CoreAudio on macOS): 16-bit interleaved buffers, cut to
+    [offset, offset+duration), mixed to mono, resampled to sr. Used only for files
+    libsndfile under-reads (see get_metadata); librosa's own audioread path is deprecated."""
+    import audioread
+    with audioread.audio_open(filepath) as f:
+        nsr, nch = int(f.samplerate), max(1, int(f.channels))
+        s0 = int(max(0.0, offset) * nsr) * nch
+        s1 = (s0 + int(duration * nsr) * nch) if duration else None
+        out, n = [], 0
+        for buf in f:
+            if s1 is not None and n >= s1:
+                break
+            a = np.frombuffer(buf, dtype="<i2")
+            lo = max(0, s0 - n)
+            hi = len(a) if s1 is None else min(len(a), s1 - n)
+            if hi > lo:
+                out.append(a[lo:hi])
+            n += len(a)
+    y = (np.concatenate(out).astype(np.float32) / 32768.0) if out else np.zeros(0, np.float32)
+    if nch > 1 and y.size:
+        y = y[: len(y) // nch * nch].reshape(-1, nch).mean(axis=1)
+    if y.size and nsr != sr:
+        y = librosa.resample(y, orig_sr=nsr, target_sr=sr)
+    return y, sr
+
+
+def _load(filepath, via=None, **kw):
+    if via == "audioread":
+        return _load_via_audioread(filepath, **kw)
+    return librosa.load(filepath, **kw)
+
+
+def _load_sampled(filepath, duration, frac, sr=22050, via=None):
     """Load `frac` of a track as several blocks spread evenly across it, concatenated.
 
     A partial scan that reads one contiguous window only ever hears one part of the
@@ -883,7 +931,7 @@ def _load_sampled(filepath, duration, frac, sr=22050):
         if off + blk > duration:
             off = max(0.0, duration - blk)
         try:
-            piece, sr = librosa.load(filepath, sr=sr, offset=off, duration=blk, mono=True)
+            piece, sr = _load(filepath, via, sr=sr, offset=off, duration=blk, mono=True)
         except Exception:
             continue
         if piece.size < taper * 2:
@@ -895,7 +943,7 @@ def _load_sampled(filepath, duration, frac, sr=22050):
     if not parts:
         # Nothing sampled cleanly — fall back to a plain contiguous read rather than
         # failing the whole analysis.
-        return librosa.load(filepath, sr=sr, offset=0.0, duration=min(duration, total), mono=True)
+        return _load(filepath, via, sr=sr, offset=0.0, duration=min(duration, total), mono=True)
     return np.concatenate(parts), sr
 
 
@@ -976,6 +1024,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
         return result
 
     duration = result["metadata"].get("duration_sec", 0)
+    via = result["metadata"].pop("_decode_via", None)     # internal: not stored
 
     # Full-track mode (duration_limit ≥ 9999) loads the whole file from the start, but
     # capped (FULL_TRACK_CAP) so a multi-hour podcast / DJ mix can't blow out memory on a
@@ -1019,9 +1068,9 @@ def analyze(filepath, duration_limit=60, verbose=True):
     try:
         log(f"Loading {round(load_dur)}s of audio (offset {round(offset)}s)...")
         if fractional and not full_track:
-            y, sr = _load_sampled(filepath, duration, duration_limit)
+            y, sr = _load_sampled(filepath, duration, duration_limit, via=via)
         else:
-            y, sr = librosa.load(filepath, sr=22050, offset=offset, duration=load_dur, mono=True)
+            y, sr = _load(filepath, via, sr=22050, offset=offset, duration=load_dur, mono=True)
 
         # A truncated file whose container header over-reports its length (interrupted
         # download, cut-off rip) can put `offset` past all decodable audio → empty array;
@@ -1035,7 +1084,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
             # answer beats an invisible track. (Mark's library, 2026-08-05.)
             log(f"offset {round(offset)}s past end of decodable audio — retrying from 0")
             offset = 0.0
-            y, sr = librosa.load(filepath, sr=22050, offset=0.0, duration=load_dur, mono=True)
+            y, sr = _load(filepath, via, sr=22050, offset=0.0, duration=load_dur, mono=True)
             if y is not None and getattr(y, "size", 0):
                 result.setdefault("warnings", []).append(
                     "file is shorter than its header claims — analysed from the start")
@@ -1092,8 +1141,25 @@ def analyze(filepath, duration_limit=60, verbose=True):
         # This measures the AUDIO: how strongly the onset envelope repeats at a fixed
         # period. Tall normalised autocorrelation peak in the plausible tempo band = a
         # clear, machine-like pulse; flat = rubato, ambient, free time.
+        # Onsets first: the pulse guard below needs them (and onset density further down).
+        onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
+        dur_s = max(1e-6, len(y) / float(sr))
+        # Too little audio to hold a tempo: a 0.5 s drum hit came out at a confident
+        # 143.6 BPM and sat in the Field as a track (debug sweep #11). Under 5 s or
+        # 4 onsets the audio's answer is "no pulse" (bpm 0). A BPM tag from the release
+        # (a tagged loop) still wins below, as it does everywhere else.
+        if dur_s < 5.0 or len(onsets) < 4:
+            tempo = 0.0
         pulse_clarity = 0.0
-        if onset_env.size > 8:
+        # Beatless material has no pulse to measure: on a near-constant onset envelope the
+        # normalised autocorrelation sits near 1 across the whole band, so a drone read as
+        # a machine-like pulse (0.975 on a pure tone) and inflated danceability (debug
+        # sweep #48). Benched by the Analysis Lab on 798 real tracks, 15 Nov 2026: no
+        # healthy track is touched. New analyses only.
+        _flat = onset_env.size == 0 or float(onset_env.std()) < 0.05 * float(onset_env.mean())
+        if tempo == 0 or len(onsets) < 4 or _flat:
+            pass
+        elif onset_env.size > 8:
             ac = librosa.autocorrelate(onset_env - onset_env.mean())
             if ac.size and ac[0] > 0:
                 ac = ac / ac[0]
@@ -1109,15 +1175,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
         # that could not be compared between tracks, and it never approached 1 (median
         # 0.127, p95 0.228). Events per second is an absolute quantity: it means the same
         # thing for every track, and it separates sparse dub from busy drum'n'bass.
-        onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
-        dur_s = max(1e-6, len(y) / float(sr))
         onset_density = float(len(onsets) / dur_s)
-        # Too little audio to hold a tempo: a 0.5 s drum hit came out at a confident
-        # 143.6 BPM and sat in the Field as a track (debug sweep #11). Under 5 s or
-        # 4 onsets the audio's answer is "no pulse" (bpm 0). A BPM tag from the release
-        # (a tagged loop) still wins below, as it does everywhere else.
-        if dur_s < 5.0 or len(onsets) < 4:
-            tempo = 0.0
 
         # A tempo written into the file by whoever released it beats one inferred from
         # the audio. Measured across this library on the tracks that carry a BPM tag,

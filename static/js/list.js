@@ -78,7 +78,7 @@ function saveRating(id, stars) {
   if (stars === 0) delete RATINGS[id];
   else RATINGS[id] = stars;
   localStorage.setItem('track-ratings', JSON.stringify(RATINGS));
-  if (typeof annoPush === 'function') annoPush('ratings');
+  if (typeof annoPush === 'function') annoPush('ratings', id);   // this track only (#20)
   // Ratings can drive size/colour/axes but live outside the catalog — no signature
   // sees them. Flag stale always; rebuild live only when rating is actually in use.
   if (typeof markFieldStale === 'function') markFieldStale({ live: _fieldUsesRating() });
@@ -108,24 +108,24 @@ function setRating(id, n, e) {
   });
 }
 // pilot 5914
-function saveTrackTags() {
+function saveTrackTags(id) {
   const raw = {};
   Object.entries(trackTags).forEach(([k,v]) => { raw[k] = [...v]; });
   localStorage.setItem('track-tags', JSON.stringify(raw));
-  if (typeof annoPush === 'function') annoPush('track_tags');
+  if (typeof annoPush === 'function') annoPush('track_tags', id);   // this track only (#20)
 }
 // pilot 5995
 function addTagToTrack(id, sel) {
   const tid = sel.value; if (!tid) return; sel.value = '';
   if (!trackTags[id]) trackTags[id] = new Set();
   trackTags[id].add(tid);
-  saveTrackTags();
+  saveTrackTags(id);
   applyFilters();
 }
 // pilot 6002
 function removeTag(id, tid, e) {
   e.stopPropagation();
-  if (trackTags[id]) { trackTags[id].delete(tid); saveTrackTags(); }
+  if (trackTags[id]) { trackTags[id].delete(tid); saveTrackTags(id); }
   applyFilters();
 }
 // pilot 6135

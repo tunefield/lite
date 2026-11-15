@@ -93,6 +93,16 @@ async function libRootAdd() {
     });
     const j = await res.json();
     if (j.error) { setInlineScan(false); showToast(j.error); return; }
+    // The folder belongs to another Field: say which, and move it here only on a yes.
+    if (j.owner) {
+      if (!confirm(`This folder belongs to the Field “${j.owner_name}”.\n\nMove it to this Field? Its tracks already in “${j.owner_name}” stay there.`)) {
+        setInlineScan(false); inp.value = ''; return false;
+      }
+      const mv = await fetch('/library/roots', { method: 'PATCH', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ path: j.path, cat: _analyseTargetCat() || null }) });
+      if (!mv.ok) { setInlineScan(false); showToast('Could not move the folder'); return false; }
+      j.already = false;
+    }
     // Re-add of an existing root → behave as "look for new files only". Force the
     // Hide-already-analysed filter on so the user sees just the diff against their library.
     if (j.already) {
@@ -164,7 +174,7 @@ async function libRootRemove(path) {
   await libRootsLoad();
   if (j && j.purged) {
     const msg = `Folder removed · ${j.purged} track${j.purged === 1 ? '' : 's'} removed from the Field (audio kept)`;
-    if (j.undoable) showEntriesUndoToast(msg); else showToast(msg);
+    if (j.undoable) showEntriesUndoToast(msg, j.snapshot); else showToast(msg);
     if (typeof loadCatalogMeta === 'function') loadCatalogMeta();
   }
   libScan();
@@ -426,6 +436,9 @@ async function _anPump() {
     }
   } finally {
     const wasCancelled = isScanCancelled(_anSpTok);
+    // The server has no cancel: a chunk in flight when Cancel is pressed is still decoded
+    // and committed. Count it as "may still land" and reload once it can have (#47).
+    const leftInFlight = (wasCancelled || _anAborted) ? _anInFlightSlice.length : 0;
     _anInFlight = 0;
     _anInFlightSlice = [];
     if (_anAborted && !wasCancelled && _anQueue.length) {
@@ -457,7 +470,7 @@ async function _anPump() {
       return ` \u2014 ${c === _anErrList.length ? 'all' : c}: ${k}`;
     })();
     showToast(wasCancelled
-      ? `Analyse cancelled: ${_anAdded} added so far`
+      ? `Analyse cancelled: ${_anAdded} added` + (leftInFlight ? `; up to ${leftInFlight} more that were in progress may still appear` : '')
       : _anAborted
         ? `Analyse stopped \u2014 ${_anAborted}`
         : `Analysis finished: ${anSummary()}`);
@@ -467,7 +480,12 @@ async function _anPump() {
     await loadCatalogMeta();
     // The Field is built from `catalog`; without this the new tracks only appeared after
     // leaving the tab and coming back (review, 2026-10-30).
-    if (_anAdded > 0) await loadCatalog();
+    // After a cancel or stop too, whatever _anAdded says: the in-flight chunk may have
+    // landed, and the Field drew the old catalog until a tab switch (debug sweep #47).
+    if (_anAdded > 0 || wasCancelled || _anAborted) await loadCatalog();
+    if (leftInFlight) setTimeout(async () => {
+      await loadCatalogMeta(); await loadCatalog(); window.updateTabCounts?.();
+    }, 30000);
     window.updateTabCounts?.();
     if (status) status.textContent = wasCancelled
       ? `Cancelled · ${anSummary()}`
@@ -533,7 +551,9 @@ function _analyseTargetCat() { return activeCatalog || ''; }
 // pilot 21295 — every bulk entry delete (folder removal, orphans, dedup) is snapshotted
 // server-side; this toast's Undo restores the latest snapshot. The confirm dialogs and the
 // manual promise it, so it has to exist (review, 2026-10-30).
-function showEntriesUndoToast(msg) {
+// `snapshot`: the name the delete answered with, so Undo restores exactly this deletion
+// and not whichever one happens to be newest (debug sweep #17).
+function showEntriesUndoToast(msg, snapshot) {
   let t = document.getElementById('entries-undo-toast');
   if (!t) {
     t = document.createElement('div'); t.id = 'entries-undo-toast';
@@ -554,12 +574,14 @@ function showEntriesUndoToast(msg) {
   };
   clearTimeout(t._tid);
   t._tid = setTimeout(hide, 10000);
-  t.querySelector('.undo-btn').onclick = async () => { clearTimeout(t._tid); hide(); await _undoDeletedEntries(); };
+  const undo = () => _undoDeletedEntries(snapshot);
+  t.querySelector('.undo-btn').onclick = async () => { clearTimeout(t._tid); hide(); await undo(); };
   // Also reachable from the header's undo long after the toast is gone.
-  window.tfUndoPush?.(msg.replace(/\.$/, '') || 'deleting entries', _undoDeletedEntries);
+  window.tfUndoPush?.(msg.replace(/\.$/, '') || 'deleting entries', undo);
 }
-async function _undoDeletedEntries() {
-  const r = await fetch('/repair/undo-entries', { method: 'POST' });
+async function _undoDeletedEntries(snapshot) {
+  const r = await fetch('/repair/undo-entries', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot ? { snapshot } : {}) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { showToast(j.error || 'Nothing to undo'); return; }
   showToast(`Restored ${j.restored} entr${j.restored === 1 ? 'y' : 'ies'}`);
@@ -683,7 +705,7 @@ async function addMusic(fromInput) {
   if (_upActive) cancelScan();   // new music first; the update resumes from what is left
   anShow('scanning', 'Looking through your folder…');
   const cat = _analyseTargetCat();
-  await libRootAdd();
+  if (await libRootAdd() === false) { anShow('idle'); return; }   // declined moving a folder
   await anAnalyseScanned(cat);
 }
 // Re-walk every folder of this Field and analyse what's new since last time.
@@ -734,6 +756,7 @@ window.onActiveCatalogChange = () => {
 // so an interrupted update needs no resume file: next time the offer shows what is left.
 let _upIds = [];          // stale track ids in the active Field, per the server
 let _upVersion = 0;       // the server's FEATURES_VERSION
+let _upChanged = 0;       // of those, files replaced on disk since their analysis (#13)
 let _upActive = false;
 async function staleCheck() {
   const cat = _analyseTargetCat();
@@ -742,7 +765,7 @@ async function staleCheck() {
     try {
       const r = await fetch('/library/stale?cat=' + encodeURIComponent(cat));
       const j = r.ok ? await r.json().catch(() => null) : null;
-      if (j && Array.isArray(j.ids)) { ids = j.ids; _upVersion = j.version || 0; }
+      if (j && Array.isArray(j.ids)) { ids = j.ids; _upVersion = j.version || 0; _upChanged = j.changed || 0; }
     } catch (_) {}
   }
   if (cat === _analyseTargetCat()) _upIds = ids;   // the Field may have changed meanwhile
@@ -752,12 +775,17 @@ async function staleCheck() {
 // resume offer.
 function offerUpdate() {
   if (_anActive || _upActive || !['idle', 'done'].includes(_anState) || !_upIds.length) return false;
-  const n = _upIds.length;
-  anShow('update', `${n.toLocaleString()} ${n === 1 ? 'track was' : 'tracks were'} analysed by an older version`);
+  const n = _upIds.length, ch = Math.min(_upChanged, n), old = n - ch;
+  const parts = [];
+  if (old) parts.push(`${old.toLocaleString()} ${old === 1 ? 'track was' : 'tracks were'} analysed by an older version`);
+  if (ch) parts.push(`${ch.toLocaleString()} ${ch === 1 ? 'file has' : 'files have'} changed on disk`);
+  anShow('update', parts.join(' · '));
   $('an-fill').style.width = '0%';
   $('an-eta').textContent = '';
-  $('lib-scan-status').textContent = 'This version measures tempo more precisely. Updating re-analyses '
-    + (n === 1 ? 'it' : 'them') + '; your ratings, tags, genres and BPM or key corrections stay as they are.';
+  $('lib-scan-status').textContent = (old ? 'This version measures tempo more precisely. ' : '')
+    + (ch ? 'A changed file was replaced since it was analysed. ' : '')
+    + 'Updating re-analyses ' + (n === 1 ? 'it' : 'them')
+    + '; your ratings, tags, genres and BPM or key corrections stay as they are.';
   return true;
 }
 async function updateOlderTracks() {

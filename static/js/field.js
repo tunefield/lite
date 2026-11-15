@@ -111,21 +111,38 @@ let trackTags = (() => {
 function getTrackTags(id) { return trackTags[id] || new Set(); }
 // pilot 5931
 const _annoQ = {};
+// Per-item changes (debug sweep #20): {section: Set(keys)}. A section queued WITH keys
+// is sent as a patch of just those tracks, so two windows rating different tracks no
+// longer overwrite each other; a section queued without keys (views, tag names) is sent
+// whole, as before.
+const _annoKeys = {};
 // pilot 5932
 let _annoT = null;
 // pilot 5933
-function annoPush(section) {
+function annoPush(section, key) {
   _annoQ[section] = true;
+  if (key == null) _annoKeys[section] = null;   // whole section from now on, until it is sent
+  else if (_annoKeys[section] !== null) (_annoKeys[section] ||= new Set()).add(String(key));
   clearTimeout(_annoT);
   _annoT = setTimeout(_annoFlush, 1500);
 }
 // pilot 5938
 function _annoSnapshot() {
-  const body = {};
-  if (_annoQ.ratings)    body.ratings = { ...RATINGS };
+  const body = {}, patch = {};
+  const keys = s => (_annoKeys[s] instanceof Set) ? _annoKeys[s] : null;
+  if (_annoQ.ratings) {
+    const k = keys('ratings');
+    if (k) patch.ratings = Object.fromEntries([...k].map(id => [id, RATINGS[id] ?? null]));
+    else body.ratings = { ...RATINGS };
+  }
   if (_annoQ.tags)       body.tags = Object.fromEntries(allTags.map(t => [t.id, { name: t.name, color: t.color }]));
-  if (_annoQ.track_tags) { const raw = {}; Object.entries(trackTags).forEach(([k, v]) => { if (v.size) raw[k] = [...v]; }); body.track_tags = raw; }
+  if (_annoQ.track_tags) {
+    const k = keys('track_tags');
+    if (k) patch.track_tags = Object.fromEntries([...k].map(id => [id, trackTags[id]?.size ? [...trackTags[id]] : null]));
+    else { const raw = {}; Object.entries(trackTags).forEach(([id, v]) => { if (v.size) raw[id] = [...v]; }); body.track_tags = raw; }
+  }
   if (_annoQ.views)      body.views = _viewsLoad();
+  if (Object.keys(patch).length) body.patch = patch;
   return body;
 }
 // pilot 5946 (rewritten). sendBeacon and keepalive fetch are capped at 64 KiB — WebKit
@@ -138,7 +155,8 @@ function _annoFlush(ev) {
   const body = _annoSnapshot();
   if (!Object.keys(body).length) return;
   const sections = Object.keys(_annoQ);
-  sections.forEach(k => delete _annoQ[k]);
+  const sentKeys = { ..._annoKeys };
+  sections.forEach(k => { delete _annoQ[k]; delete _annoKeys[k]; });
   const json = JSON.stringify(body);
   const hdrs = { 'Content-Type': 'application/json' };
   if (ev && (ev.type === 'pagehide' || ev.type === 'beforeunload')) {
@@ -149,7 +167,12 @@ function _annoFlush(ev) {
   fetch('/annotations', { method: 'POST', headers: hdrs, body: json })
     .then(r => { if (!r.ok) throw new Error(String(r.status)); _annoFailed = false; })
     .catch(() => {
-      sections.forEach(k => { _annoQ[k] = true; });
+      sections.forEach(k => {          // re-queue what was sent, merged with anything newer
+        _annoQ[k] = true;
+        const was = sentKeys[k], now = _annoKeys[k];
+        if (!(was instanceof Set) || now === null) _annoKeys[k] = null;
+        else _annoKeys[k] = now instanceof Set ? new Set([...was, ...now]) : was;
+      });
       if (!_annoFailed) { _annoFailed = true; showToast('Couldn’t save ratings and tags — retrying'); }
       clearTimeout(_annoT); _annoT = setTimeout(_annoFlush, 5000);
     });

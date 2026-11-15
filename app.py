@@ -688,16 +688,39 @@ def annotations_get():
 
 @app.route("/annotations", methods=["POST"])
 def annotations_post():
-    """Section-wise merge: the client sends only the top-level sections it changed
-    ({"ratings": {...}}), each replacing that section wholesale. Single-user app —
-    last write wins per section; the request-wide _FS_LOCK serialises writers."""
+    """Two forms, both merged under the request-wide _FS_LOCK:
+    - {"patch": {"ratings": {id: stars|null}, "track_tags": {id: [tag ids]|null},
+      "tags": {tag id: {name, color}|null}}}: per item, null deletes. Two windows editing
+      different tracks never overwrite each other; last write wins per track only
+      (debug sweep #20). This is what the page sends for ratings and track tags.
+    - {"ratings": {...}} etc.: that section replaced wholesale (views, tag names, and
+      pages from before 1.1.0)."""
     if not _same_origin_ok():
         return jsonify({"error": "cross-origin request refused"}), 403
     body = request.get_json(silent=True) or {}
     doc = _load_annotations()
     changed = []
+    patch = body.get("patch")
+    if isinstance(patch, dict):
+        valid = {
+            "ratings":    lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 5,
+            "track_tags": lambda v: isinstance(v, list) and all(isinstance(t, str) for t in v),
+            "tags":       lambda v: isinstance(v, dict),
+        }
+        for k, ok in valid.items():
+            items = patch.get(k)
+            if not isinstance(items, dict):
+                continue
+            sec = doc.get(k) if isinstance(doc.get(k), dict) else {}
+            for key, val in items.items():
+                if val is None or val == []:
+                    sec.pop(key, None)
+                elif ok(val):
+                    sec[key] = val
+            doc[k] = sec
+            changed.append(k)
     for k in ("ratings", "tags", "track_tags"):
-        if isinstance(body.get(k), dict):
+        if isinstance(body.get(k), dict) and k not in changed:
             doc[k] = body[k]
             changed.append(k)
     if isinstance(body.get("views"), list):
@@ -1024,7 +1047,21 @@ def library_roots_add():
         return jsonify({"error": f"Unknown Field: {cat}"}), 400
     cfg = load_config()
     roots = [_root_entry(r) for r in (cfg.get("library_roots") or [])]
-    if any(e["path"] in (stored, abs_path) for e in roots):
+    hit = next((e for e in roots if e["path"] in (stored, abs_path)), None)
+    if hit:
+        # A folder whose Field was deleted is simply taken over; one that belongs to
+        # another live Field is named, so the page can offer to move it. Before, both
+        # answered "already" and the folder could never be added again (debug sweep #21).
+        fields = {m["slug"]: m.get("name", m["slug"]) for m in ensure_default()}
+        owner = hit.get("cat")
+        if cat and owner and owner not in fields:
+            hit["cat"] = cat
+            cfg["library_roots"] = roots
+            save_config(cfg)
+            return jsonify({"ok": True, "path": stored, "absolute": abs_path, "cat": cat, "reassigned": True})
+        if cat and owner and owner != cat:
+            return jsonify({"ok": True, "path": stored, "already": True,
+                            "owner": owner, "owner_name": fields[owner]})
         return jsonify({"ok": True, "path": stored, "already": True})
     # NESTED folders are allowed (2026-08-02): a sub-folder of a big master folder can
     # be assigned to its own Tunefield — the scan attributes every file to its DEEPEST
@@ -1126,11 +1163,8 @@ def library_roots_remove():
                 gone = {e["id"] for e in under}
                 snap = _snapshot_entries_trash("remove-folder", {purge_slug: under})
                 save_cat(purge_slug, [e for e in entries if e["id"] not in gone])
-                for e in under:
-                    cp = cover_path(e["id"])
-                    if cp:
-                        try: os.unlink(cp)
-                        except OSError: pass
+                # Covers stay while the undo snapshot exists; the trash pruner removes
+                # them when it ages out (debug sweep #12: Undo restored tracks bare).
                 purged = len(under)
     return jsonify({"ok": True, "purged": purged, "undoable": bool(snap), "snapshot": snap})
 
@@ -1385,6 +1419,7 @@ def library_analyse():
                 "analyzed_at":   datetime.now().isoformat(timespec="seconds"),
                 "scan_duration": result.get("scan_fraction", duration),   # fraction actually decoded
                 "library_file":  store_path(path),   # in-place reference (relative when under root)
+                "file_size":     _file_size(path),   # a replaced file is spotted by this (#13)
                 "genre":         (result.get("metadata", {}) or {}).get("genre", ""),
                 "data":          result,
             }, None, telem
@@ -1769,7 +1804,7 @@ def _warn_once(key, msg):
 
 # Fields a re-analysis record may replace on an existing entry. Everything else on the
 # entry (genre, filename, corrections, provenance) belongs to the user or to Repair.
-_PATCH_FIELDS = ("data", "analyzed_at", "scan_duration")
+_PATCH_FIELDS = ("data", "analyzed_at", "scan_duration", "file_size")
 
 def _merge_journal(base, pending):
     """Apply journal records to `base`, in order. A plain record is a NEW entry (first
@@ -2062,6 +2097,41 @@ def _extract_cover(entry_id, audio_path, original_filename=None):
     return _extract_cover_ffmpeg(entry_id, audio_path, original_filename)
 
 
+_COVER_SMALL = {}          # (path, size, mtime) → shrunk bytes: one sips run per album folder
+def _small_cover(src, blob):
+    if len(blob) <= 300 * 1024:
+        return blob
+    try:
+        st = os.stat(src)
+        key = (src, st.st_size, int(st.st_mtime))
+    except OSError:
+        key = None
+    if key in _COVER_SMALL:
+        return _COVER_SMALL[key]
+    out = None
+    if os.path.exists("/usr/bin/sips"):
+        import subprocess as _sp, tempfile as _tf
+        fd, tmp = _tf.mkstemp(suffix=".jpg"); os.close(fd)
+        try:
+            r = _sp.run(["/usr/bin/sips", "-Z", "400", "-s", "format", "jpeg", src, "--out", tmp],
+                        capture_output=True, timeout=20)
+            if r.returncode == 0 and os.path.getsize(tmp) > 0:
+                with open(tmp, "rb") as f:
+                    out = f.read()
+        except Exception:
+            pass
+        finally:
+            try: os.remove(tmp)
+            except OSError: pass
+    if out is None and len(blob) <= 2 * 1024 * 1024:
+        out = blob
+    if key is not None and out is not None:
+        if len(_COVER_SMALL) >= 32:
+            _COVER_SMALL.pop(next(iter(_COVER_SMALL)), None)
+        _COVER_SMALL[key] = out
+    return out
+
+
 def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
     """Extract embedded cover via ffmpeg (when installed), then sidecar / folder images.
     Returns dest path or None. WAV/AIFF ID3-chunk art is tags.read_cover's job."""
@@ -2108,8 +2178,10 @@ def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
         p = os.path.join(audio_parent, name)
         if os.path.exists(p):
             candidates.append(p)
-    # Copied byte-for-byte, no resize: ffmpeg is not bundled, so the old ffmpeg resize
-    # meant shipped builds never picked up folder art. A PNG keeps its bytes under the
+    # Folder art is shrunk to 400 px by macOS's own sips (no bundled image library):
+    # byte-for-byte copies of 1400–3000 px covers, one per track, filled sticks and fed
+    # multi-MB textures to the Field (debug sweep #49). Small images are kept as they
+    # are; without sips, anything over 2 MB is skipped. A PNG keeps its bytes under the
     # .jpg name — embedded PNG art has always been stored that way, and browsers sniff
     # the image format regardless of the declared type.
     for src in candidates:
@@ -2117,6 +2189,9 @@ def _extract_cover_ffmpeg(entry_id, audio_path, original_filename=None):
             with open(src, "rb") as f:
                 blob = f.read(20 * 1024 * 1024 + 1)
             if len(blob) > 20 * 1024 * 1024 or not blob.startswith((b"\xff\xd8\xff", b"\x89PNG")):
+                continue
+            blob = _small_cover(src, blob)
+            if not blob:
                 continue
             os.makedirs(COVERS_DIR, exist_ok=True)
             with open(dest, "wb") as f:
@@ -2220,6 +2295,9 @@ def delete_catalog(slug):
     # Fold first so pending journal lines go to trash WITH the catalog — a leftover
     # journal would otherwise reappear inside a Field re-created under the same slug.
     fold_journal(slug)
+    # Its folders stay in config on purpose: a Field re-created under the same name picks
+    # them up again, and library_roots_add takes over a folder whose Field is gone, so
+    # it never blocks adding the folder elsewhere (debug sweep #21).
     # Default-safe: keep audio files unless caller explicitly opts in via delete_files=true.
     # delete_files=true is destructive → requires confirm token. Legacy ?keep_files=false is
     # ALSO honoured but now requires the token for parity.
@@ -2359,6 +2437,7 @@ def rescan_entry(entry_id):
             entry["data"]          = result
             entry["analyzed_at"]   = datetime.now().isoformat(timespec="seconds")
             entry["scan_duration"] = duration
+            entry["file_size"]     = _file_size(fpath)   # the analysis now matches this file (#13)
             save_cat(slug, entries)
         result["catalog_id"]    = entry_id
         result["has_file"]      = True
@@ -2380,6 +2459,23 @@ def rescan_entry(entry_id):
 # each result is one journal "patch" record, so a 15,000-track update costs what the
 # first analysis did. Idempotent: what is left is simply what is still stale, so an
 # interrupted run needs no resume file.
+def _file_size(path):
+    try:
+        return os.path.getsize(path)
+    except (OSError, TypeError):
+        return None
+
+def _is_changed(e, path=None):
+    """The file under this entry was replaced since it was analysed (debug sweep #13).
+    Size only: mtime is lost by a plain copy onto a stick, and would flag a whole library;
+    a different master or rip practically always differs in size. Entries analysed
+    before 1.1.0 carry no size and are never flagged."""
+    was = e.get("file_size")
+    if not isinstance(was, int):
+        return False
+    now = _file_size(path if path is not None else library_path(e))
+    return now is not None and now != was
+
 def _is_stale(e):
     d = e.get("data")
     if not isinstance(d, dict) or d.get("error"):
@@ -2395,16 +2491,19 @@ def library_stale():
     """Tracks in a Field analysed before the current FEATURES_VERSION whose file is
     still on disk. Missing files are counted, never offered: they would only fail."""
     slug = req_slug()
-    ids, missing = [], 0
+    ids, missing, changed = [], 0, 0
     for e in load_cat(slug):
-        if not _is_stale(e):
+        older = _is_stale(e)
+        path = library_path(e) if (older or isinstance(e.get("file_size"), int)) else None
+        moved = path is not None and _is_changed(e, path)
+        if not (older or moved):
             continue
-        if library_path(e):
-            ids.append(e["id"])
+        if path:
+            ids.append(e["id"]); changed += moved
         else:
             missing += 1
     return jsonify({"version": FEATURES_VERSION, "ids": ids, "count": len(ids),
-                    "missing": missing})
+                    "changed": changed, "missing": missing})
 
 
 @app.route("/library/reanalyse", methods=["POST"])
@@ -2429,7 +2528,7 @@ def library_reanalyse():
     errors, current = [], 0
     jobs = []
     for eid, path, e in todo:
-        if not _is_stale(e):
+        if not (_is_stale(e) or (path and _is_changed(e, path))):
             current += 1                      # already up to date: a non-event
         elif not path:
             errors.append({"id": eid, "error": "file not found"})
@@ -2459,7 +2558,8 @@ def library_reanalyse():
                 new_md[k] = old_md[k]
         rec = {"id": eid, "_patch": True, "data": result,
                "analyzed_at": datetime.now().isoformat(timespec="seconds"),
-               "scan_duration": result.get("scan_fraction", duration)}
+               "scan_duration": result.get("scan_fraction", duration),
+               "file_size": _file_size(path)}
         return eid, rec, None, {"fmt": fmt, "ms": int((time.time() - t0) * 1000)}
 
     workers = _analysis_workers()
@@ -2510,11 +2610,7 @@ def clear_catalog():
                 skipped_shared += 1
                 continue
             _safe_remove_audio(fpath, reason="clear_catalog")
-    for entry in entries:
-        cp = cover_path(entry["id"])
-        if cp:
-            try: os.unlink(cp)
-            except OSError: pass
+    # Covers stay while the undo snapshot exists (pruned with it, debug sweep #12).
     snap = _snapshot_entries_trash("clear-catalog", {slug: entries})
     save_cat(slug, [])
     return jsonify({"ok": True, "deleted": len(entries), "files_trashed": delete_files,
@@ -2551,10 +2647,7 @@ def delete_catalog_entry(entry_id):
             delete_file = False   # report accurately below
         else:
             file_trashed = _safe_remove_audio(fpath, reason="delete_entry")
-    cp = cover_path(entry_id)
-    if cp:
-        try: os.unlink(cp)
-        except OSError: pass
+    # The cover stays while the undo snapshot exists (pruned with it, debug sweep #12).
     snap = _snapshot_entries_trash("delete-entry", {slug: [entry]})
     save_cat(slug, [e for e in entries if e["id"] != entry_id])
     return jsonify({"ok": True, "slug": slug, "file_trashed": file_trashed,
@@ -2706,7 +2799,12 @@ def tracks_resolve():
     ids = body.get("ids")
     if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
         return jsonify({"error": "ids must be a list of strings"}), 400
-    want = set(ids[:500])
+    # One pass over the catalogs whatever the count, so the cap only guards against
+    # absurd bodies. It was 500, and ids past it were neither found nor missing: a big
+    # set showed "(missing track)" for tracks that exist (debug sweep #16). Anything
+    # over the cap is reported missing, never dropped.
+    RESOLVE_CAP = 50000
+    want, over = set(ids[:RESOLVE_CAP]), ids[RESOLVE_CAP:]
     found = {}
     for m in ensure_default():
         if not want:
@@ -2740,7 +2838,7 @@ def tracks_resolve():
                     "catalog_name": m.get("name", m["slug"]),
                 }
                 want.discard(e["id"])
-    return jsonify({"found": found, "missing": sorted(want)})
+    return jsonify({"found": found, "missing": sorted(want) + over})
 
 
 @app.route("/catalog/<entry_id>/cover")
@@ -3241,39 +3339,76 @@ def _snapshot_entries_trash(reason, removed_by_slug):
     if not any(removed_by_slug.values()):
         return None
     os.makedirs(ENTRIES_TRASH_DIR, exist_ok=True)
-    # Uniquify on same-second collisions (rapid bulk deletes) — a "-2" suffix keeps the
-    # lexicographic ordering the pruner and undo (newest = last) rely on.
-    base = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{reason}"
+    # Microseconds in the name keep it in time order. The old same-second "-2" suffix
+    # sorted BEFORE the plain name ('-' < '.'), so Undo restored the older snapshot and
+    # the pruner dropped the newer one (debug sweep #50).
+    now = datetime.now()
+    base = f"{now.strftime('%Y%m%d-%H%M%S-%f')}-{reason}"
     name, n = f"{base}.json", 1
     while os.path.exists(os.path.join(ENTRIES_TRASH_DIR, name)):
         n += 1
         name = f"{base}-{n}.json"
     atomic_json_dump(os.path.join(ENTRIES_TRASH_DIR, name), {
-        "at": datetime.now().isoformat(timespec="seconds"),
+        "at": now.isoformat(timespec="microseconds"),
         "reason": reason,
         "catalogs": removed_by_slug,
     })
-    # prune to the newest ENTRIES_TRASH_KEEP
+    # prune to the newest ENTRIES_TRASH_KEEP; a pruned snapshot takes its covers with it
     try:
-        snaps = sorted(f for f in os.listdir(ENTRIES_TRASH_DIR) if f.endswith(".json"))
-        for old in snaps[:-ENTRIES_TRASH_KEEP]:
+        for old in _entries_snaps()[:-ENTRIES_TRASH_KEEP]:
+            _drop_snapshot_covers(old)
             os.unlink(os.path.join(ENTRIES_TRASH_DIR, old))
     except OSError:
         pass
     return name
 
+_SNAP_STAMP = re.compile(r"^(\d{8}-\d{6})(?:-(\d{6})(?=-))?")
+def _entries_snaps():
+    """Entries-trash snapshot names, oldest first, by the time in the name (1.0.0 names
+    have no microseconds; their same-second '-N' copies order by N)."""
+    try:
+        names = [f for f in os.listdir(ENTRIES_TRASH_DIR) if f.endswith(".json") and not f.startswith(".")]
+    except FileNotFoundError:
+        return []
+    def key(f):
+        m = _SNAP_STAMP.match(f)
+        n = re.search(r"-(\d+)\.json$", f) if not (m and m.group(2)) else None
+        return (m.group(1) if m else "", int(m.group(2) or 0) if m else 0, int(n.group(1)) if n else 1)
+    return sorted(names, key=key)
+
+def _drop_snapshot_covers(name):
+    """Covers of a snapshot's entries that no catalog holds any more."""
+    try:
+        with open(os.path.join(ENTRIES_TRASH_DIR, name)) as f:
+            snap = json.load(f)
+    except (OSError, ValueError):
+        return
+    for entries in (snap.get("catalogs") or {}).values():
+        for e in entries or []:
+            eid = e.get("id") if isinstance(e, dict) else None
+            if eid and entry_index_lookup(eid)[0] is None:
+                cp = cover_path(eid)
+                if cp:
+                    try: os.unlink(cp)
+                    except OSError: pass
+
 @app.route("/repair/undo-entries", methods=["POST"])
 def repair_undo_entries():
-    """Restore the MOST RECENT entries-trash snapshot: re-append every entry whose id
-    is no longer present in its catalog, then delete the snapshot. Safe to call when
-    nothing exists (404)."""
-    try:
-        snaps = sorted(f for f in os.listdir(ENTRIES_TRASH_DIR) if f.endswith(".json"))
-    except FileNotFoundError:
-        snaps = []
-    if not snaps:
+    """Restore an entries-trash snapshot: re-append every entry whose id is no longer
+    present in its catalog, then delete the snapshot. Body {snapshot: name} restores
+    exactly the deletion the toast named (debug sweep #17); without it, the newest.
+    Safe to call when nothing exists (404)."""
+    snaps = _entries_snaps()
+    want = (request.get_json(silent=True) or {}).get("snapshot")
+    if want is not None:
+        if not isinstance(want, str) or want not in snaps:
+            return jsonify({"error": "That deletion can no longer be undone"}), 404
+        pick = want
+    elif snaps:
+        pick = snaps[-1]
+    else:
         return jsonify({"error": "nothing to undo"}), 404
-    path = os.path.join(ENTRIES_TRASH_DIR, snaps[-1])
+    path = os.path.join(ENTRIES_TRASH_DIR, pick)
     try:
         with open(path) as f:
             snap = json.load(f)
@@ -4212,7 +4347,14 @@ def playlists_delete(slug):
     if os.path.exists(p):
         trash_dir = os.path.join(PLAYLISTS_DIR, "_trash")
         os.makedirs(trash_dir, exist_ok=True)
-        shutil.move(p, os.path.join(trash_dir, f"{_safe_slug(slug)}.json"))
+        tp = os.path.join(trash_dir, f"{_safe_slug(slug)}.json")
+        # A weekly set name ("Saturday") is deleted again and again under one slug; move
+        # the earlier trashed copy aside instead of overwriting it (debug sweep #63).
+        # <slug>.json stays the newest, which is what /restore brings back.
+        if os.path.exists(tp):
+            shutil.move(tp, os.path.join(trash_dir,
+                        f"{_safe_slug(slug)}.{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"))
+        shutil.move(p, tp)
     state = pl_load_state()
     if state.get("active_slug") == slug:
         state["active_slug"] = meta[0]["slug"] if meta else None

@@ -139,7 +139,7 @@ const REPAIR_CATEGORIES = [
           const j = await r.json().catch(() => ({}));
           let msg = `Deleted ${j.deleted ?? 0} orphan entr${(j.deleted ?? 0) === 1 ? 'y' : 'ies'}`;
           if (j.skipped_unreachable) msg += ` · ${j.skipped_unreachable} kept (volume unreachable)`;
-          if (j.undoable) showEntriesUndoToast(msg); else showToast(msg);
+          if (j.undoable) showEntriesUndoToast(msg, j.snapshot); else showToast(msg);
         }
         await repairScan();
       }}
@@ -549,7 +549,7 @@ async function previewDedup(category) {
       const aj = await ar.json().catch(() => ({}));
       if (!ar.ok) { showToast(aj.error || `Dedup failed (${ar.status})`); return; }
       const dmsg = `Deleted ${aj.deleted} entries · ${aj.groups} groups deduped`;
-      if (aj.undoable) showEntriesUndoToast(dmsg); else showToast(dmsg);
+      if (aj.undoable) showEntriesUndoToast(dmsg, aj.snapshot); else showToast(dmsg);
       await loadCatalog();
       await repairScan();
     } catch (e) {

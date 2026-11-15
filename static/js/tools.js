@@ -48,13 +48,32 @@ function moreLikeThis() {
   const t = needTrack(); if (!t) return;
   hitList(`Nearest to <b>${name(t.id)}</b>`, notInSet(vecKNN(t.id, 15).map(h => h.id)).slice(0, 10));
 }
+// The neighbour map behind a route is n² work: ~20 s at 30k tracks, rebuilt after any
+// filter change. Show how far along it is, with a Cancel (debug sweep #52). Returns the
+// route, null when there is none, or 'cancelled'.
+let _pathStop = false;
+async function findRoute(a, b, what) {
+  const n = vecMatrix().n;
+  _pathStop = false;
+  try {
+    return await vecPathFind(a, b, 12, p => {
+      if (_pathStop) throw new Error('route cancelled');
+      show(`<div class="vm-note">${what} Mapping ${n.toLocaleString()} tracks… ${Math.round(p * 100)}%
+        <button class="btn-sm" onclick="toolsStopRoute()">Cancel</button></div>`);
+    });
+  } catch (e) {
+    if (_pathStop) return 'cancelled';
+    throw e;
+  }
+}
 async function bridgeToHere() {
   const t = needTrack(); if (!t) return;
   const from = setIds().at(-1);
   if (!from) return note('Add a track to the set first: the bridge runs from its last track.');
   if (from === t.id) return note('Select a different track: this one already ends the set.');
   show('<div class="vm-note">Finding the route…</div>');
-  const r = await vecPathFind(from, t.id, 12);
+  const r = await findRoute(from, t.id, 'Finding the route.');
+  if (r === 'cancelled') return note('Cancelled.');
   if (!r) return note('No route between those two in this Field.');
   hitList(`From <b>${name(from)}</b> to <b>${name(t.id)}</b>, ${r.ids.length - 1} steps`, notInSet(r.ids.slice(1)), '＋ Add the route to the set');
 }
@@ -98,7 +117,8 @@ async function fixWorstJump() {
   // the set tracks the (filtered) matrix holds, so it can't index `ids`.
   const a = s.worstFrom, b = s.worstTo, pa = s.worstFromAt + 1, pb = s.worstToAt + 1;
   show('<div class="vm-note">Looking for a stepping stone…</div>');
-  const r = await vecPathFind(a, b, 12);
+  const r = await findRoute(a, b, 'Looking for a stepping stone.');
+  if (r === 'cancelled') return note('Cancelled.');
   const mids = r ? notInSet(r.ids.slice(1, -1)) : [];
   if (!mids.length) return note(`The roughest step is ${pa} → ${pb}, and nothing in this Field sits between them.`);
   const pickId = mids[Math.floor(mids.length / 2)];
@@ -118,6 +138,9 @@ async function insertAt(id, beforeId, hint) {
 function oddOneOut() {
   const ids = needSet(3); if (!ids) return;
   const M = vecMatrix(), rows = ids.map(id => [id, M.idx.get(id)]).filter(([, i]) => i !== undefined);
+  // The maths runs on the set tracks this Field view holds: with filters hiding all but
+  // one, it named nobody and offered to remove "(unknown)" (debug sweep #27).
+  if (rows.length < 3) return note('Needs at least 3 set tracks in the current Field view. A filter may be hiding some.');
   let worst = null, worstD = -1;
   for (const [id, i] of rows) {
     let sum = 0; for (const [, j] of rows) if (j !== i) sum += Math.sqrt(vecDist2(M, i, j));
@@ -189,5 +212,6 @@ Object.assign(window, {
   openSetToolsBox: openTools, closeSetToolsBox: closeTools, toolsAddAll: addAll, toolsInsert: insertAt, toolsNote: note,
   tMoreLike: moreLikeThis, tBridge: bridgeToHere, tNudge: nudge, tDistAxis: distanceAxis,
   tMoreLikeSet: moreLikeThisSet, tSmooth: smoothOrder, tFlow: checkFlow, tFixJump: fixWorstJump, tOddOne: oddOneOut, tBuild: buildSet,
+  toolsStopRoute: () => { _pathStop = true; },
   tArrange: arrangeBySound, tMap: mapBySimilarity, tGroup: groupBySound, tReset: resetView, tDupes: nearDuplicates,
 });
