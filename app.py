@@ -10,7 +10,11 @@ from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
 import serato_crate
-import tag_write
+try:
+    import tag_write             # needs mutagen; without it only tag writing is off (E4)
+except Exception as _e:          # pragma: no cover
+    tag_write = None
+    print(f"  tag writing unavailable: {_e}")
 from license_key import check_key, clean_key, LicenceError
 from concurrent.futures import ThreadPoolExecutor
 
@@ -1130,7 +1134,7 @@ def walk_audio_files(root, skipped=None):
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         # Skip dotfolders and common non-music dirs
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("__pycache__", "node_modules")]
-        if any(fn.startswith((".tftmp-", "._.tftmp-")) for fn in filenames):
+        if tag_write and any(fn.startswith((".tftmp-", "._.tftmp-")) for fn in filenames):
             tag_write.cleanup_temps(dirpath)   # left by a tag write that was cut off (E4)
         for fn in filenames:
             if fn.startswith("."): continue
@@ -4371,6 +4375,8 @@ def _tags_set_sizes(by_slug):
 
 def _cleanup_inflight():
     """At startup: a tag write cut off mid-run (a yanked stick) left temps in these folders."""
+    if tag_write is None:
+        return
     try:
         with open(TAGS_INFLIGHT) as f:
             folders = json.load(f)
@@ -4388,9 +4394,12 @@ try:
 except Exception as _e:
     print(f"  tag-write temp cleanup skipped: {_e}")
 
+_TAGS_MISSING = ({"error": "Tag writing isn't available in this copy of Tunefield (a component is missing)."}, 503)
+
 @app.route("/export/tags/preview", methods=["POST"])
 def export_tags_preview():
     if (denied := _needs_pro()): return denied
+    if tag_write is None: return jsonify(_TAGS_MISSING[0]), _TAGS_MISSING[1]
     try:
         plan = _tag_plan(request.get_json(silent=True) or {})
     except ValueError as e:
@@ -4403,6 +4412,7 @@ def export_tags_preview():
 @app.route("/export/tags/write", methods=["POST"])
 def export_tags_write():
     if (denied := _needs_pro()): return denied
+    if tag_write is None: return jsonify(_TAGS_MISSING[0]), _TAGS_MISSING[1]
     if not _tags_settings()["enabled"]:
         return jsonify({"error": "Writing tags into files is switched off in Settings.", "tag_write_disabled": True}), 409
     try:
@@ -4443,6 +4453,7 @@ def export_tags_restore():
     """Undo a tag-writing run: the old values go back into each file it wrote, unless the
     file changed since (another app edited it), which is skipped with that reason."""
     if (denied := _needs_pro()): return denied
+    if tag_write is None: return jsonify(_TAGS_MISSING[0]), _TAGS_MISSING[1]
     run = (request.get_json(silent=True) or {}).get("run")
     if not isinstance(run, str) or not re.fullmatch(r"\d{8}-\d{6}-\d{6}", run):
         return jsonify({"error": "run required"}), 400
@@ -4675,6 +4686,10 @@ def system_health():
         "log_file":   LOG_FILE if os.path.exists(LOG_FILE) else None,
         "usage_file": USAGE_FILE if os.path.exists(USAGE_FILE) else None,
         "ffmpeg":     bool(shutil.which("ffmpeg")),
+        # Tag writing (E4) at runtime: mp3_aiff needs mutagen's ID3 internals, which a
+        # bundle can drop silently; without them every MP3/AIFF write is refused.
+        "tag_write":  {"ok": tag_write is not None,
+                       "mp3_aiff": bool(tag_write is not None and tag_write._determine_bpi is not None)},
         "ffprobe":    bool(shutil.which("ffprobe")),
         "fpcalc":     bool(shutil.which("fpcalc")),
     }
