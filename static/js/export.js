@@ -222,6 +222,7 @@ async function exportAs(kind) {
   }
   if (kind === 'ableton-arr') { exportArrangement(rows, name, baseName); return; }
   if (kind === 'serato')      { exportSerato(rows, name, baseName); return; }
+  if (kind === 'collect')     { exportCollect(rows, name, baseName); return; }
   if (kind === 'm3u8-abs') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, true),  'audio/x-mpegurl');
   if (kind === 'm3u8-rel') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, false), 'audio/x-mpegurl');
   if (kind === 'rekordbox') downloadBlob(`${baseName}.rekordbox.xml`, buildRekordboxXml(rows, name), 'application/xml');
@@ -455,6 +456,7 @@ async function exportAls(rows, name, baseName, extra) {
 // exact path and writes nothing; we ask, record the OK (per Mac, or on the stick for a
 // stick folder) and retry once. Declining writes nothing.
 const APPROVAL_TEXT = {
+  collect_folder: p => `Tunefield will copy sets into this folder (a sub-folder per set):\n\n${p}\n\nIt never replaces a file there without asking.\n\nAllow this? You can remove it later in Settings → Export locations.`,
   serato_crate: p => `Tunefield will write Serato crates into Serato's own folder:\n\n${p}\n\nOnly crate files it is asked to export; it never changes your Serato library or other crates.\n\nAllow this ${p.startsWith('/Volumes/') ? 'for that drive' : 'on this Mac'}? You can remove it later in Settings → Export locations.`,
   rekordbox_bridge: p => `Tunefield will write its Rekordbox file here, and update it on every Rekordbox bridge export:\n\n${p}\n\nRekordbox only reads it; your Rekordbox collection is never changed.\n\nAllow this on this Mac? You can remove it later in Settings → Export locations.`,
 };
@@ -524,6 +526,52 @@ async function exportSerato(rows, name, baseName) {
     showToast(`Serato crate written to ${j.written.length} place${j.written.length === 1 ? '' : 's'}`
               + (j.skipped?.length ? ` · ${j.skipped.length} skipped (${j.skipped[0].reason})` : ''));
   } catch (err) { showToast('Serato export failed: ' + err.message); }
+}
+// ── Collect set to folder (1.1.0, E5) ───────────────────────────────────────
+// Copies of the set's audio, numbered in set order, plus a relative M3U8, into a folder
+// the user picks: a stick for the club, a folder to hand over. Size and free space come
+// first; nothing is replaced without a yes.
+const _bytes = n => n == null ? '?' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB';
+async function exportCollect(rows, name, baseName) {
+  const tracks = rows.filter(e => trackPath(e).startsWith('/')).map(e => {
+    const { artist, title } = trackArtistTitle(e);
+    return { path: trackPath(e), label: artist ? `${artist} - ${title}` : title, duration: e.data?.metadata?.duration_sec || 0 };
+  });
+  if (!tracks.length) { showToast('No exportable tracks (missing file paths)'); return; }
+  let target;
+  try { target = await (await fetch('/library/browse', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ prompt: 'Pick where to collect the set' }) })).json(); }
+  catch (_) { target = null; }
+  if (!target || target.cancelled) return;
+  if (target.error || !target.path) { showToast(target.error || 'Could not open the folder picker'); return; }
+  const setName = name || baseName;
+  const post = extra => fetch('/export/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: setName, target: target.path, tracks, ...extra }) });
+  const plan = await (await post({ dry_run: true })).json().catch(() => null);
+  if (!plan?.dest) { showToast('Collect failed: ' + (plan?.error || 'no answer')); return; }
+  const short = plan.free != null && plan.bytes_to_copy + 64e6 > plan.free;
+  const v = await tfDialog({
+    title: 'Collect set to folder', ok: 'Copy',
+    html: `<p style="margin:0">Copies <b>${plan.to_copy}</b> track${plan.to_copy === 1 ? '' : 's'} (<b>${_bytes(plan.bytes_to_copy)}</b>), numbered in set order, and a playlist file into</p>
+      <code style="word-break:break-all">${esc(plan.dest)}</code>
+      <p style="margin:0">Free there: ${_bytes(plan.free)}${short ? ' — <b style="color:var(--ink-red)">not enough for this set</b>' : ''}.</p>
+      ${plan.already_there.length ? `<p style="margin:0;color:var(--muted)">${plan.already_there.length} already there, unchanged: left as they are.</p>` : ''}
+      ${plan.missing.length ? `<p style="margin:0;color:var(--muted)">${plan.missing.length} not found on disk: left out.</p>` : ''}
+      ${plan.differs.length ? `<div>${plan.differs.length} file${plan.differs.length === 1 ? ' is' : 's are'} already there with different contents:<br>
+        <label style="margin-right:12px"><input type="radio" name="cex" data-field="skip" checked> keep those</label>
+        <label><input type="radio" name="cex" data-field="replace"> replace them</label></div>` : ''}`,
+  });
+  if (!v) return;
+  const existing = v.replace ? 'replace' : 'skip';
+  showToast(`Copying ${plan.to_copy} track${plan.to_copy === 1 ? '' : 's'}…`, { duration: 60000 });
+  try {
+    const r = await withApproval(() => post({ existing }));
+    if (!r) { showToast('Nothing copied: that folder needs your OK first'); return; }
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    showToast(`Collected ${j.written.length} track${j.written.length === 1 ? '' : 's'} into ${plan.dest.split('/').pop()}`
+              + (j.failed.length ? ` · ${j.failed.length} failed (${j.failed[0].reason})` : ''), { duration: 6000 });
+  } catch (err) { showToast('Collect failed: ' + err.message); }
 }
 // ── Arrangement mix (1.1.0, E6) ─────────────────────────────────────────────
 // One continuous mix in Live's Arrangement view. Mark: end to end at one tempo with the
@@ -640,4 +688,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportCollect, editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

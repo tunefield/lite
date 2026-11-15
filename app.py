@@ -367,6 +367,7 @@ def _same_origin_ok():
 # picker open — up to 300 s).
 _LOCK_EXEMPT_ENDPOINTS = {
     "library_browse",          # native folder picker, no state mutation
+    "export_collect",          # copies audio files out; never touches a catalog JSON
     "generated_cover",         # writes one cover file, never a catalog JSON
     "batch_extract_covers",    # writes per-id cover files only, never a catalog JSON
     "library_analyse",         # librosa per track; takes _FS_LOCK around each commit
@@ -1325,9 +1326,12 @@ def library_browse():
     """Open a native folder picker. Returns the chosen path or {cancelled: true}."""
     import platform, subprocess as _sp
     sysname = platform.system()
+    # Collect-to-folder asks a different question; only plain words reach AppleScript.
+    prompt = str((request.get_json(silent=True) or {}).get("prompt") or "Pick a music folder")
+    prompt = re.sub(r"[^A-Za-z0-9 ,.'-]", "", prompt)[:80] or "Pick a music folder"
     try:
         if sysname == "Darwin":
-            r = _sp.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "Pick a music folder")'],
+            r = _sp.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{prompt}")'],
                         capture_output=True, text=True, timeout=300)
             if r.returncode != 0 or not r.stdout.strip():
                 return jsonify({"cancelled": True})
@@ -4266,6 +4270,87 @@ def rekordbox_export_bridge():
     return jsonify({"path": bridge, "playlist": name, "replaced": replaced,
                     "playlists": len(store["playlists"]),
                     "tracks": sum(len(p["tracks"]) for p in store["playlists"])})
+
+@app.route("/export/collect", methods=["POST"])
+def export_collect():
+    """Collect a set into a folder (1.1.0, E5): copies of its audio, numbered in set order,
+    plus a relative M3U8, into <target>/<set name>/. Body: {name, target, tracks:[{path,
+    label, duration}], dry_run?, existing?: "skip"|"replace"}. The user picked the target;
+    it still needs their OK once (E0, kind collect_folder). dry_run answers sizes and free
+    space first. A file already there is skipped when it is the same size, and otherwise
+    replaced only with existing="replace" (409 files_exist). Never a partial copy: each
+    file goes through a temp name and os.replace."""
+    if (denied := _needs_pro()): return denied
+    body = request.get_json(silent=True) or {}
+    name, target, tracks = body.get("name"), body.get("target"), body.get("tracks")
+    if not isinstance(name, str) or not name.strip() or not isinstance(target, str) or not os.path.isabs(target):
+        return jsonify({"error": "name and an absolute target folder are required"}), 400
+    if not isinstance(tracks, list) or not tracks or len(tracks) > 5000 or not all(
+            isinstance(t, dict) and isinstance(t.get("path"), str) and os.path.isabs(t["path"]) for t in tracks):
+        return jsonify({"error": "tracks must be a non-empty list with absolute paths"}), 400
+    if not os.path.isdir(target):
+        return jsonify({"error": "That folder doesn't exist any more."}), 400
+    safe = re.sub(r'[\x00-\x1f/\\:]', "_", name.strip()).strip(". ")[:120] or "Tunefield set"
+    dest = os.path.join(target, safe)
+    width = max(2, len(str(len(tracks))))
+    plan, missing = [], []
+    for i, t in enumerate(tracks, 1):
+        src = t["path"]
+        if not os.path.isfile(src):
+            missing.append(src); continue
+        fname = f"{i:0{width}d} {os.path.basename(src)}"
+        out = os.path.join(dest, fname)
+        size = os.path.getsize(src)
+        there = os.path.getsize(out) if os.path.isfile(out) else None
+        plan.append({"src": src, "dst": out, "name": fname, "size": size,
+                     "state": "new" if there is None else "same" if there == size else "differs",
+                     "label": str(t.get("label") or os.path.splitext(os.path.basename(src))[0])[:300],
+                     "duration": t.get("duration") if isinstance(t.get("duration"), (int, float)) else 0})
+    existing = body.get("existing")
+    to_copy = [p for p in plan if p["state"] == "new" or (p["state"] == "differs" and existing != "skip")]
+    need = sum(p["size"] for p in to_copy)
+    try:
+        free = shutil.disk_usage(target).free
+    except OSError:
+        free = None
+    summary = {"dest": dest, "files": len(plan), "bytes": sum(p["size"] for p in plan), "to_copy": len(to_copy),
+               "bytes_to_copy": need, "free": free, "missing": missing,
+               "already_there": [p["name"] for p in plan if p["state"] == "same"],
+               "differs": [p["name"] for p in plan if p["state"] == "differs"]}
+    if body.get("dry_run"):
+        return jsonify(summary)
+    if not _is_approved("collect_folder", target):
+        return _approval_required("collect_folder", target)
+    if free is not None and need + 64 * 1024 * 1024 > free:
+        return jsonify({"error": "Not enough space in that folder for this set.", **summary}), 409
+    if summary["differs"] and existing not in ("replace", "skip"):
+        return jsonify({"error": "Some files are already there with different contents.",
+                        "files_exist": summary["differs"]}), 409
+    os.makedirs(dest, exist_ok=True)
+    written, failed = [], []
+    for p in to_copy:
+        tmp = os.path.join(dest, ".tftmp-" + hashlib.sha1(p["name"].encode()).hexdigest()[:12])
+        try:
+            shutil.copy2(p["src"], tmp)
+            os.replace(tmp, p["dst"])
+            written.append(p["name"])
+        except OSError as e:
+            failed.append({"name": p["name"], "reason": str(e)})
+        finally:
+            for junk in (tmp, os.path.join(dest, "._" + os.path.basename(tmp))):
+                try: os.remove(junk)
+                except OSError: pass
+    m3u = os.path.join(dest, safe + ".m3u8")
+    lines = ["#EXTM3U"]
+    for p in plan:
+        lines.append(f"#EXTINF:{int(round(p['duration'] or 0))},{p['label']}".replace("\r", " ").replace("\n", " "))
+        lines.append(("./" if p["name"].startswith("#") else "") + p["name"])
+    with open(m3u, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    usage_event("export", fmt="collect", tracks=len(plan))
+    return jsonify({"ok": not failed, "dest": dest, "m3u8": m3u, "written": written, "failed": failed,
+                    "skipped_same": summary["already_there"], "missing": missing})
+
 
 @app.route("/export/serato", methods=["POST"])
 def export_serato():
