@@ -12,9 +12,12 @@ WHAT THIS IS
   take your analysis with you.
 
   NOTE: the stick carries what Tunefield MEASURED, not your music - it never
-  moves or changes your audio files. One exception: FLAC and Ogg tracks you PLAY
-  in the app window are decoded into data/_stream_cache on this stick so they
-  can play at all (max 4 GB, oldest dropped first, safe to delete any time).
+  moves your audio files, and changes them only if you switch on Settings >
+  Write tags into music files and confirm a run (BPM, key and energy only;
+  Undo puts the old values back). One more thing it keeps: FLAC and Ogg tracks
+  you PLAY in the app window are decoded into data/_stream_cache on this stick
+  so they can play at all (max 4 GB, less when the stick is nearly full; oldest
+  dropped first; safe to delete any time).
   On a machine that cannot see your music files, those tracks show as
   "not found" until the drive holding them is connected.
 
@@ -61,10 +64,15 @@ IF IT WON'T OPEN FROM A USB STICK AT ALL (no warning, it just never appears)
 
 FREE, EXCEPT EXPORT
   The Field, sets, Up next, Set tools and Repair are free, with no account.
-  Export (Rekordbox, Traktor, Ableton, M3U8, CSV) is Tunefield Pro: on sale
-  in January 2027 for €79, one-time, or €59 if you sign up at
-  tunefield.app/pro before then. Your sets are kept, ready to export when
-  Pro arrives.
+  Export is Tunefield Pro: Rekordbox, Traktor, Ableton (Session or
+  Arrangement), Serato crates, M3U8, CSV, a set sheet, collecting a set into a
+  folder, and (if you switch it on) writing BPM, key and energy into your
+  files. Pro is a one-time purchase and keeps working in every later version.
+  Get your key at tunefield.app/pro. Your sets are kept, ready to export as
+  soon as Pro is unlocked.
+
+  Have a key? Settings > Pro, paste it, Unlock. It is checked on this Mac, no
+  account. The key is saved on this stick, so Pro comes with it to any Mac.
 
 HOW PORTABLE MODE WORKS
   The file named PORTABLE next to the app is the switch. While it is there, all
@@ -75,6 +83,19 @@ HOW PORTABLE MODE WORKS
   DON'T DELETE IT BY ACCIDENT. Removing PORTABLE makes the app look at the
   computer's own data folder instead, so the library on this stick appears to
   have vanished. Nothing is lost - put the file back and it returns.
+
+UPDATING TO A NEW VERSION
+  Your library lives in the data/ folder next to the app, not in the app. To
+  update, swap ONLY the app:
+    1. Quit Tunefield.
+    2. Unzip the new download on your Mac, not on the stick.
+    3. On the stick, drag the old Tunefield.app to the Trash. Leave data/ and
+       the PORTABLE file where they are.
+    4. Drag the new Tunefield.app from the unzipped folder into the stick's
+       Tunefield-USB folder, next to data/.
+  Don't drag the whole new Tunefield-USB folder onto the stick: Finder would
+  replace the old folder, data/ included, and your library with it.
+  The first launch asks once to open an app from the internet, as before.
 
 SOMETHING BROKEN, OR JUST CONFUSING?
   Use the Feedback button (top right) - it opens a short form with a

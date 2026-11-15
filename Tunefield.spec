@@ -63,6 +63,14 @@ for pkg in ("soundfile", "llvmlite", "numba", "scipy", "sklearn"):
     except Exception:
         pass
 
+# mutagen (1.1.0, E4 tag writing): tag_write imports two PRIVATE helpers (mutagen.id3._tags.determine_bpi,
+# mutagen.id3._util.unsynch) inside a try block that falls back to "unavailable". If PyInstaller ever missed them, every
+# MP3/AIFF tag write would be refused, safely but silently. Collect the whole (pure-Python, small) package so it can't.
+try:
+    hidden += collect_submodules("mutagen")
+except Exception:
+    pass
+
 # Apple CoreAudio backend — how M4A/AAC decode without ffmpeg on macOS
 hidden += ["audioread.macca", "audioread.rawread", "audioread.ffdec"]
 # Flask/werkzeug reach for these dynamically
