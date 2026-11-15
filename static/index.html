@@ -888,6 +888,12 @@
       <button class="lib-tb-btn" id="pro-settings-btn" onclick="proSettingsAction()">Enter key</button>
     </div>
 
+    <div class="settings-row">
+      <span class="settings-label" title="Which Tunefield values go into which Rekordbox and Traktor fields: Comments, Colour, Grouping (energy, mood, vocals, Camelot, tags)">Rekordbox &amp; Traktor fields</span>
+      <span style="flex:1"></span>
+      <button class="lib-tb-btn" onclick="editFields(false)">Edit</button>
+    </div>
+
     <div class="settings-row settings-row-col">
       <span class="settings-label" title="Places outside its own folder that Tunefield may write to, because you said yes (Rekordbox file, Serato crates, …). Remove one and Tunefield asks again next time.">Export locations</span>
       <div id="export-approvals" class="export-approvals"></div>

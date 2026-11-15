@@ -29,7 +29,7 @@ function tfDialog({ title, html, ok = 'OK', cancel = 'Cancel' }) {
     document.getElementById('tfd-cancel').textContent = cancel;
     const done = v => { m.style.display = 'none'; m.onclick = null; resolve(v); };
     const collect = () => Object.fromEntries([...m.querySelectorAll('[data-field]')].map(el =>
-      [el.dataset.field, el.type === 'checkbox' ? el.checked : el.value]));
+      [el.dataset.field, (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value]));
     document.getElementById('tfd-ok').onclick = () => done(collect());
     document.getElementById('tfd-cancel').onclick = () => done(null);
     document.getElementById('tfd-x').onclick = () => done(null);
@@ -214,6 +214,8 @@ async function exportAs(kind) {
   const baseName = raw.replace(/[^a-z0-9_-]+/gi, '_');
   fetch('/diagnostics/first-export', { method: 'POST' }).catch(() => {});   // stamps once: time to first export
   const name = exportSource === 'playlist' ? activePlaylist?.name : null;
+  // Rekordbox and Traktor carry the user's field mapping: confirmed once before anything is written (E1).
+  if (['rekordbox', 'rekordbox-bridge', 'traktor'].includes(kind) && !(await ensureFields())) return;
   if (kind === 'rekordbox-bridge')     { exportRbBridge(rows, name); return; }
   if (kind === 'ableton') {
     exportAls(rows, name, baseName); return;
@@ -321,22 +323,79 @@ function rekordboxTrackAttrs(e) {
     sample_rate: String(md.sample_rate_hz||0),
     bpm: (r.bpm||0).toFixed(2),
     tonality, rating: String(rating),
-    comments: [camelot, ...tagNames].filter(Boolean).join(' / '),
+    comments: _fields ? fieldText(e, _fields.rb_comments) : [camelot, ...tagNames].filter(Boolean).join(' / '),
+    colour: _fields?.rb_colour === 'energy' ? RB_COLOUR_BY_ENERGY(energy10(e))
+          : _fields?.rb_colour === 'mood' ? (RB_COLOUR_BY_MOOD[d.scores?.mood] || '') : '',
+    grouping: _fields && _fields.rb_grouping !== 'off' ? fieldToken(e, _fields.rb_grouping) : '',
     location: trackPath(e),
   };
+}
+// ── Field mapping for Rekordbox and Traktor (1.1.0, E1) ──────────────────────
+// Mark, 15 Nov: energy, mood and vocals can travel into Rekordbox (Comments, Colour,
+// Grouping) and Traktor (Comment). The user picks the mapping, and nothing is written
+// until it has been seen and confirmed once; the 1.0.0 behaviour is the default.
+let _fields = null;
+const energy10 = e => { const l = e.data?.energy?.level; return l == null ? null : Math.max(1, Math.min(10, Math.round(l * 9) + 1)); };
+const RB_COLOUR_BY_ENERGY = n => n == null ? '' : n <= 2 ? '0x0000FF' : n <= 4 ? '0x25FDE9' : n === 5 ? '0x00FF00'
+  : n === 6 ? '0xFFFF00' : n === 7 ? '0xFFA500' : n <= 9 ? '0xFF0000' : '0xFF007F';   // blue → aqua → green → yellow → orange → red → pink
+const RB_COLOUR_BY_MOOD = { euphoric: '0xFFFF00', intense: '0xFF0000', upbeat: '0x00FF00', melancholic: '0x0000FF' };
+function fieldToken(e, tok) {
+  const d = e.data || {}, h = d.harmony || {};
+  if (tok === 'camelot') return noteToCamelot(h.root, h.mode) || '';
+  if (tok === 'tags') return [...getTrackTags(e.id)].map(tid => allTags.find(t => t.id === tid)?.name).filter(Boolean).join(' / ');
+  if (tok === 'energy') { const n = energy10(e); return n == null ? '' : 'E' + n; }
+  if (tok === 'mood') { const m = d.scores?.mood; return m ? m[0].toUpperCase() + m.slice(1) : ''; }
+  if (tok === 'vocals') { const v = d.content?.has_vocals; return v == null ? '' : v ? 'Vocal' : 'Instrumental'; }
+  return '';
+}
+const fieldText = (e, toks) => (toks || []).map(t => fieldToken(e, t)).filter(Boolean).join(' / ');
+async function loadFields() {
+  try { _fields = await fetch('/export/fields').then(r => r.ok ? r.json() : null); } catch (_) { _fields = null; }
+  return _fields;
+}
+async function editFields(firstTime) {
+  const f = (await loadFields()) || {};
+  const box = (name, tok, list) => `<label style="display:inline-flex;gap:4px;margin-right:10px"><input type="checkbox" data-field="${name}:${tok}" ${(list || []).includes(tok) ? 'checked' : ''}>${tok === 'camelot' ? 'Camelot key' : tok[0].toUpperCase() + tok.slice(1)}</label>`;
+  const radio = (name, val, cur, label) => `<label style="display:inline-flex;gap:4px;margin-right:10px"><input type="radio" name="${name}" data-field="${name}=${val}" ${cur === val ? 'checked' : ''}>${label}</label>`;
+  const T = ['camelot', 'tags', 'energy', 'mood', 'vocals'];
+  const v = await tfDialog({
+    title: 'Rekordbox & Traktor fields', ok: firstTime ? 'Confirm and export' : 'Save',
+    html: `${firstTime ? '<p style="margin:0">Check what Tunefield writes into Rekordbox and Traktor. Nothing is written there until you confirm this once; change it any time in Settings.</p>' : ''}
+      <div><b>Rekordbox · Comments</b><br>${T.map(t => box('rb_comments', t, f.rb_comments)).join('')}</div>
+      <div><b>Rekordbox · Colour</b><br>${radio('rb_colour', 'off', f.rb_colour, 'None')}${radio('rb_colour', 'energy', f.rb_colour, 'By energy (blue → pink)')}${radio('rb_colour', 'mood', f.rb_colour, 'By mood')}</div>
+      <div><b>Rekordbox · Grouping</b><br>${radio('rb_grouping', 'off', f.rb_grouping, 'None')}${radio('rb_grouping', 'energy', f.rb_grouping, 'Energy')}${radio('rb_grouping', 'mood', f.rb_grouping, 'Mood')}${radio('rb_grouping', 'vocals', f.rb_grouping, 'Vocals')}</div>
+      <div><b>Traktor · Comment</b><br>${T.map(t => box('tk_comment', t, f.tk_comment)).join('')}</div>
+      <p style="margin:0;color:var(--muted);font-size:12px">Energy is written as E1–E10, mood as Euphoric / Intense / Upbeat / Melancholic, vocals as Vocal / Instrumental. BPM, key and rating always go into their own fields.</p>`,
+  });
+  if (!v) return false;
+  const pick = n => T.filter(t => v[`${n}:${t}`]);
+  const one = (n, opts) => opts.find(o => v[`${n}=${o}`]) || 'off';
+  const body = { rb_comments: pick('rb_comments'), tk_comment: pick('tk_comment'),
+                 rb_colour: one('rb_colour', ['off', 'energy', 'mood']), rb_grouping: one('rb_grouping', ['off', 'energy', 'mood', 'vocals']) };
+  const r = await fetch('/export/fields', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { showToast('Could not save the field mapping'); return false; }
+  _fields = await r.json();
+  if (!firstTime) showToast('Rekordbox & Traktor fields saved');
+  return true;
+}
+// true once the mapping has been confirmed; asks the first time.
+async function ensureFields() {
+  const f = _fields || await loadFields();
+  if (f?.confirmed) return true;
+  return editFields(true);
 }
 // pilot 8659
 function buildRekordboxXml(rows, name) {
   const dateAdded = new Date().toISOString().slice(0, 10);
   const tracks = rows.map((e, i) => {
     const a = rekordboxTrackAttrs(e);
-    return `    <TRACK TrackID="${i+1}" Name="${escXml(a.name)}" Artist="${escXml(a.artist)}" Genre="${escXml(a.genre)}" Kind="${escXml(a.kind)}" TotalTime="${a.total_time}" BitRate="${a.bit_rate}" SampleRate="${a.sample_rate}" AverageBpm="${a.bpm}" DateAdded="${dateAdded}" Tonality="${escXml(a.tonality)}" Rating="${a.rating}" PlayCount="0" Comments="${escXml(a.comments)}" Location="${escXml(fileUri(a.location))}"/>`;
+    return `    <TRACK TrackID="${i+1}" Name="${escXml(a.name)}" Artist="${escXml(a.artist)}" Genre="${escXml(a.genre)}" Kind="${escXml(a.kind)}" TotalTime="${a.total_time}" BitRate="${a.bit_rate}" SampleRate="${a.sample_rate}" AverageBpm="${a.bpm}" DateAdded="${dateAdded}" Tonality="${escXml(a.tonality)}" Rating="${a.rating}" PlayCount="0" Comments="${escXml(a.comments)}"${a.grouping ? ` Grouping="${escXml(a.grouping)}"` : ''}${a.colour ? ` Colour="${a.colour}"` : ''} Location="${escXml(fileUri(a.location))}"/>`;
   }).join('\n');
   const playlistName = name || activeCatalog || 'Field';
   const trackRefs = rows.map((_, i) => `        <TRACK Key="${i+1}"/>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <DJ_PLAYLISTS Version="1.0.0">
-  <PRODUCT Name="Field" Version="1.0" Company="Field"/>
+  <PRODUCT Name="Tunefield" Version="1.0" Company="Tunefield"/>
   <COLLECTION Entries="${rows.length}">
 ${tracks}
   </COLLECTION>
@@ -531,7 +590,8 @@ function buildTraktorNml(rows, name) {
     const keyName = h.key || (noteToCamelot(h.root, h.mode) || '');
     const keyInt  = traktorKeyValue(h.root, h.mode);
     const rating  = RATING_TO_255[getRating(e.id) || 0];
-    const tagNames = [...getTrackTags(e.id)].map(tid => allTags.find(t => t.id === tid)?.name).filter(Boolean).join(' ');
+    const tagNames = _fields ? fieldText(e, _fields.tk_comment)
+      : [...getTrackTags(e.id)].map(tid => allTags.find(t => t.id === tid)?.name).filter(Boolean).join(' ');
     // Traktor location: VOLUME (root, e.g. ""), DIR (path with /::/), FILE (basename)
     const abs = trackPath(e);
     const slash = abs.lastIndexOf('/');
@@ -554,7 +614,7 @@ function buildTraktorNml(rows, name) {
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <NML VERSION="19">
-  <HEAD COMPANY="www.tunefield.dj" PROGRAM="Field"/>
+  <HEAD COMPANY="www.tunefield.dj" PROGRAM="Tunefield"/>
   <MUSICFOLDERS/>
   <COLLECTION ENTRIES="${rows.length}">
 ${entries}
@@ -580,4 +640,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

@@ -59,6 +59,8 @@ try:
     check("approving without Pro is refused", c.post("/export/approvals", json={"kind": "rekordbox_bridge", "target": target}).status_code == 403)
 
     c.post("/api/license", json={"key": mint({"v": 1, "p": "pro", "s": "lite-lifetime", "o": "QA", "t": 1768176000, "h": "00000000"})})
+    # E1: the field mapping is confirmed once (the 1.0.0 default) before the bridge writes
+    c.post("/export/fields", json={"rb_comments": ["camelot", "tags"], "rb_colour": "off", "rb_grouping": "off", "tk_comment": ["tags"]})
     r = export()
     j = J(r)
     check("bridge export without approval: 409 with the exact path", r.status_code == 409

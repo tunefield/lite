@@ -4086,7 +4086,39 @@ def _rb_store_load():
     return {"playlists": []}
 
 _RB_TRACK_FIELDS = ("name", "artist", "genre", "kind", "total_time", "bit_rate",
-                    "sample_rate", "bpm", "tonality", "rating", "comments", "location")
+                    "sample_rate", "bpm", "tonality", "rating", "comments", "location",
+                    "colour", "grouping")
+
+# ── Rekordbox/Traktor field mapping (1.1.0, E1) ──────────────────────────────
+# Which Tunefield value goes into which Rekordbox/Traktor field. Mark, 15 Nov: the user
+# chooses it, and nothing is written until they have seen and confirmed it once; the
+# 1.0.0 behaviour is the default they confirm. Kept in config.json, so it travels with
+# a stick like the rest of the library settings.
+_FIELD_TOKENS = ("camelot", "tags", "energy", "mood", "vocals")
+EXPORT_FIELDS_DEFAULT = {"confirmed": False,
+                         "rb_comments": ["camelot", "tags"], "rb_colour": "off", "rb_grouping": "off",
+                         "tk_comment": ["tags"]}
+
+def _export_fields():
+    f = dict(EXPORT_FIELDS_DEFAULT)
+    f.update({k: v for k, v in (load_config().get("export_fields") or {}).items() if k in f})
+    return f
+
+@app.route("/export/fields", methods=["GET", "POST"])
+def export_fields():
+    if request.method == "GET":
+        return jsonify(_export_fields())
+    b = request.get_json(silent=True) or {}
+    toks = lambda v: isinstance(v, list) and all(t in _FIELD_TOKENS for t in v)
+    if not (toks(b.get("rb_comments")) and toks(b.get("tk_comment"))
+            and b.get("rb_colour") in ("off", "energy", "mood")
+            and b.get("rb_grouping") in ("off", "energy", "mood", "vocals")):
+        return jsonify({"error": "unknown field mapping"}), 400
+    cfg = load_config()
+    cfg["export_fields"] = {"confirmed": True, "rb_comments": b["rb_comments"], "rb_colour": b["rb_colour"],
+                            "rb_grouping": b["rb_grouping"], "tk_comment": b["tk_comment"]}
+    save_config(cfg)
+    return jsonify(cfg["export_fields"])
 
 def _rb_clean_tracks(raw):
     """Validate + normalise the track list sent by the frontend."""
@@ -4123,7 +4155,9 @@ def _rb_build_bridge_xml(store):
                 f' BitRate="{_rb_esc(t["bit_rate"])}" SampleRate="{_rb_esc(t["sample_rate"])}"'
                 f' AverageBpm="{_rb_esc(t["bpm"])}" DateAdded="{date_added}" Tonality="{_rb_esc(t["tonality"])}"'
                 f' Rating="{_rb_esc(t["rating"])}" PlayCount="0" Comments="{_rb_esc(t["comments"])}"'
-                f' Location="{_rb_esc(_rb_file_uri(loc))}"/>')
+                + (f' Grouping="{_rb_esc(t.get("grouping", ""))}"' if t.get("grouping") else "")
+                + (f' Colour="{_rb_esc(t.get("colour", ""))}"' if t.get("colour") else "")
+                + f' Location="{_rb_esc(_rb_file_uri(loc))}"/>')
     nodes = []
     for pl in store["playlists"]:
         refs = "\n".join(f'        <TRACK Key="{track_id_by_loc[t["location"]]}"/>' for t in pl["tracks"])
@@ -4202,6 +4236,9 @@ def rekordbox_export_bridge():
     # this Mac (E0). Earlier builds wrote first and showed the setup afterwards.
     if not _is_approved("rekordbox_bridge", _rb_bridge_xml()):
         return _approval_required("rekordbox_bridge", _rb_bridge_xml())
+    if not _export_fields()["confirmed"]:            # E1: the mapping is seen and confirmed once
+        return jsonify({"error": "Confirm which values go into which Rekordbox fields first.",
+                        "fields_required": True}), 409
     body   = request.get_json(force=True) or {}
     name   = str(body.get("name", "")).strip()[:200] or "Tunefield"
     tracks = _rb_clean_tracks(body.get("tracks"))
