@@ -10106,6 +10106,7 @@ function openSettings()  {
   window.renderExportApprovals?.();   // export.js: what Tunefield may write outside its folder
   window.tagsRefresh?.();             // export.js: the opt-in tag-writing switch
   window.usbRefresh?.();              // usb.js: put Tunefield on a stick, or update one
+  window.backupRefresh?.();           // usb.js: on a stick, the library's backup
 }
 // pilot 10766
 function closeSettings() {

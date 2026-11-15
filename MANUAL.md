@@ -42,6 +42,8 @@ Everything you create lives in `~/Library/Application Support/Tunefield Lite/dat
 
 **On a USB stick.** On your Mac, **⚙ Settings → USB stick** puts Tunefield on a stick, or updates the copy on one. It replaces only the app; the library on the stick and everything else on it stay as they are, and a stick pulled out halfway still has a working app. **Repair** copies the app fresh if it ever won't open. Don't drag the app or a folder onto a stick yourself.
 
+**The library's backup on a stick.** A copy running from a stick keeps a backup of its library (Fields, sets, ratings, tags and settings, the Pro key included) in the hidden `.tunefield-backup` folder at the top of the stick, outside the Tunefield folder; covers and caches are left out, as they are made again. Leave it there. If the Tunefield folder is ever replaced or deleted, Tunefield offers the backup back, in **⚙ Settings → USB stick** on your Mac and when the copy on the stick opens. Bringing it back never deletes anything: the library that was there is kept beside it, in a folder named `data-before-restore-…`. **Start fresh** puts the backup aside instead.
+
 The five tabs across the top, in workflow order:
 
 | Tab | What it's for |
@@ -373,6 +375,7 @@ Keys never fire while you're typing in a box or dragging a slider.
 | **Rekordbox & Traktor fields** | What goes into Comments, Colour and Grouping (§11) |
 | **Export locations** | Every place outside its own folder Tunefield may write to, because you said yes; Remove to be asked again |
 | **USB stick** | Puts Tunefield on a connected stick, updates the copy on it, or repairs it (§1). Only the app is replaced |
+| **Library backup** | On a copy running from a stick: when its library's backup was last saved (§1) |
 | **Beta** | Saves the local usage log, if you want to send it with feedback |
 | **Wheel labels** | Note names, Camelot (`1A/1B`) or Open Key (`1m/1d`) |
 | **Vector maths** | Opens the advanced ⋈ panel |

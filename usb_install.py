@@ -258,15 +258,24 @@ def sticks(payload, mine, exclude=(), mount_text=None, running=None):
             app = os.path.join(d, APP) if os.path.isdir(os.path.join(d, APP)) else os.path.join(d, OLD)
             action, refusal = plan(d, mine, need, free, writable, running)
             installs.append({"folder": d, "version": bundle_info(app)[1], "fields": _fields(d),
-                             "action": action, "refusal": refusal})
+                             "action": action, "refusal": refusal, "restore": _offer(d)})
         fresh = None
         if not installs:
             d = os.path.join(vol, FRESH_FOLDER)
             action, refusal = plan(d, mine, need, free, writable, running)
-            fresh = {"folder": d, "action": "install", "refusal": refusal}
+            fresh = {"folder": d, "action": "install", "refusal": refusal, "restore": _offer(d)}
         out.append({"volume": vol, "name": name, "fs": fst.get(vol, ""), "free": free,
                     "writable": writable, "installs": installs, "fresh": fresh})
     return out
+
+
+def _offer(folder):
+    """The library backup on this stick to offer back for `folder` (stick_backup.py)."""
+    try:
+        import stick_backup
+        return stick_backup.offer(folder)
+    except Exception:
+        return None
 
 
 # ── the run ──────────────────────────────────────────────────────────────────
@@ -381,12 +390,40 @@ def _copy(payload, dest, total):
                            + (f" ({why[-1][-160:]})" if why else ""))
 
 
-def run(folder, action, payload, note=""):
+def _restore(folder):
+    """Bring the library back from the stick's backup (stick_backup.restore): the data/ there
+    now is renamed and kept. Returns the sentence for the done message."""
+    import stick_backup
+    meta = stick_backup.read_meta(stick_backup.home(folder)) or {}
+    _set(phase="restore", pct=0)
+    kept = stick_backup.restore(folder)
+    return (f"The library is back from the backup of {(meta.get('made_at') or '')[:16].replace('T', ' ')} "
+            f"({meta.get('tracks', 0)} tracks)."
+            + (f" What was there before is kept in {os.path.basename(kept)}, beside it." if kept else ""))
+
+
+def run(folder, action, payload, note="", restore=None, version=""):
     """The whole job, in a worker thread. Re-checks nothing the route already refused; the
-    route holds the lock that keeps one run at a time."""
+    route holds the lock that keeps one run at a time. action "restore" brings the library
+    back and copies nothing; restore=True/False on a fresh install answers the backup question."""
+    import stick_backup
     try:
         _set(phase="prepare", pct=0)
+        if action == "restore":
+            _set(phase="done", ok=True, message=_restore(folder))
+            return
         recover(folder)
+        backup_note = ""
+        if action in ("update", "repair"):
+            # A 1.0.0 stick has never made a backup of its own; this is its first.
+            _set(phase="backup")
+            try:
+                st, detail = stick_backup.make(folder, version=f"stick tool {version}")
+            except Exception as e:
+                st, detail = "failed", str(e)
+            if st in ("space", "toobig", "failed"):
+                backup_note = " The library's backup on the stick was skipped (" + {
+                    "space": "not enough space", "toobig": "the library is too big for it"}.get(st, str(detail)) + ")."
         os.makedirs(folder, exist_ok=True)
         stage = os.path.join(folder, STAGE)
         os.makedirs(stage)
@@ -432,7 +469,13 @@ def run(folder, action, payload, note=""):
             "install": f"Tunefield {v} is on the stick, in {os.path.basename(folder)}. You can eject it now.",
             "update": f"The stick now has Tunefield {v}, on the same library. You can eject it now.",
             "repair": f"The app on the stick was copied fresh ({v}). Your library was not touched."}[action]
-             + (" " + note if note else ""))
+             + backup_note)
+        msg = JOB["message"]
+        if action == "install" and restore is True:
+            msg = f"Tunefield {v} is on the stick. " + _restore(folder) + " You can eject it now."
+        elif action == "install" and restore is False and stick_backup.offer(folder):
+            stick_backup.decline(folder)
+        _set(phase="done", message=msg + (" " + note if note else ""))
     except Exception as e:
         _set(phase="failed", ok=False, message=str(e) if isinstance(e, RuntimeError) else
              f"Writing to the stick stopped ({e.__class__.__name__}: {e}). The library was not touched; "
@@ -441,11 +484,11 @@ def run(folder, action, payload, note=""):
         _set(done=True)
 
 
-def start(folder, action, payload, note=""):
+def start(folder, action, payload, note="", restore=None, version=""):
     """Start a run in the background. False when one is already going."""
     with _LOCK:
         if not JOB["done"]:
             return False
         JOB.update(phase="prepare", pct=0, done=False, ok=None, message="", folder=folder, action=action)
-    threading.Thread(target=run, args=(folder, action, payload, note), daemon=True).start()
+    threading.Thread(target=run, args=(folder, action, payload, note, restore, version), daemon=True).start()
     return True

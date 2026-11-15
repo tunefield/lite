@@ -220,6 +220,48 @@ try:
         del os.environ[k]
     os.environ["TUNEFIELD_TEST_STICK_VERSION"] = "1.1.0"
 
+    # the net, from the Mac tool (stick_backup.py): a fake stick per volume folder
+    import stick_backup as sb
+    sb.VOLUMES_PREFIX = VOLS + "/"
+    sb.volume_of = lambda p: os.path.join(VOLS, os.path.relpath(os.path.realpath(p), VOLS).split(os.sep)[0])
+    G = os.path.join(VOLS, "NET"); GF = os.path.join(G, "Tunefield-USB"); os.makedirs(G)
+    make_install(GF, "1.0.0")
+    json.dump([{"id": f"t{i}"} for i in range(8)], open(os.path.join(GF, "data", "catalogs", "default.json"), "w"))
+    before = manifest(GF)
+    r, job = run(GF, "update")
+    GH = os.path.join(G, ".tunefield-backup", "Tunefield-USB")
+    check("net: an update backs the 1.0.0 library up first, outside the folder", job and job["ok"]
+          and (sb.read_meta(GH) or {}).get("tracks") == 8 and manifest(GF) == before, (job, os.listdir(G)))
+    # a Finder Replace with an old 1.0.0 folder: data/ gone, the old app back
+    shutil.rmtree(GF); make_install(GF, "1.0.0", music=False); shutil.rmtree(os.path.join(GF, "data", "catalogs"))
+    os.makedirs(os.path.join(GF, "data", "catalogs"))
+    json.dump([], open(os.path.join(GF, "data", "catalogs", "default.json"), "w"))
+    o = [s for s in J(c.get("/usb/sticks"))["sticks"] if s["name"] == "NET"][0]["installs"][0]
+    check("net: after a Replace the stick offers update AND the backup", o["action"] == "update"
+          and (o.get("restore") or {}).get("tracks") == 8 and o["restore"]["now_tracks"] == 0, o)
+    r, job = run(GF, "update")
+    check("…an update never overwrites the backup with the empty library", job["ok"] and sb.read_meta(GH)["tracks"] == 8)
+    replaced = manifest(os.path.join(GF, "data"))
+    r, job = run(GF, "restore")
+    kept = [n for n in os.listdir(GF) if n.startswith("data-before-restore-")]
+    check("…Restore brings the library back and keeps what was there", job and job["ok"] and "8 tracks" in job["message"]
+          and sb.stats(os.path.join(GF, "data"))["tracks"] == 8 and len(kept) == 1
+          and manifest(os.path.join(GF, kept[0])) == replaced, (job, kept))
+    check("…and then nothing is offered", not [s for s in J(c.get("/usb/sticks"))["sticks"] if s["name"] == "NET"][0]["installs"][0].get("restore"))
+    r = c.post("/usb/run", json={"folder": BF, "action": "restore"}, headers=TOKEN)
+    check("restore where no backup is offered → 409", r.status_code == 409)
+    # install deleted on purpose: a fresh install asks; Start fresh puts the backup aside
+    shutil.rmtree(GF)
+    f = [s for s in J(c.get("/usb/sticks"))["sticks"] if s["name"] == "NET"][0]["fresh"]
+    check("net: a fresh install where a backup exists offers it", (f.get("restore") or {}).get("tracks") == 8, f)
+    r = c.post("/usb/run", json={"folder": GF, "action": "install", "restore": False}, headers=TOKEN); job = wait_job()
+    check("…Start fresh: installed with no data/, the backup put aside", job["ok"] and not os.path.exists(os.path.join(GF, "data"))
+          and [n for n in os.listdir(GH) if n.startswith("declined-")] and sb.offer(GF) is None, (job, os.listdir(GH)))
+    shutil.rmtree(GF); os.rename(os.path.join(GH, [n for n in os.listdir(GH) if n.startswith("declined-")][0]), os.path.join(GH, "current"))
+    r = c.post("/usb/run", json={"folder": GF, "action": "install", "restore": True}, headers=TOKEN); job = wait_job()
+    check("…or Bring back: installed with the library from the backup", job["ok"] and sb.stats(os.path.join(GF, "data"))["tracks"] == 8
+          and os.path.isfile(os.path.join(GF, "PORTABLE")) and "8 tracks" in job["message"], job)
+
     # running_under, unmocked
     from importlib import reload
     real = reload(ui).running_under

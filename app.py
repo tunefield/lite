@@ -11,6 +11,7 @@ from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as 
 from als_export import AlsTrack, build_live_set
 import serato_crate
 import usb_install
+import stick_backup
 try:
     import tag_write             # needs mutagen; without it only tag writing is off (E4)
 except Exception as _e:          # pragma: no cover
@@ -198,6 +199,21 @@ def _resolve_root():
 _ROOT_FALLBACK = []
 TUNEFIELD_ROOT, TUNEFIELD_ROOT_MODE = _resolve_root()
 TUNEFIELD_ROOT_REASON = _ROOT_FALLBACK[0] if _ROOT_FALLBACK else None
+# A copy running from a stick install: portable mode, or an explicit root that is one (a
+# source run pointed at a stick folder). It keeps the library's backup outside its folder.
+ON_STICK = TUNEFIELD_ROOT_MODE == "portable" or (
+    TUNEFIELD_ROOT_MODE == "env" and os.path.isfile(os.path.join(TUNEFIELD_ROOT, "PORTABLE")))
+# A restore the user asked for last time runs NOW, before anything below opens data/
+# (stick_backup.py). The result is shown once by the page.
+STICK_RESTORE_RESULT = None
+if ON_STICK:
+    try:
+        _had_request = os.path.isfile(os.path.join(TUNEFIELD_ROOT, stick_backup.REQUEST))
+        _kept = stick_backup.apply_request(TUNEFIELD_ROOT) if _had_request else stick_backup.recover_restore(TUNEFIELD_ROOT)
+        if _had_request:
+            STICK_RESTORE_RESULT = {"ok": True, "kept": os.path.basename(_kept) if _kept else None}
+    except Exception as _e:
+        STICK_RESTORE_RESULT = {"ok": False, "error": str(_e)}
 DATA_DIR      = os.path.join(TUNEFIELD_ROOT, "data")
 CATALOGS_DIR  = os.path.join(DATA_DIR, "catalogs")
 META_FILE     = os.path.join(CATALOGS_DIR, "_meta.json")
@@ -3983,7 +3999,7 @@ def _usb_context():
     payload = usb_install.own_bundle(exe, getattr(sys, "frozen", False))
     # The volume this app runs from (a DMG, say) is never offered as a stick.
     exclude = [payload, _translocated_original(exe) if "/AppTranslocation/" in exe else None]
-    refusal = (usb_install.MSG["portable"] if TUNEFIELD_ROOT_MODE == "portable" else
+    refusal = (usb_install.MSG["portable"] if ON_STICK else
                usb_install.MSG["nobundle"] if not payload else None)
     return payload, usb_install.my_version(TUNEFIELD_VERSION), exclude, refusal
 
@@ -4011,13 +4027,16 @@ def usb_run():
     offers = [o for s in usb_install.sticks(payload, mine, exclude)
               for o in s["installs"] + ([s["fresh"]] if s["fresh"] else [])]
     offer = next((o for o in offers if o["folder"] == folder), None)
-    if not offer or offer["action"] != action:
+    # "restore" brings the library back from the stick's backup; it is on offer beside any
+    # action (a newer app on the stick included) while nothing runs from that folder.
+    if not offer or (offer["action"] != action and not (action == "restore" and offer.get("restore"))):
         return jsonify({"refusal": usb_install.MSG["gone"]}), 409
-    if offer["refusal"]:
+    if offer["refusal"] and not (action == "restore" and offer["action"] == "newer"):
         return jsonify({"refusal": offer["refusal"]}), 409
+    restore = body.get("restore") if action == "install" and offer.get("restore") else None
     note = ("To use Pro on the stick, paste your key in its Settings > Pro once; it stays with the stick."
-            if _pro_licence() and action == "install" else "")
-    if not usb_install.start(folder, action, payload, note):
+            if _pro_licence() and action == "install" and not restore else "")
+    if not usb_install.start(folder, action, payload, note, restore=restore, version=mine):
         return jsonify({"refusal": usb_install.MSG["busy"]}), 409
     usage_event("usb_run", action=action)
     return jsonify({"ok": True})
@@ -4026,6 +4045,64 @@ def usb_run():
 @app.route("/usb/job", methods=["GET"])
 def usb_job():
     return jsonify(dict(usb_install.JOB))
+
+
+# ── The library's backup, on a copy running from a stick (stick_backup.py) ──────────────
+_BACKUP_LAST = {"status": None, "at": None, "detail": None}
+
+def _backup_loop():
+    """Shortly after start, then every half hour: back up the library if it changed. Never
+    from a library under half the backup's size (the page offers the backup instead)."""
+    time.sleep(float(os.environ.get("TUNEFIELD_TEST_BACKUP_DELAY") or 60))
+    while True:
+        try:
+            st, detail = stick_backup.make(TUNEFIELD_ROOT, version=TUNEFIELD_VERSION)
+        except Exception as e:
+            st, detail = "failed", f"{e.__class__.__name__}: {e}"
+        _BACKUP_LAST.update(status=st, at=datetime.now().isoformat(timespec="seconds"),
+                            detail=detail if isinstance(detail, (str, int)) else None)
+        if st in ("made", "failed", "space", "toobig"):
+            usage_event("stick_backup", status=st)
+        time.sleep(1800)
+
+
+@app.route("/backup/status", methods=["GET"])
+def backup_status():
+    """On a stick: the backup there, the last run, and a backup to offer back, if any."""
+    if not ON_STICK:
+        return jsonify({"on_stick": False})
+    h = stick_backup.home(TUNEFIELD_ROOT)
+    meta = stick_backup.read_meta(h) if h else None
+    return jsonify({"on_stick": True, "where": h, "backup": meta and {k: meta.get(k) for k in
+                    ("made_at", "tracks", "fields", "sets", "bytes")}, "last": _BACKUP_LAST,
+                    "offer": stick_backup.offer(TUNEFIELD_ROOT), "restored": STICK_RESTORE_RESULT})
+
+
+@app.route("/backup/choose", methods=["POST"])
+def backup_choose():
+    """{choice: "restore" | "fresh"}. Restore can't swap data/ under this running server, so
+    it is recorded and the app quits; it happens at the next start, before anything loads.
+    Fresh puts the backup aside so it is not offered again."""
+    bad = _require_confirm()
+    if bad:
+        return bad
+    if not ON_STICK or not stick_backup.offer(TUNEFIELD_ROOT):
+        return jsonify({"error": "There is no backup to bring back here."}), 409
+    choice = (request.get_json(silent=True) or {}).get("choice")
+    if choice == "fresh":
+        stick_backup.decline(TUNEFIELD_ROOT)
+        usage_event("stick_backup_choice", choice="fresh")
+        return jsonify({"ok": True})
+    if choice != "restore":
+        return jsonify({"error": "choice must be restore or fresh"}), 400
+    stick_backup.request_restore(TUNEFIELD_ROOT)
+    usage_event("stick_backup_choice", choice="restore")
+    if os.environ.get("TUNEFIELD_TEST_NO_QUIT") != "1":
+        def _quit():
+            _wait_for_requests()
+            os._exit(0)
+        threading.Timer(1.5, _quit).start()
+    return jsonify({"ok": True, "quitting": True})
 
 
 def _csv_safe(v):
@@ -5296,6 +5373,8 @@ _WINDOW_MODE_ON = os.environ.get("TUNEFIELD_WINDOW", "1") != "0"
 
 
 if __name__ == "__main__":
+    if ON_STICK:
+        threading.Thread(target=_backup_loop, daemon=True).start()
     desired = int(os.environ.get("PORT", 5050))
     existing = _existing_instance(desired)
     if existing:
