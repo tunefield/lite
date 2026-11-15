@@ -7,6 +7,10 @@ TUNEFIELD LITE — public beta
 INSTALL
   Drag Tunefield.app onto the Applications folder alias next to it.
 
+ON A USB STICK
+  Using Tunefield from a USB stick? Open Tunefield, then Settings > USB stick.
+  Don't drag this app onto a stick.
+
 FIRST LAUNCH
   Releases are signed and notarized by Apple: double-click Tunefield.app and it
   opens like any other app, in its own window. It starts on Add music — pick a
