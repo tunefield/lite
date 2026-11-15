@@ -4069,13 +4069,15 @@ def _backup_loop():
 @app.route("/backup/status", methods=["GET"])
 def backup_status():
     """On a stick: the backup there, the last run, and a backup to offer back, if any."""
+    global STICK_RESTORE_RESULT
     if not ON_STICK:
         return jsonify({"on_stick": False})
+    restored, STICK_RESTORE_RESULT = STICK_RESTORE_RESULT, None     # said once, not on every reload
     h = stick_backup.home(TUNEFIELD_ROOT)
     meta = stick_backup.read_meta(h) if h else None
     return jsonify({"on_stick": True, "where": h, "backup": meta and {k: meta.get(k) for k in
                     ("made_at", "tracks", "fields", "sets", "bytes")}, "last": _BACKUP_LAST,
-                    "offer": stick_backup.offer(TUNEFIELD_ROOT), "restored": STICK_RESTORE_RESULT})
+                    "offer": stick_backup.offer(TUNEFIELD_ROOT), "restored": restored})
 
 
 @app.route("/backup/choose", methods=["POST"])

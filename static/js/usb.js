@@ -27,21 +27,22 @@ async function usbRefresh() {
   if (j.refusal) { el.innerHTML = `<span class="ea-none">${esc(j.refusal)}</span>`; return; }
   const rows = [];
   for (const s of j.sticks) {
-    const stick = `${esc(s.name)} <span class="ea-none">· ${esc(FS[s.fs] || s.fs || 'disk')} · ${_size(s.free)} free</span>`;
+    rows.push(`<div class="usb-head"><b>${esc(s.name)}</b> <span class="ea-none">· ${esc(FS[s.fs] || s.fs || 'disk')} · ${_size(s.free)} free</span></div>`);
     const offers = s.installs.length ? s.installs : [s.fresh];
     for (const o of offers) {
       const what = !s.installs.length ? 'No Tunefield yet'
         : `${o.folder === s.volume ? 'Top of the stick' : esc(_name(o.folder))} · `
           + (o.version ? `Tunefield ${esc(o.version)}${o.version === j.version ? ' (up to date)' : ''}` : 'app missing');
       const label = { install: 'Put Tunefield on this stick', update: `Update to ${esc(j.version)}`, repair: 'Repair' }[o.action];
-      const act = o.refusal || !label ? `<span class="ea-none" style="grid-column:1/-1">${esc(o.refusal || '')}</span>`
+      const act = o.refusal || !label ? ''
         : `<button class="btn-sm" data-folder="${esc(o.folder)}" data-action="${o.action}" data-stick="${esc(s.name)}">${label}</button>`;
-      rows.push(`<div class="ea-row"><span class="ea-kind">${stick}</span><span class="ea-path">${what}</span>${act}</div>`);
+      rows.push(`<div class="usb-row"><span class="ea-path" title="${esc(o.folder)}">${what}</span>${act}</div>`
+        + (o.refusal ? `<div class="usb-why">${esc(o.refusal)}</div>` : ''));
       _usbOffers[o.folder] = o;
       // The stick's library backup, when the library there is gone or much smaller: always
       // offered, never automatic (U1 safety net). A fresh install asks inside its own dialog.
       if (o.restore && s.installs.length && (!o.refusal || o.action === 'newer'))
-        rows.push(`<div class="ea-row"><span></span><span class="ea-path">Backup from ${esc(_when(o.restore.made_at))}: ${esc(_lib(o.restore))}</span>
+        rows.push(`<div class="usb-row"><span class="ea-path">Backup from ${esc(_when(o.restore.made_at))}: ${esc(_lib(o.restore))}</span>
           <button class="btn-sm" data-folder="${esc(o.folder)}" data-action="restore" data-stick="${esc(s.name)}">Bring library back</button></div>`);
     }
   }
@@ -91,9 +92,8 @@ function usbWatch() {
     const j = await fetch('/usb/job').then(r => r.ok ? r.json() : null).catch(() => null);
     if (!j) return;
     if (!j.done) {
-      el.innerHTML = `<div class="ea-row"><span class="ea-kind">${esc(PHASE[j.phase] || 'Working')}…</span>
+      el.innerHTML = `<div class="usb-row"><span>${esc(PHASE[j.phase] || 'Working')}…${j.phase === 'copy' ? ' ' + j.pct + '%' : ''}</span></div>
         <progress max="100" value="${j.phase === 'copy' ? j.pct : j.phase === 'prepare' ? 0 : 100}" style="width:100%"></progress>
-        <span class="ea-none">${j.phase === 'copy' ? j.pct + '%' : ''}</span></div>
         <span class="ea-none">Leave the stick plugged in.</span>`;
       return;
     }
