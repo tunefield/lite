@@ -48,6 +48,11 @@
 .field-empty p { font-size: 18px; margin: 0; }
 #tab-neural { position: relative; }
 .field-empty .an-add { align-self: center; }
+.field-empty-msg { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+/* The cover never hides the way out: FIELDS stays above it, so another Field can always be
+   ticked. The other drawers have nothing to act on while the Field is empty. */
+body.field-empty-on #tab-neural .edge-drawer-rail { z-index: 21; }
+body.field-empty-on #tab-neural .edge-drawer:not(#fields-drawer) { visibility: hidden; }
 
 /* List: filters on the left, table on the right. The filter panel has its own frame, stays in
    view while the table scrolls, and folds sideways to a slim rail (pilot toggleFilterFold sets

@@ -297,8 +297,14 @@
 
 <div class="tab-panel" id="tab-neural">
   <div class="field-empty" id="field-empty" hidden>
-    <p>This Field has no music yet.</p>
-    <button class="an-add" onclick="switchTab('analyse')">Add music</button>
+    <div class="field-empty-msg" id="field-empty-music">
+      <p>This Field has no music yet.</p>
+      <button class="an-add" onclick="switchTab('analyse')">Add music</button>
+    </div>
+    <div class="field-empty-msg" id="field-empty-pick" hidden>
+      <p>No Field is selected.</p>
+      <button class="an-add" onclick="openFieldsDrawer()">Choose a Field</button>
+    </div>
   </div>
   <div class="neural-canvas-wrap">
     <canvas id="neural-canvas"></canvas>

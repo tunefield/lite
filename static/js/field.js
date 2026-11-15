@@ -283,7 +283,7 @@ async function loadCatalogMeta() {
 let _loadGen = 0;
 async function loadCatalog() {
   const gen = ++_loadGen;
-  if (!activeCatalog) { catalog = []; applyFilters(); return; }
+  if (!activeCatalog) { catalog = []; applyFilters(); window.syncFieldEmpty?.(); return; }
   const slugs = [...viewedCatalogs];
   let results;
   try {
@@ -334,6 +334,7 @@ async function loadCatalog() {
   }
   updateTabCounts();
   applyFilters();
+  window.syncFieldEmpty?.();   // lift or set the empty-Field card (app.js)
 }
 // pilot 7600
 function renderCatSelector() {

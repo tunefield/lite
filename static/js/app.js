@@ -1,5 +1,5 @@
 // Entry: tabs and boot. Each tab is its own module (handover §5.7).
-import { catalog, allCatalogs, loadCatalogMeta, loadCatalog } from './field.js';
+import { catalog, allCatalogs, viewedCatalogs, loadCatalogMeta, loadCatalog } from './field.js';
 import { analyseBoot } from './analyse.js';
 import './list.js';
 import './export.js';
@@ -30,19 +30,33 @@ function switchTab(name) {
   document.body.classList.remove(...TABS.map(t => `on-tab-${t}`));
   document.body.classList.add(`on-tab-${name}`);
   try { localStorage.setItem('active-tab', name); } catch (_) {}
-  const field = document.getElementById('field-empty');
-  field.hidden = true;
+  document.getElementById('field-empty').hidden = true;   // until the Field has loaded
   if (name === 'neural') refreshSets();   // the set panel only draws while visible
-  window.fieldShow(name === 'neural').then(() => {
-    // Never a blank Field: an empty one says so and points at the one thing to do.
-    field.hidden = !(name === 'neural' && catalog.length === 0);
-  });
+  window.fieldShow(name === 'neural').then(syncFieldEmpty);
   if (name === 'analyse') window.renderLibRoots?.();
   if (name === 'catalog') loadCatalogMeta().then(() => loadCatalog());
   if (name === 'playlists') refreshSets().then(() => window.renderPlaylistsTab());
   if (name === 'repair') loadCatalogMeta().then(() => { window.syncRepairFieldSelect(); window.repairRender(); });
 }
 window.switchTab = switchTab;
+
+// Never a blank Field and never a dead end: an empty Field is covered by a card that says
+// why and points at the one thing to do. Nothing ticked in FIELDS → choose a Field (the
+// FIELDS tab stays above the cover); ticked but empty → Add music. Runs on tab entry and
+// after every catalog load, so applying a choice in FIELDS lifts the cover at once.
+function syncFieldEmpty() {
+  const empty = document.body.classList.contains('on-tab-neural') && catalog.length === 0;
+  const noneTicked = empty && viewedCatalogs.size === 0 && allCatalogs.length > 0;
+  document.getElementById('field-empty').hidden = !empty;
+  document.getElementById('field-empty-music').hidden = noneTicked;
+  document.getElementById('field-empty-pick').hidden = !noneTicked;
+  document.body.classList.toggle('field-empty-on', empty);
+}
+window.syncFieldEmpty = syncFieldEmpty;
+// Opens FIELDS, never closes it (it may already be open beside the card).
+window.openFieldsDrawer = () => {
+  if (document.getElementById('fields-drawer').dataset.open !== '1') window.toggleDrawer('fields-drawer');
+};
 
 const refreshSets = () => window.refreshPlaylistPanel();
 
