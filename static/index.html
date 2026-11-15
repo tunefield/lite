@@ -812,8 +812,10 @@
   </div>
 </div>
 <!-- One small dialog for export choices that need words and a number (Arrangement overlap,
-     Serato targets, tag fields, collect size). export.js tfDialog() fills and resolves it. -->
-<div id="tf-dialog" style="display:none;position:fixed;inset:0;z-index:320;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
+     Serato targets, tag fields, collect size). export.js tfDialog() fills and resolves it.
+     It opens from Settings too (Rekordbox & Traktor fields, Write tags), so it sits above
+     every other layer (Settings is 520, the formula popup 650, toasts up to 700). -->
+<div id="tf-dialog" style="display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
   <div data-drag role="dialog" aria-labelledby="tfd-title" style="background:var(--surface);border:1px solid var(--border);border-radius:0;width:min(500px,95vw);max-height:85vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
       <span id="tfd-title" style="font-weight:700;font-size:15px"></span>

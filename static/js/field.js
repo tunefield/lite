@@ -3354,7 +3354,8 @@ function _kbModalOpen() {
   const ids = ['kbnav-help-modal','rb-setup-modal','rb-coll-modal','feedback-modal',
                'repair-config-modal','repair-suggest-modal','confirm-modal',
                'import-modal','fpcalc-help-modal','settings-modal','pro-modal',
-               'formula-popup','sb-draw','sb-preview','ci-review-modal','settools-box','arc-report'];
+               'formula-popup','sb-draw','sb-preview','ci-review-modal','settools-box','arc-report',
+               'tf-dialog'];
   return ids.some(id => {
     const el = document.getElementById(id);
     return el && getComputedStyle(el).display !== 'none';
@@ -7136,6 +7137,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const help = document.getElementById('kbnav-help-modal');
     if (help && getComputedStyle(help).display !== 'none') return;
+    // The export dialog sits above everything, Settings included: Esc cancels it first.
+    const td = document.getElementById('tf-dialog');
+    if (td && td.style.display === 'flex') { document.getElementById('tfd-cancel')?.click(); return; }
     // Esc closes the small floating panels/menus first — and never stops the music
     // behind an open dialog (the big modals have their own × / Cancel buttons).
     const sm = document.getElementById('settings-modal');
