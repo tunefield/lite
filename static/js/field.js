@@ -289,6 +289,11 @@ async function loadCatalogMeta() {
     } catch (_) {
       viewedCatalogs = new Set(activeCatalog ? [activeCatalog] : []);
     }
+    // A FIELDS drawer restored open armed its staging at DOMContentLoaded, before the
+    // selection above existed, so it staged an empty set. Re-arm from the restored
+    // selection, or the first close (entering the Field tab closes drawers) commits that
+    // empty set and wipes the saved selection on every relaunch (NEW-2, 2026-11-15).
+    if (_fdStaged) _fdStaged = new Set(viewedCatalogs);
   }
   renderCatSelector();
   renderCombineChips();
