@@ -286,11 +286,10 @@ def _arrangement_plan(entries: list[AlsTrack], tempo: float,
     return plan
 
 
-def _set_arrangement_view(liveset: ET.Element, tempo: float, end: float) -> None:
-    """Song-level state for an arrangement mix (each value checked against
-    Live-12-written sets): tempo envelope's default event follows the tempo, loop
-    brace over the whole mix (off), playhead at 0, Arrangement View in front,
-    zoomed so the mix fills the window."""
+def _sync_tempo_envelope(liveset: ET.Element, tempo: float) -> None:
+    """Live always writes the tempo envelope's default event equal to the Manual tempo.
+    The template's 140 used to stay there in Session sets while Manual moved to the
+    first track's BPM, so a set could open or play at 140 (found in the 1.1.0 E6 work)."""
     main = liveset.find("MainTrack")
     target = main.find(".//Tempo/AutomationTarget").get("Id")
     for env in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope"):
@@ -299,6 +298,12 @@ def _set_arrangement_view(liveset: ET.Element, tempo: float, end: float) -> None
             if ev is None:
                 raise KeyError("template node missing: tempo envelope default event")
             ev.set("Value", str(tempo))
+
+
+def _set_arrangement_view(liveset: ET.Element, tempo: float, end: float) -> None:
+    """Song-level state for an arrangement mix (each value checked against
+    Live-12-written sets): loop brace over the whole mix (off), playhead at 0,
+    Arrangement View in front, zoomed so the mix fills the window."""
     transport = liveset.find("Transport")
     _v(transport, "LoopOn", "false")
     _v(transport, "LoopStart", 0)
@@ -459,6 +464,7 @@ def build_live_set(entries: list[AlsTrack], *,
             csl_any.append(s)
 
     _v(liveset.find("MainTrack").find(".//Tempo"), "Manual", main_tempo)
+    _sync_tempo_envelope(liveset, main_tempo)
     if arrangement:
         _set_arrangement_view(liveset, main_tempo,
                               max(start + beats for start, beats, _, _ in plan))

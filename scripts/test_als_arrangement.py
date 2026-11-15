@@ -329,17 +329,40 @@ try:
             ("no scene tempo, custom deck names", rows, dict(scene_tempo=False, deck_names=("L", "R"))),
             ("set_path for relative paths", rows, dict(set_path=os.path.join(TMP, "out", "x.als"))),
         ]
+        # One intended change to the Session set: the tempo envelope's default event now
+        # equals the Manual tempo (it stayed at the template's 140). Compare everything
+        # else byte for byte by applying that one fix to the baseline's output.
+        import gzip as _gz, xml.etree.ElementTree as _ET
+        def tempo_synced(b):
+            root = _ET.fromstring(_gz.decompress(b)); ls = root.find("LiveSet")
+            main = ls.find("MainTrack"); manual = main.find(".//Tempo/Manual").get("Value")
+            tid = main.find(".//Tempo/AutomationTarget").get("Id")
+            for env in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope"):
+                if env.find("EnvelopeTarget/PointeeId").get("Value") == tid:
+                    for ev in env.findall("Automation/Events/FloatEvent"):
+                        if ev.get("Time") == "-63072000": ev.set("Value", manual)   # Live's default event
+            return _ET.tostring(root)
         for label, rs, kw in cases:
             cur, old = both(rs)
             new_bytes = build_live_set(cur, **kw)
-            check(f"session unchanged: {label}", new_bytes == base.build_live_set(old, **kw))
+            check(f"session unchanged except the tempo fix: {label}",
+                  tempo_synced(new_bytes) == tempo_synced(base.build_live_set(old, **kw))
+                  and tempo_synced(new_bytes) == _ET.tostring(_ET.fromstring(_gz.decompress(new_bytes))))
             check(f"session unchanged with view='session' + overlap_bars: {label}",
                   build_live_set(cur, view="session", overlap_bars=32, **kw) == new_bytes)
         cur, old = both(rows)
         a = write_als(os.path.join(TMP, "new", "s.als"), cur)
         b = base.write_als(os.path.join(TMP, "old", "s.als"), old)
         with open(a, "rb") as fa, open(b, "rb") as fb:
-            check("session unchanged: write_als file bytes", fa.read() == fb.read())
+            check("session unchanged except the tempo fix: write_als file", tempo_synced(fa.read()) == tempo_synced(fb.read()))
+        # the fix itself: a 126 BPM first track opens at 126, not the template's 140
+        root = _ET.fromstring(_gz.decompress(build_live_set(both(rows)[0], scene_tempo=False)))
+        main = root.find("LiveSet/MainTrack")
+        evs = [float(e.get("Value")) for env in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope")
+               if env.find("EnvelopeTarget/PointeeId").get("Value") == main.find(".//Tempo/AutomationTarget").get("Id")
+               for e in env.findall("Automation/Events/FloatEvent")]
+        check("session set: tempo envelope follows Manual (126, not 140)",
+              float(main.find(".//Tempo/Manual").get("Value")) == 126 and evs and all(v == 126 for v in evs), evs)
 finally:
     shutil.rmtree(TMP, ignore_errors=True)
 
