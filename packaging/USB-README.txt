@@ -43,8 +43,8 @@ YOUR LIBRARY HAS A BACKUP
   replaced or deleted, Tunefield offers to bring your library back.
 
 IF IT WON'T OPEN FROM THE STICK
-  On your Mac, open Tunefield, then Settings > USB stick > Repair. It puts a
-  fresh copy of the app on the stick and leaves your library alone.
+  On your Mac, open Tunefield, then Settings > USB stick > Repair (or Update).
+  It puts a fresh copy of the app on the stick and leaves your library alone.
 
 FREE, EXCEPT EXPORT
   The Field, sets, Up next, Set tools and Repair are free, with no account.
