@@ -13,6 +13,11 @@ Intro, Lite, Standard, Suite — with no SDK, no beta, no extension:
     (something even the Extensions SDK cannot write),
   · files referenced in place, absolute path + relative fallback.
 
+Or, with view="arrangement", an Arrangement-View DJ mix on the same two
+decks: one global tempo, clips end to end and alternating A/B, consecutive
+tracks overlapping by `overlap_bars`. Tempo-matched only — Tunefield has no
+beat grid or downbeat data, so downbeats and phrases are NOT aligned.
+
 Pure stdlib. The generator does TEMPLATE SURGERY: it patches a stripped,
 Live-12-written set (embedded below, regenerate with make_template.py)
 rather than emitting XML from scratch, so every node Live expects is a
@@ -27,6 +32,7 @@ Usage (standalone, against the running Tunefield):
     python3 als_export.py                        # active playlist → ./<name>.als
     python3 als_export.py --playlist my-set --out ~/Desktop/my-set.als
     python3 als_export.py --no-scene-tempo --tempo 126
+    python3 als_export.py --arrangement --overlap-bars 16
 
 Library:
     from als_export import AlsTrack, write_als
@@ -54,6 +60,10 @@ ID_STRIDE = 100_000          # pointee-id offset per cloned track
 _FALLBACK_BPM = 120.0
 _SCENE_COLORS = [12, 20, 27, 36, 45, 54, 61, 3]   # Live colour indices, cycled
 _RESOLVE_CHUNK = 500         # /tracks/resolve caps ids at 500 per request
+_MAX_OVERLAP_BARS = 64       # arrangement view: overlap clamp, 4/4 bars
+_NOMINAL_BEATS = 128.0       # arrangement clip of unknown duration: 32 bars
+_TEMPO_MARKER_BEATS = 0.03125  # Live's own one-tempo warp idiom: 2nd marker at 1/32 beat
+_TEMPO_EVENT_TIME = "-63072000"  # Live's "before the song" default automation event
 # C0 control chars are ILLEGAL in XML 1.0 and ElementTree writes them raw,
 # producing a file Live cannot parse (real-world source: ID3 null separators).
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -150,12 +160,36 @@ def _patch_clip(slot: ET.Element, track: AlsTrack, *, warp: bool,
     warped = bool(warp and track.bpm and dur > 0)
     beats = dur * bpm / 60.0 if warped else max(dur, 4.0)
     beats = round(beats, 6) if beats > 0 else 4.0
+    _patch_clip_body(clip, track, start=0, beats=beats,
+                     markers=[(0, 0), (dur, beats)] if warped else None)
+    _patch_sample_ref(clip, track, dur, set_dir)
 
+
+def _patch_arrangement_clip(clip: ET.Element, track: AlsTrack, *,
+                            clip_id: int, start: float, beats: float,
+                            bpm: float, timed: bool, set_dir: str | None) -> None:
+    """An unlooped, warped clip on the arrangement timeline. Mirrors what Live
+    writes for one: Time == CurrentStart (song beats), CurrentEnd = start + length,
+    Loop/markers in clip beats from 0, so CurrentEnd - CurrentStart == LoopEnd - LoopStart."""
+    clip.set("Id", str(clip_id))           # unique within this track's Events
+    clip.set("Time", str(start))
+    if timed:      # same constant grid as the session clips: file start → file end
+        markers = [(0, 0), (track.duration_sec, beats)]
+    else:          # duration unknown: Live's own idiom, a 2nd marker 1/32 beat in
+        markers = [(0, 0), (_TEMPO_MARKER_BEATS * 60.0 / bpm, _TEMPO_MARKER_BEATS)]
+    _patch_clip_body(clip, track, start=start, beats=beats, markers=markers)
+    _patch_sample_ref(clip, track, track.duration_sec or 0.0, set_dir)
+
+
+def _patch_clip_body(clip: ET.Element, track: AlsTrack, *, start: float,
+                     beats: float, markers: list | None) -> None:
+    """Name, position, loop braces and warp of a clip that plays once from its
+    first beat. `markers` = [(seconds, beats), …]; None leaves it unwarped."""
     _v(clip, "Name", track.display_name)
     if track.color is not None:
         _v(clip, "Color", int(track.color))
-    _v(clip, "CurrentStart", 0)
-    _v(clip, "CurrentEnd", beats)
+    _v(clip, "CurrentStart", start)
+    _v(clip, "CurrentEnd", start + beats)
     loop = clip.find("Loop")
     _v(loop, "LoopStart", 0)
     _v(loop, "LoopEnd", beats)
@@ -167,20 +201,21 @@ def _patch_clip(slot: ET.Element, track: AlsTrack, *, warp: bool,
     ts = clip.find("TimeSelection")
     _v(ts, "AnchorTime", 0)
     _v(ts, "OtherTime", beats)
-    _v(clip, "IsWarped", "true" if warped else "false")
+    _v(clip, "IsWarped", "true" if markers else "false")
     if clip.find("WarpMode") is not None:
         _v(clip, "WarpMode", 4)          # Complex — right default for full tracks
 
-    markers = clip.find("WarpMarkers")
-    for m in list(markers):
-        markers.remove(m)
-    if warped:
-        # Constant grid at the detected BPM: SecTime is SECONDS into the file.
-        ET.SubElement(markers, "WarpMarker",
-                      {"Id": "1", "SecTime": "0", "BeatTime": "0"})
-        ET.SubElement(markers, "WarpMarker",
-                      {"Id": "2", "SecTime": repr(dur), "BeatTime": repr(beats)})
+    wm = clip.find("WarpMarkers")
+    for m in list(wm):
+        wm.remove(m)
+    # Constant grid at the detected BPM: SecTime is SECONDS into the file.
+    for n, (sec, beat) in enumerate(markers or (), start=1):
+        ET.SubElement(wm, "WarpMarker",
+                      {"Id": str(n), "SecTime": repr(sec), "BeatTime": repr(beat)})
 
+
+def _patch_sample_ref(clip: ET.Element, track: AlsTrack, dur: float,
+                      set_dir: str | None) -> None:
     ref = clip.find("SampleRef")
     fr = ref.find("FileRef")
     abs_path = os.path.abspath(track.path)
@@ -221,6 +256,62 @@ def _scene_label(i: int, track: AlsTrack) -> str:
     return " · ".join(bits)
 
 
+def _arrangement_plan(entries: list[AlsTrack], tempo: float,
+                      overlap_bars: float) -> list[tuple[float, float, float, bool]]:
+    """The arrangement timeline, one (start, beats, bpm, timed) per entry, in
+    song beats (4/4). A clip's length is its own beat count — duration × its BPM
+    — because warping plays those beats at the set tempo; a track without a BPM
+    is warped AT the set tempo, i.e. plays at its natural speed. `timed` is False
+    when the duration is unknown: the clip then gets a nominal 32 bars.
+
+    Entry i+1 starts where entry i ends minus the overlap. The overlap is
+    overlap_bars clamped to 0..64 bars and to half of either clip, so a clip's
+    two overlaps never sum past its length and clips on the same deck (i, i+2)
+    never overlap — enforced again after rounding."""
+    want = min(max(overlap_bars, 0.0), _MAX_OVERLAP_BARS) * 4.0
+    plan: list[tuple[float, float, float, bool]] = []
+    for i, e in enumerate(entries):
+        bpm = e.bpm or tempo
+        beats = round(e.duration_sec * bpm / 60.0, 6) if e.duration_sec else 0.0
+        timed = beats > 0
+        if not timed:
+            beats = _NOMINAL_BEATS
+        start = 0.0
+        if i:
+            p_start, p_beats = plan[i - 1][:2]
+            start = round(p_start + p_beats - min(want, p_beats / 2, beats / 2), 6)
+            if i >= 2:                     # same deck as i-2: start after it ends
+                start = max(start, plan[i - 2][0] + plan[i - 2][1])
+        plan.append((start, beats, bpm, timed))
+    return plan
+
+
+def _set_arrangement_view(liveset: ET.Element, tempo: float, end: float) -> None:
+    """Song-level state for an arrangement mix (each value checked against
+    Live-12-written sets): tempo envelope's default event follows the tempo, loop
+    brace over the whole mix (off), playhead at 0, Arrangement View in front,
+    zoomed so the mix fills the window."""
+    main = liveset.find("MainTrack")
+    target = main.find(".//Tempo/AutomationTarget").get("Id")
+    for env in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope"):
+        if env.find("EnvelopeTarget/PointeeId").get("Value") == target:
+            ev = env.find(f"Automation/Events/FloatEvent[@Time='{_TEMPO_EVENT_TIME}']")
+            if ev is None:
+                raise KeyError("template node missing: tempo envelope default event")
+            ev.set("Value", str(tempo))
+    transport = liveset.find("Transport")
+    _v(transport, "LoopOn", "false")
+    _v(transport, "LoopStart", 0)
+    _v(transport, "LoopLength", end)
+    _v(transport, "CurrentTime", 0)
+    _v(liveset, "SelectedDocumentViewInMainWindow", 0)   # 0 Arrangement, 1 Session
+    # CurrentZoom is beats per pixel of the arranger's saved width (ClientSize X).
+    nav = liveset.find("SequencerNavigator")
+    width = int(nav.find("ClientSize").get("X") or 0) or 1000
+    _v(nav, "BeatTimeHelper/CurrentZoom", round(end * 1.04 / width, 6))
+    nav.find("ScrollerPos").set("X", "0")
+
+
 # --------------------------------------------------------------------------- #
 #  Public API
 # --------------------------------------------------------------------------- #
@@ -230,14 +321,43 @@ def build_live_set(entries: list[AlsTrack], *,
                    warp: bool = True,
                    scene_tempo: bool = True,
                    deck_names: tuple[str, str] = ("TF Deck A", "TF Deck B"),
-                   set_path: str | None = None) -> bytes:
-    """Build a .als (gzipped XML) from playlist entries. Returns file bytes."""
+                   set_path: str | None = None,
+                   view: str = "session",
+                   overlap_bars: float = 8) -> bytes:
+    """Build a .als (gzipped XML) from playlist entries. Returns file bytes.
+
+    view="session" (default): the Session-View set described in the module
+    docstring; `overlap_bars` is ignored.
+
+    view="arrangement": an Arrangement-View DJ mix. One global tempo — `tempo`,
+    else the first known track BPM, else 120. Clips sit end to end on the
+    timeline, alternating Deck A / Deck B, each consecutive pair overlapping by
+    `overlap_bars` 4/4 bars (clamped to 0..64 and to half of either clip; clips
+    on the same deck never overlap). Every clip is warped (constant grid at its
+    own BPM, same two markers as the session clips) so it plays at the set tempo;
+    a track without a BPM plays at its natural speed. warp=False is refused;
+    `scene_tempo` is ignored (a single empty scene, as Live needs at least one).
+    Only TEMPO is matched: Tunefield has no beat grid or downbeat data, so
+    downbeats and phrases are NOT aligned — line them up by ear in Live."""
     if not entries:
         raise ValueError("empty playlist — nothing to export")
+    if view not in ("session", "arrangement"):
+        raise ValueError(f"view must be 'session' or 'arrangement', got {view!r}")
+    arrangement = view == "arrangement"
+    if arrangement:
+        if not warp:
+            raise ValueError("the arrangement export needs warped clips (warp=True)")
+        bars = _num_or_none(overlap_bars, positive=False)
+        if bars is None or isinstance(overlap_bars, bool):
+            raise ValueError(f"overlap_bars must be a number, got {overlap_bars!r}")
     if tempo is not None:
         tempo = float(tempo)
         if not math.isfinite(tempo) or tempo <= 0:
             raise ValueError(f"tempo must be a positive number, got {tempo!r}")
+    # Global tempo: explicit, else the first track's BPM.
+    main_tempo = round(float(tempo if tempo is not None else next(
+        (e.bpm for e in entries if e.bpm), _FALLBACK_BPM)), 2)
+    plan = _arrangement_plan(entries, main_tempo, bars) if arrangement else None
 
     root = _load_template()
     liveset = root.find("LiveSet")
@@ -271,6 +391,25 @@ def build_live_set(entries: list[AlsTrack], *,
         max_pointee = max(max_pointee,
                           _renumber_pointees(tr, (deck + 1) * ID_STRIDE))
         deck_csl = tr.find("DeviceChain/MainSequencer/ClipSlotList")
+        if arrangement:
+            # Session grid: one empty slot for the one scene. Clips go on the
+            # timeline; -1 = "follows the arrangement", as Live writes for
+            # every arrangement-only track.
+            slot = copy.deepcopy(tmpl_empty)
+            slot.set("Id", "0")
+            deck_csl.append(slot)
+            _v(tr, "SavedPlayingSlot", -1)
+            events = tr.find("DeviceChain/MainSequencer/Sample/ArrangerAutomation/Events")
+            tmpl_clip = tmpl_filled.find(".//AudioClip")
+            for i in range(deck, len(entries), 2):
+                start, beats, bpm, timed = plan[i]
+                clip = copy.deepcopy(tmpl_clip)
+                _patch_arrangement_clip(clip, entries[i], clip_id=i, start=start,
+                                        beats=beats, bpm=bpm, timed=timed,
+                                        set_dir=set_dir)
+                events.append(clip)
+            tracks_el.insert(deck, tr)
+            continue
         for i, entry in enumerate(entries):
             if i % 2 == deck:
                 slot = copy.deepcopy(tmpl_filled)
@@ -285,22 +424,28 @@ def build_live_set(entries: list[AlsTrack], *,
         # corruption check. Insert decks before the returns.
         tracks_el.insert(deck, tr)
 
-    # One scene per entry.
-    for i, entry in enumerate(entries):
+    if arrangement:
+        # One empty scene: Live needs at least one.
         sc = copy.deepcopy(tmpl_scene)
-        sc.set("Id", str(i))
-        _v(sc, "Name", _scene_label(i, entry))
-        _v(sc, "Color", entry.color if entry.color is not None
-           else _SCENE_COLORS[i % len(_SCENE_COLORS)])
-        if scene_tempo and entry.bpm:
-            _v(sc, "Tempo", round(float(entry.bpm), 2))
-            _v(sc, "IsTempoEnabled", "true")
+        sc.set("Id", "0")
         scenes_el.append(sc)
+    else:
+        # One scene per entry.
+        for i, entry in enumerate(entries):
+            sc = copy.deepcopy(tmpl_scene)
+            sc.set("Id", str(i))
+            _v(sc, "Name", _scene_label(i, entry))
+            _v(sc, "Color", entry.color if entry.color is not None
+               else _SCENE_COLORS[i % len(_SCENE_COLORS)])
+            if scene_tempo and entry.bpm:
+                _v(sc, "Tempo", round(float(entry.bpm), 2))
+                _v(sc, "IsTempoEnabled", "true")
+            scenes_el.append(sc)
 
     # Live keeps one ClipSlot per scene in EVERY sequencer — including each
     # track's FreezeSequencer and the MainTrack's — not just the session grid.
     # Resize every remaining donor-sized ClipSlotList to the scene count.
-    n = len(entries)
+    n = len(scenes_el.findall("Scene"))
     for csl_any in liveset.iter("ClipSlotList"):
         slots_any = csl_any.findall("ClipSlot")
         if len(slots_any) == n or not slots_any:
@@ -313,11 +458,10 @@ def build_live_set(entries: list[AlsTrack], *,
             s.set("Id", str(i))
             csl_any.append(s)
 
-    # Global tempo: explicit, else the first track's BPM.
-    main_tempo = tempo if tempo is not None else next(
-        (e.bpm for e in entries if e.bpm), _FALLBACK_BPM)
-    _v(liveset.find("MainTrack").find(".//Tempo"), "Manual",
-       round(float(main_tempo), 2))
+    _v(liveset.find("MainTrack").find(".//Tempo"), "Manual", main_tempo)
+    if arrangement:
+        _set_arrangement_view(liveset, main_tempo,
+                              max(start + beats for start, beats, _, _ in plan))
 
     liveset.find("NextPointeeId").set("Value", str(max_pointee + 1))
 
@@ -401,11 +545,21 @@ def main() -> None:
     ap.add_argument("--no-warp", action="store_true", help="leave clips unwarped")
     ap.add_argument("--no-scene-tempo", action="store_true",
                     help="do not write per-scene tempos")
+    ap.add_argument("--arrangement", action="store_true",
+                    help="Arrangement-View mix instead of Session-View scenes")
+    ap.add_argument("--overlap-bars", type=float, default=8,
+                    help="arrangement: bars each track overlaps the next (0-64, default 8)")
     args = ap.parse_args()
 
     name, entries = fetch_playlist(args.base, args.playlist)
     safe_name = re.sub(r"[/:\\]", "-", name)
     out = args.out or f"./{safe_name}.als"
+    if args.arrangement:
+        path = write_als(out, entries, tempo=args.tempo, view="arrangement",
+                         overlap_bars=args.overlap_bars)
+        print(f"wrote {path} — {len(entries)} tracks, arrangement mix, "
+              f"{args.overlap_bars:g}-bar overlaps")
+        return
     path = write_als(out, entries, tempo=args.tempo, warp=not args.no_warp,
                      scene_tempo=not args.no_scene_tempo)
     print(f"wrote {path} — {len(entries)} tracks, "
