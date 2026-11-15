@@ -62,7 +62,7 @@ try:
     r = export()
     j = J(r)
     check("bridge export without approval: 409 with the exact path", r.status_code == 409
-          and j.get("approval_required") == {"kind": "rekordbox_bridge", "target": target}, (r.status_code, j))
+          and j.get("approval_required") == {"kind": "rekordbox_bridge", "target": os.path.realpath(target)}, (r.status_code, j))
     check("…and nothing written: no folder in ~/Music, no store, no file",
           not os.path.exists(RBH) and not os.path.exists(tf.REKORDBOX_BRIDGE_STORE))
     check("status says not approved", J(c.get("/export/rekordbox/status")).get("bridge_approved") is False)
@@ -91,6 +91,19 @@ try:
     finally:
         tf.TUNEFIELD_ROOT, tf.TUNEFIELD_ROOT_MODE = real
 
+    # the same place spelled differently is the same approval
+    check("a differently cased path matches the same approval", tf._is_approved("rekordbox_bridge", target.swapcase()))
+    check("a trailing slash matches the same approval", tf._is_approved("rekordbox_bridge", target + "/"))
+    # stick approvals are stored relative, so a renamed stick keeps them
+    real = (tf.TUNEFIELD_ROOT, tf.TUNEFIELD_ROOT_MODE)
+    try:
+        tf.TUNEFIELD_ROOT, tf.TUNEFIELD_ROOT_MODE = "/Volumes/GIGSTICK/Tunefield", "portable"
+        stored, host = tf._approval_key("/Volumes/GIGSTICK/Collected/Set")
+        check("a stick approval is stored relative to the data root", host is None and stored == "../Collected/Set", (stored, host))
+        tf.TUNEFIELD_ROOT = "/Volumes/RENAMED/Tunefield"
+        check("…so on the renamed stick it is the same key", tf._approval_key("/Volumes/RENAMED/Collected/Set") == (stored, None))
+    finally:
+        tf.TUNEFIELD_ROOT, tf.TUNEFIELD_ROOT_MODE = real
     j = J(c.delete("/export/approvals", json={"kind": "rekordbox_bridge", "target": target}))
     check("DELETE revokes", j.get("approved") is False and J(c.get("/export/approvals"))["approvals"] == [])
     check("…and the next export asks again", export().status_code == 409)

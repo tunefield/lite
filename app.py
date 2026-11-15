@@ -757,34 +757,56 @@ def _approvals_load():
 def _approvals_save(lst):
     atomic_json_dump(EXPORT_APPROVALS_FILE, {"version": 1, "approvals": lst})
 
+def _approval_norm(target):
+    """Absolute, symlinks resolved, no trailing slash: one place, one approval."""
+    t = target if os.path.isabs(target) else absolute_form(target)
+    return os.path.realpath(t).rstrip(os.sep) or os.sep
+
+def _approval_key(target):
+    """(stored target, host). A target on the stick that holds the data is stored RELATIVE
+    to the data root, like library_file, so renaming the stick keeps the approval
+    (Release & QA, 15 Nov). Matching ignores case: macOS volumes are case-insensitive
+    by default, and two spellings of one folder must not need two approvals."""
+    t = _approval_norm(target)
+    h = _approval_host(t)
+    return (os.path.relpath(t, os.path.realpath(TUNEFIELD_ROOT)) if h is None else t), h
+
+def _approval_matches(a, kind, stored, host):
+    return (a.get("kind") == kind and a.get("host") == host
+            and str(a.get("target", "")).lower() == stored.lower())
+
 def _is_approved(kind, target):
-    t, h = os.path.abspath(target), _approval_host(target)
-    return any(a.get("kind") == kind and a.get("target") == t and a.get("host") == h
-               for a in _approvals_load())
+    stored, h = _approval_key(target)
+    return any(_approval_matches(a, kind, stored, h) for a in _approvals_load())
 
 def _approval_required(kind, target):
     """The answer for an export that may not write yet. Nothing has been written."""
     return jsonify({"error": "Tunefield needs your OK before it writes here.",
-                    "approval_required": {"kind": kind, "target": os.path.abspath(target)}}), 409
+                    "approval_required": {"kind": kind, "target": _approval_norm(target)}}), 409
 
 @app.route("/export/approvals", methods=["GET", "POST", "DELETE"])
 def export_approvals():
     if request.method == "GET":
         h = _host_key()
-        return jsonify({"host": h, "approvals": [a for a in _approvals_load() if a.get("host") in (None, h)]})
+        mine = [dict(a, absolute=absolute_form(a.get("target") or ""))
+                for a in _approvals_load() if a.get("host") in (None, h)]
+        return jsonify({"host": h, "approvals": mine})
     body = request.get_json(silent=True) or {}
     kind, target = body.get("kind"), body.get("target")
-    if kind not in APPROVAL_KINDS or not isinstance(target, str) or not os.path.isabs(target):
+    # POST takes the absolute path the 409 named; DELETE also takes the stored form a
+    # GET listed (a stick approval is stored relative to the data root).
+    if (kind not in APPROVAL_KINDS or not isinstance(target, str) or not target
+            or (request.method == "POST" and not os.path.isabs(target))):
         return jsonify({"error": "kind and an absolute target are required"}), 400
-    t, h = os.path.abspath(target), _approval_host(target)
-    lst = [a for a in _approvals_load()
-           if not (a.get("kind") == kind and a.get("target") == t and a.get("host") == h)]
+    stored, h = _approval_key(target)
+    lst = [a for a in _approvals_load() if not _approval_matches(a, kind, stored, h)]
     if request.method == "POST":
         if (denied := _needs_pro()): return denied
-        lst.append({"kind": kind, "target": t, "host": h,
+        lst.append({"kind": kind, "target": stored, "host": h,
                     "approved_at": datetime.now().isoformat(timespec="seconds")})
     _approvals_save(lst)
-    return jsonify({"ok": True, "approved": request.method == "POST", "kind": kind, "target": t, "host": h})
+    return jsonify({"ok": True, "approved": request.method == "POST", "kind": kind,
+                    "target": stored, "absolute": absolute_form(stored), "host": h})
 
 
 # ── Annotations: ratings, custom tags, saved views — SERVER-side ─────────────
@@ -2851,7 +2873,8 @@ def _stream_cache_trim(reserve=0):
     volume STREAM_FREE_MARGIN (+ `reserve`, the size about to be written) free."""
     try:
         files = [(os.path.join(STREAM_CACHE_DIR, f), os.stat(os.path.join(STREAM_CACHE_DIR, f)))
-                 for f in os.listdir(STREAM_CACHE_DIR) if f.endswith((".wav", ".tmp"))]
+                 for f in os.listdir(STREAM_CACHE_DIR)
+                 if f.endswith((".wav", ".tmp")) and not f.startswith("._")]   # FAT32 AppleDouble sidecars
     except OSError:
         return
     # Sweep stale temp files first — a hard exit (window closed mid-decode: _window_mode uses

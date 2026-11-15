@@ -359,7 +359,7 @@ async function renderExportApprovals() {
   const label = { rekordbox_bridge: 'Rekordbox file', serato_crate: 'Serato crates', collect_folder: 'Collect folder', tag_write: 'Tags in files' };
   el.innerHTML = list.length
     ? list.map((a, i) => `<div class="ea-row"><span class="ea-kind">${esc(label[a.kind] || a.kind)}${a.host ? '' : ' · on this stick'}</span>
-        <code class="ea-path" title="${esc(a.target)}">${esc(a.target)}</code>
+        <code class="ea-path" title="${esc(a.absolute || a.target)}">${esc(a.absolute || a.target)}</code>
         <button class="btn-sm" data-i="${i}">Remove</button></div>`).join('')
     : '<span class="ea-none">Nothing approved yet. Tunefield asks before it writes outside its own folder.</span>';
   el.querySelectorAll('button[data-i]').forEach(b => b.onclick = async () => {
