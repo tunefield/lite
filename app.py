@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from analyze import analyze, FEATURES_VERSION
 from analyze import loudness_to_energy as _loudness_to_energy, rms_to_energy as _rms_to_energy
 from als_export import AlsTrack, build_live_set
+import serato_crate
 from license_key import check_key, clean_key, LicenceError
 from concurrent.futures import ThreadPoolExecutor
 
@@ -4228,6 +4229,60 @@ def rekordbox_export_bridge():
     return jsonify({"path": bridge, "playlist": name, "replaced": replaced,
                     "playlists": len(store["playlists"]),
                     "tracks": sum(len(p["tracks"]) for p in store["playlists"])})
+
+@app.route("/export/serato", methods=["POST"])
+def export_serato():
+    """Serato crate(s) for a set (1.1.0, E3). Body: {name, paths:[absolute audio paths],
+    dry_run?, overwrite?}. Serato keeps a crate per DRIVE: tracks on the Mac go into
+    ~/Music/_Serato_/Subcrates, tracks on an external drive into that drive's own
+    _Serato_/Subcrates, paths relative to the drive. Tunefield never creates a _Serato_
+    folder (Serato does, on its first run), never replaces a crate without the user's
+    yes (409 crate_exists), and writes into each Subcrates folder only once the user has
+    approved it (409 approval_required, E0). dry_run answers what WOULD be written."""
+    if (denied := _needs_pro()): return denied
+    body = request.get_json(silent=True) or {}
+    name = body.get("name")
+    paths = body.get("paths")
+    if not isinstance(name, str) or not name.strip():
+        return jsonify({"error": "name required"}), 400
+    if (not isinstance(paths, list) or not paths or len(paths) > 20000
+            or not all(isinstance(p, str) and os.path.isabs(p) for p in paths)):
+        return jsonify({"error": "paths must be a non-empty list of absolute paths"}), 400
+    try:
+        targets = serato_crate.crate_targets(paths)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    fname = serato_crate.crate_filename(name.strip())
+    plan = []
+    for sub, rels in targets.items():
+        serato_dir = os.path.dirname(sub)
+        plan.append({"dir": sub, "tracks": len(rels), "crate": os.path.join(sub, fname),
+                     "serato_ready": os.path.isdir(serato_dir),
+                     "exists": os.path.exists(os.path.join(sub, fname)),
+                     "approved": _is_approved("serato_crate", sub)})
+    if body.get("dry_run"):
+        return jsonify({"crate": fname, "targets": plan})
+    ready = [t for t in plan if t["serato_ready"]]
+    if not ready:
+        return jsonify({"error": "Serato hasn't set up its folder on this Mac or drive yet: "
+                                 "open Serato once, then export again.", "targets": plan}), 409
+    for t in ready:                              # ask before anything is written anywhere
+        if not t["approved"]:
+            return _approval_required("serato_crate", t["dir"])
+    if any(t["exists"] for t in ready) and not body.get("overwrite"):
+        return jsonify({"error": "A crate with that name already exists.",
+                        "crate_exists": [t["crate"] for t in ready if t["exists"]]}), 409
+    written, skipped = [], [{"dir": t["dir"], "reason": "Serato folder not set up on that drive"}
+                            for t in plan if not t["serato_ready"]]
+    for t in ready:
+        try:
+            written.append(serato_crate.write_crate(t["dir"], name.strip(), targets[t["dir"]],
+                                                   overwrite=bool(body.get("overwrite"))))
+        except (OSError, ValueError) as e:
+            skipped.append({"dir": t["dir"], "reason": str(e)})
+    usage_event("export", fmt="serato", tracks=len(paths))
+    return jsonify({"ok": bool(written), "written": written, "skipped": skipped, "crate": fname})
+
 
 @app.route("/export/als", methods=["POST"])
 def export_als():

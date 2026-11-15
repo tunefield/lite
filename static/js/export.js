@@ -219,6 +219,7 @@ async function exportAs(kind) {
     exportAls(rows, name, baseName); return;
   }
   if (kind === 'ableton-arr') { exportArrangement(rows, name, baseName); return; }
+  if (kind === 'serato')      { exportSerato(rows, name, baseName); return; }
   if (kind === 'm3u8-abs') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, true),  'audio/x-mpegurl');
   if (kind === 'm3u8-rel') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, false), 'audio/x-mpegurl');
   if (kind === 'rekordbox') downloadBlob(`${baseName}.rekordbox.xml`, buildRekordboxXml(rows, name), 'application/xml');
@@ -395,20 +396,24 @@ async function exportAls(rows, name, baseName, extra) {
 // exact path and writes nothing; we ask, record the OK (per Mac, or on the stick for a
 // stick folder) and retry once. Declining writes nothing.
 const APPROVAL_TEXT = {
+  serato_crate: p => `Tunefield will write Serato crates into Serato's own folder:\n\n${p}\n\nOnly crate files it is asked to export; it never changes your Serato library or other crates.\n\nAllow this ${p.startsWith('/Volumes/') ? 'for that drive' : 'on this Mac'}? You can remove it later in Settings → Export locations.`,
   rekordbox_bridge: p => `Tunefield will write its Rekordbox file here, and update it on every Rekordbox bridge export:\n\n${p}\n\nRekordbox only reads it; your Rekordbox collection is never changed.\n\nAllow this on this Mac? You can remove it later in Settings → Export locations.`,
 };
 async function withApproval(doFetch) {
-  const r = await doFetch();
-  if (r.status !== 409) return r;
-  const req = (await r.clone().json().catch(() => ({}))).approval_required;
-  if (!req) return r;
-  const say = APPROVAL_TEXT[req.kind] || (p => `Tunefield will write here:\n\n${p}\n\nAllow this? You can remove it later in Settings → Export locations.`);
-  if (!confirm(say(req.target))) return null;
-  const ok = await fetch('/export/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                               body: JSON.stringify(req) });
-  if (!ok.ok) { showToast('Could not save your OK — nothing was written'); return null; }
-  renderExportApprovals();
-  return doFetch();
+  // One OK per place: a Serato export can touch the Mac and several drives, each asked once.
+  for (let round = 0; round < 8; round++) {
+    const r = await doFetch();
+    if (r.status !== 409) return r;
+    const req = (await r.clone().json().catch(() => ({}))).approval_required;
+    if (!req) return r;
+    const say = APPROVAL_TEXT[req.kind] || (p => `Tunefield will write here:\n\n${p}\n\nAllow this? You can remove it later in Settings → Export locations.`);
+    if (!confirm(say(req.target))) return null;
+    const ok = await fetch('/export/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                 body: JSON.stringify(req) });
+    if (!ok.ok) { showToast('Could not save your OK — nothing was written'); return null; }
+    renderExportApprovals();
+  }
+  return null;
 }
 async function renderExportApprovals() {
   const el = document.getElementById('export-approvals');
@@ -429,6 +434,37 @@ async function renderExportApprovals() {
     _rbStatus = null;
     renderExportApprovals();
   });
+}
+// ── Serato crate (1.1.0, E3) ────────────────────────────────────────────────
+// A crate per drive, in Serato's own _Serato_/Subcrates (Serato's rule). Shown first,
+// approved per place, never replacing a crate without a yes. Serato analyses BPM and
+// key itself: the crate carries the track list and order only.
+async function exportSerato(rows, name, baseName) {
+  const paths = rows.map(trackPath).filter(p => p && p.startsWith('/'));
+  if (!paths.length) { showToast('No exportable tracks (missing file paths)'); return; }
+  const body = extra => JSON.stringify({ name: name || baseName, paths, ...extra });
+  const post = extra => fetch('/export/serato', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body(extra) });
+  let plan;
+  try { plan = await (await post({ dry_run: true })).json(); } catch (_) { plan = null; }
+  if (!plan?.targets) { showToast('Serato export failed: ' + (plan?.error || 'no answer')); return; }
+  const rowsHtml = plan.targets.map(t => `<li><code style="word-break:break-all">${esc(t.crate)}</code> — ${t.tracks} track${t.tracks === 1 ? '' : 's'}${
+      !t.serato_ready ? ' <b>(Serato folder not set up on this drive yet: open Serato once; skipped)</b>' : t.exists ? ' <b>(replaces the crate of that name)</b>' : ''}</li>`).join('');
+  const v = await tfDialog({
+    title: 'Serato DJ crate', ok: 'Export',
+    html: `<p style="margin:0">Writes the crate <b>${esc(plan.crate.replace(/\.crate$/, ''))}</b> in the order of the set. Serato keeps one crate per drive:</p>
+      <ul style="margin:0;padding-left:18px">${rowsHtml}</ul>
+      <p style="margin:0;color:var(--muted);font-size:12px">Serato reads BPM and key with its own analysis when it loads the tracks; Tunefield's values are not carried over. Restart Serato or reopen the crate list to see a new crate.</p>`,
+  });
+  if (!v) return;
+  const overwrite = plan.targets.some(t => t.exists && t.serato_ready);
+  try {
+    const r = await withApproval(() => post({ overwrite }));
+    if (!r) { showToast('Nothing written: the Serato folder needs your OK first'); return; }
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    showToast(`Serato crate written to ${j.written.length} place${j.written.length === 1 ? '' : 's'}`
+              + (j.skipped?.length ? ` · ${j.skipped.length} skipped (${j.skipped[0].reason})` : ''));
+  } catch (err) { showToast('Serato export failed: ' + err.message); }
 }
 // ── Arrangement mix (1.1.0, E6) ─────────────────────────────────────────────
 // One continuous mix in Live's Arrangement view. Mark: end to end at one tempo with the
@@ -544,4 +580,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
