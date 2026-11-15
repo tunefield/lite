@@ -23,9 +23,10 @@ Serato install was available to verify against):
     `~/Music/_Serato_/Subcrates` (task brief; Serato support page not fetchable).
   * Sub-crate nesting is encoded in the file name with `%%` (task brief).
 
-UNSURE (not verifiable here): the default column set song/artist/bpm/key/length and
-width "0" (real crates may carry other names/widths); the exact `brev` byte; whether
-Serato requires `osrt` before the columns; Latin-1 `orvc` variants of ptrk are ignored.
+CHECKED against Serato DJ Lite 5.1 on this Mac (15 Nov 2026): its own crates carry vrsn, then
+seven `ovct` columns (song/artist/bpm/key/album/length/comment, widths 250/250/30/30/250/250/250),
+no `osrt`, then `otrk`/`ptrk` paths relative to the drive root; this module now writes exactly
+that. Latin-1 `orvc` variants of ptrk are ignored when reading.
 """
 import os
 import re
@@ -33,8 +34,10 @@ import struct
 import tempfile
 
 VERSION = "1.0/Serato ScratchLive Crate"
-DEFAULT_COLUMNS = ("song", "artist", "bpm", "key", "length")
-DEFAULT_SORT = "song"
+# Columns and widths exactly as Serato DJ Lite 5.1 writes its own crates (its "Serato
+# Demo Tracks.crate", read on this Mac 15 Nov 2026), with no `osrt` sort record.
+DEFAULT_COLUMNS = (("song", "250"), ("artist", "250"), ("bpm", "30"), ("key", "30"),
+                   ("album", "250"), ("length", "250"), ("comment", "250"))
 _MAX_NAME_BYTES = 200  # leaves room for ".crate" under the 255-byte file name limit
 
 
@@ -47,10 +50,9 @@ def _u16(s):
 
 
 def build_crate(rel_paths):
-    out = [_rec("vrsn", _u16(VERSION)),
-           _rec("osrt", _rec("tvcn", _u16(DEFAULT_SORT)) + _rec("brev", b"\x00"))]
-    for col in DEFAULT_COLUMNS:
-        out.append(_rec("ovct", _rec("tvcn", _u16(col)) + _rec("tvcw", _u16("0"))))
+    out = [_rec("vrsn", _u16(VERSION))]
+    for col, width in DEFAULT_COLUMNS:
+        out.append(_rec("ovct", _rec("tvcn", _u16(col)) + _rec("tvcw", _u16(width))))
     for p in rel_paths:
         out.append(_rec("otrk", _rec("ptrk", _u16(p))))
     return b"".join(out)
@@ -124,6 +126,8 @@ def write_crate(subcrates_dir, name, rel_paths, overwrite=False):
     data = build_crate(rel_paths)
     fd, tmp = tempfile.mkstemp(prefix=".tf-crate-", suffix=".tmp", dir=subcrates_dir)
     try:
+        umask = os.umask(0); os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)          # like Serato's own crates (mkstemp makes 0600)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
