@@ -22,7 +22,7 @@ It runs entirely on your own Mac. Your music, your analysis and your sets never 
 8. [The Playlists tab](#8-the-playlists-tab)
 9. [The List tab](#9-the-list-tab)
 10. [The Repair tab](#10-the-repair-tab)
-11. [Exporting — Rekordbox, Traktor, Ableton](#11-exporting--rekordbox-traktor-ableton)
+11. [Exporting — Rekordbox, Traktor, Serato, Ableton](#11-exporting--rekordbox-traktor-serato-ableton)
 12. [Keyboard reference](#12-keyboard-reference)
 13. [Settings](#13-settings)
 14. [Troubleshooting / FAQ](#14-troubleshooting--faq)
@@ -70,13 +70,13 @@ While it runs:
 - **Cancel** stops after the batch in flight. Everything analysed so far stays.
 - **You can use the Field while it runs.** Analysis slows itself down slightly while the Field or the List is on screen, so neither stutters.
 - **Interrupted runs come back.** If the app quits or crashes mid-run, the next launch opens on Analyse with *Analysis was interrupted — N files still to go* and a **Resume** button. Closing the native window mid-run does not ask; the run is simply offered back next time (a browser tab does ask first).
-- **Updating older tracks.** When a new version measures something better (1.1 measures tempo more precisely), tracks analysed by an older version keep their old values until you update them. Analyse then shows *N tracks were analysed by an older version* with an **Update** button. Updating re-analyses those tracks in the background with the same progress bar and **Cancel**. Your ratings, tags, genres, BPM and key corrections, renamed titles and covers stay exactly as they are. Cancelling loses nothing: the panel simply offers the rest next time.
+- **Updating older or changed tracks.** When a new version measures something better (1.1 measures tempo more precisely), tracks analysed by an older version keep their old values until you update them. The same goes for a file you **replaced on disk under the same name** (a new master, a better rip): from 1.1 on Tunefield notices the different file size. Analyse then shows *N tracks were analysed by an older version · N files have changed on disk* with an **Update** button. Updating re-analyses those tracks in the background with the same progress bar and **Cancel**. Your ratings, tags, genres, BPM and key corrections, renamed titles and covers stay exactly as they are. Cancelling loses nothing: the panel simply offers the rest next time.
 
 When it finishes, the panel says what happened: *120 tracks added · 30 already in this Field · 2 files couldn't be read*. **Tracks already in the Field are a count, never an error.** Files that genuinely can't be decoded are listed under *details* with the reason.
 
 **Analysis is fully local.** No audio ever leaves your machine. Each track is analysed over half its length, sampled in blocks spread across the record, so a quick pass still hears the intro, the middle and the end.
 
-**Fields.** A Field is a named collection — your whole library, or one gig's worth. The **Field** selector at the top of the tab picks which one you're adding to; **＋ New Field**, **Rename** and **Delete** manage them. **Music folders in this Field** lists the folders you've added; **Check for new music** looks through them all again and analyses what's new; **Remove** takes a folder off the list (your audio files are never touched).
+**Fields.** A Field is a named collection — your whole library, or one gig's worth. The **Field** selector at the top of the tab picks which one you're adding to; **＋ New Field**, **Rename** and **Delete** manage them. **Music folders in this Field** lists the folders you've added; **Check for new music** looks through them all again and analyses what's new; **Remove** takes a folder off the list (your audio files are never touched); if you also take its tracks out of the Field, **Undo** brings back the tracks, their covers and the folder. Adding a folder that already belongs to another Field says which one and offers to move it here.
 
 **First launch** opens straight on Analyse with one thing to do: Add music. An empty Field says so, with the same button, instead of showing an empty space.
 
@@ -263,7 +263,7 @@ When a file simply carries no tags, Repair says so plainly — *the remaining tr
 
 ---
 
-## 11. Exporting — Rekordbox, Traktor, Ableton
+## 11. Exporting — Rekordbox, Traktor, Serato, Ableton
 
 > **Export is part of Tunefield Pro.** Pro is a one-time purchase and keeps working in every later version of Tunefield Lite. Get your key at tunefield.app/pro. Without a key both Export buttons open the Pro card, which links there. Your sets are kept, ready to export as soon as Pro is unlocked. Everything else in Tunefield is free.
 
@@ -273,11 +273,15 @@ When a file simply carries no tags, Repair says so plainly — *the remaining tr
 
 | Menu item | What it does |
 |---|---|
+| **Set sheet — running order** | The set as a spreadsheet: position, start time, artist, title, BPM, key, Camelot, energy and length, with the total. For printing or a booth sheet |
 | **M3U8 — absolute paths** | A standard playlist with full file paths — for players on this machine |
 | **M3U8 — relative (filenames)** | Filenames only — place it alongside your audio and it works anywhere |
 | **Rekordbox — bridge (auto)** | The recommended Rekordbox route — see below |
 | **Rekordbox XML — download** | A one-off XML — for taking a set to another machine |
 | **Ableton Live Set** | A ready-to-open `.als`: two alternating deck tracks, one scene per track, every clip warped to its BPM. Opens in any Live edition; audio is referenced in place |
+| **Ableton Live Set — Arrangement mix** | One continuous mix in Arrangement view: tracks end to end on two decks at the first track's tempo, overlapping by the bars you choose. Tempos are matched, but downbeats are **not** lined up (Tunefield doesn't know where each bar starts), so nudge each clip onto the beat in Live |
+| **Serato DJ crate** | A crate in Serato's own folder, in the order of the set — see below |
+| **Collect set to folder** | Copies of the set's audio, numbered in set order, plus a playlist file, into a folder you pick (a stick for the club). Shows the size and free space first; never replaces a file without asking |
 | **Traktor NML** | Drop into Traktor's Playlists folder, or import via Traktor's File menu |
 | **CSV — all metadata** | The whole Field's analysis as a spreadsheet |
 
@@ -289,6 +293,24 @@ Every exported set collects in **one fixed XML file** (`~/Music/Tunefield/tunefi
 2. **View → Layout** — tick **rekordbox xml** so the sidebar section shows.
 
 After that, every export appears in Rekordbox's xml sidebar: right-click → **Import Playlist**. Re-exporting a set updates it in place. Your Rekordbox collection itself is never touched. *(For USB sticks and CDJs, do the final "Export to device" from Rekordbox.)*
+
+### Energy, mood and vocals in Rekordbox and Traktor
+
+The first Rekordbox or Traktor export shows **which Tunefield value goes into which field**, and nothing is written until you confirm it once. The default is what Tunefield always did: Camelot key and your tags in Rekordbox's Comments, your tags in Traktor's Comment. You can add **energy** (written as E1–E10), **mood** (Euphoric, Intense, Upbeat, Melancholic) and **vocals** (Vocal / Instrumental) to the comments, colour tracks **by energy** (blue → pink) or **by mood** with Rekordbox's own colours, and put energy, mood or vocals in Rekordbox's **Grouping** column. Change it any time in **⚙ Settings → Rekordbox & Traktor fields**. BPM, key and rating always go into their own fields.
+
+### Serato crates
+
+**Serato DJ crate** writes a crate named after the set into Serato's own folder: `~/Music/_Serato_/Subcrates` for tracks on the Mac, and, because Serato keeps one crate per drive, the drive's own `_Serato_` folder for tracks on an external drive. The dialog lists every place first. Tunefield never creates a `_Serato_` folder (Serato does, the first time it uses that drive): a drive without one is skipped and named. A crate with the same name is replaced only if you agree. Serato analyses BPM and key itself when it loads the tracks; restart Serato (or reopen its crate list) to see a new crate.
+
+### Writing BPM, key and energy into your files
+
+Off unless you turn it on: **⚙ Settings → Write tags into music files**. Then Export has **Write BPM, key & energy into files**. You choose the fields (key as `Am` or Camelot `8A`, energy 1–10); Tunefield shows how many files it will change and which it leaves alone, and asks before writing. It writes into **MP3, FLAC, M4A/AAC/ALAC and AIFF** only, and only those three fields — never title, artist or genre. A file whose existing tags it can't keep exactly as they are is left alone, with the reason.
+
+The old values are saved first: **↶ Undo** in the top bar puts them back (a file another app changed since is left alone). Each file is replaced with an updated copy, so the audio is untouched but the file is new to other apps: Rekordbox, Traktor or a CDJ may read it again, and Finder tags on it are kept but its creation date is not.
+
+### Where Tunefield may write
+
+Downloads (M3U8, XML, NML, `.als`, CSV) go wherever you save them. Everything that writes into another app's place or into your music folders asks first, with the exact folder: the Rekordbox file, Serato's crate folders, a collect folder, your music folders for tag writing. Your OK is remembered **per Mac** (the same stick on another Mac asks again there; folders on the stick itself stay approved on the stick). **⚙ Settings → Export locations** lists them all, each with Remove.
 
 ---
 
@@ -344,6 +366,10 @@ Keys never fire while you're typing in a box or dragging a slider.
 | Row | What it does |
 |---|---|
 | **Help** | Opens this manual |
+| **Pro** | Enter or remove your Tunefield Pro key (export) |
+| **Write tags into music files** | Off by default. On adds *Write BPM, key & energy into files* to Export (§11) |
+| **Rekordbox & Traktor fields** | What goes into Comments, Colour and Grouping (§11) |
+| **Export locations** | Every place outside its own folder Tunefield may write to, because you said yes; Remove to be asked again |
 | **Beta** | Saves the local usage log, if you want to send it with feedback |
 | **Wheel labels** | Note names, Camelot (`1A/1B`) or Open Key (`1m/1d`) |
 | **Vector maths** | Opens the advanced ⋈ panel |
@@ -357,6 +383,8 @@ Keys never fire while you're typing in a box or dragging a slider.
 ---
 
 ## 14. Troubleshooting / FAQ
+
+**On the first launch macOS asks whether to open an app downloaded from the internet.** Click **Open**. It asks once; Tunefield is signed and notarized by Apple.
 
 **macOS says it can't check the app.** The downloaded app is signed and notarized, so a plain double-click should open it. If you copied it from somewhere else and macOS still objects: **System Settings → Privacy & Security → Open Anyway**, once.
 
@@ -373,6 +401,8 @@ Keys never fire while you're typing in a box or dragging a slider.
 **Filtered-out tracks disappear.** A filter takes them off the screen. **⚙ Settings → Filtered-out tracks** keeps them as faint ghosts instead.
 
 **I deleted something I shouldn't have.** Set deletion has an Undo toast; Repair deletions offer an Undo; deleted audio moves to `data/_trash/` rather than being erased.
+
+**"Using this Mac's data, not the stick's."** The stick (or the folder beside the app) couldn't be written to — a locked stick, or a copy macOS opened from a quarantined download — so Tunefield used this Mac's own data folder instead. Unlock the stick, or remove the quarantine flag once (`xattr -dr com.apple.quarantine` on the app), and relaunch.
 
 **Start over cleanly.** Quit, delete `~/Library/Application Support/Tunefield Lite` (or the `data/` folder on the stick, for the portable build), relaunch.
 
