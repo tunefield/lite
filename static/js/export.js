@@ -195,8 +195,40 @@ async function exportAs(kind) {
   if (kind === 'm3u8-rel') downloadBlob(`${baseName}.m3u8`, buildM3U8(rows, false), 'audio/x-mpegurl');
   if (kind === 'rekordbox') downloadBlob(`${baseName}.rekordbox.xml`, buildRekordboxXml(rows, name), 'application/xml');
   if (kind === 'traktor')   downloadBlob(`${baseName}.nml`, buildTraktorNml(rows, name), 'application/xml');
+  if (kind === 'setsheet')  downloadBlob(`${baseName}.set-sheet.csv`, buildSetSheet(rows), 'text/csv');
   const src = exportSource === 'playlist' ? 'playlist' : 'filtered';
-  showToast(`Exported ${rows.length} ${src} track${rows.length===1?'':'s'} → ${baseName}.${kind.startsWith('m3u')?'m3u8':kind==='rekordbox'?'rekordbox.xml':'nml'}`);
+  showToast(`Exported ${rows.length} ${src} track${rows.length===1?'':'s'} → ${baseName}.${kind.startsWith('m3u')?'m3u8':kind==='rekordbox'?'rekordbox.xml':kind==='setsheet'?'set-sheet.csv':'nml'}`);
+}
+// ── Set sheet (1.1.0, E2) ────────────────────────────────────────────────────
+// The set in running order, for printing or a booth sheet: position, start time and
+// the numbers a DJ reads at a glance. Unlike the metadata CSV it follows the export
+// source (the active set or the filtered Field), in that order.
+const _csvCell = v => {
+  let s = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;          // spreadsheet formula injection
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+const _clock = sec => {
+  sec = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(s).padStart(2, '0');
+};
+function buildSetSheet(rows) {
+  const out = [['#', 'Start', 'Artist', 'Title', 'BPM', 'Key', 'Camelot', 'Energy (1-10)', 'Length'].join(',')];
+  let t = 0;
+  rows.forEach((e, i) => {
+    const d = e.data || {}, md = d.metadata || {}, h = d.harmony || {};
+    const { artist, title } = trackArtistTitle(e);
+    const bpm = e.bpm_user || d.rhythm?.bpm;
+    const root = e.key_user?.root || h.root, mode = e.key_user?.mode || h.mode;
+    const key = root && root !== 'unknown' ? root + (mode === 'minor' ? 'm' : '') : '';
+    const energy = d.energy?.level != null ? Math.max(1, Math.min(10, Math.round(d.energy.level * 9) + 1)) : '';
+    out.push([i + 1, _clock(t), artist, title, bpm ? (+bpm).toFixed(1) : '', key,
+              noteToCamelot(root, mode) || '', energy, _clock(md.duration_sec)].map(_csvCell).join(','));
+    t += md.duration_sec || 0;
+  });
+  out.push(['', _clock(t), '', 'Total', '', '', '', '', ''].map(_csvCell).join(','));
+  return '\ufeff' + out.join('\r\n') + '\r\n';      // BOM + CRLF: Excel opens UTF-8 names right
 }
 // pilot 8560
 function downloadBlob(name, content, mime) {
@@ -461,4 +493,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
