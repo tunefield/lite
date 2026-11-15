@@ -139,6 +139,14 @@ try:
     check("restore cut off between the renames: finished at the next start", os.path.isdir(data)
           and not os.path.exists(os.path.join(F, sb.STAGING)) and not os.path.exists(os.path.join(data, sb.MARKER)))
 
+    # tracks are distinct files: 3 tracks, one of them in two Fields, count 3 (Release & QA)
+    d2 = os.path.join(TMP, "count", "data", "catalogs"); os.makedirs(d2)
+    json.dump([{"id": "a", "library_file": "m/1.mp3"}, {"id": "b", "library_file": "m/2.mp3"}], open(os.path.join(d2, "one.json"), "w"))
+    json.dump([{"id": "c", "library_file": "m/2.mp3"}, {"id": "d", "library_file": "m/3.mp3"}], open(os.path.join(d2, "two.json"), "w"))
+    open(os.path.join(d2, "two.journal.jsonl"), "w").write('\n{"id":"e","library_file":"m/3.mp3"}\n{"id":"d","_patch":1,"library_file":"m/9.mp3"}\n')
+    c2 = sb.stats(os.path.join(TMP, "count", "data"))
+    check("tracks count distinct files across Fields and journals", c2["tracks"] == 3 and c2["fields"] == 2, c2)
+
     # cap and space
     library(data, 20)
     real = sb.CAP; sb.CAP = 10

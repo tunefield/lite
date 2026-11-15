@@ -398,7 +398,7 @@ def _restore(folder):
     _set(phase="restore", pct=0)
     kept = stick_backup.restore(folder)
     return (f"The library is back from the backup of {(meta.get('made_at') or '')[:16].replace('T', ' ')} "
-            f"({meta.get('tracks', 0)} tracks)."
+            f"({meta.get('tracks', 0)} track{'' if meta.get('tracks') == 1 else 's'})."
             + (f" What was there before is kept in {os.path.basename(kept)}, beside it." if kept else ""))
 
 

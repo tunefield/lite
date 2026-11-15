@@ -13,7 +13,8 @@ let _usbPoll = null, _usbVersion = '';
 const _size = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.round(n / 1e6) + ' MB';
 const _name = p => p.split('/').pop();
 const _when = iso => (iso || '').slice(0, 16).replace('T', ' ');
-const _lib = b => `${b.tracks} tracks in ${b.fields} Field${b.fields === 1 ? '' : 's'}, ${b.sets} set${b.sets === 1 ? '' : 's'}`;
+const _n = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const _lib = b => `${_n(b.tracks, 'track')} in ${_n(b.fields, 'Field')}, ${_n(b.sets, 'set')}`;
 let _usbOffers = {};
 
 async function usbRefresh() {
@@ -59,7 +60,7 @@ async function usbRun(folder, action, stick) {
   if (action === 'restore') {
     const ok = await window.tfDialog({ title: 'Bring the library back on ' + on, ok: 'Bring it back',
       html: `<p>The backup from ${esc(_when(b.made_at))} holds ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included).</p>
-             <p>The library in <b>${where}</b> now has ${b.now_tracks} tracks. It is kept in a folder beside it, not deleted.</p>` });
+             <p>The library in <b>${where}</b> now has ${_n(b.now_tracks, 'track')}. It is kept in a folder beside it, not deleted.</p>` });
     if (ok) _usbStart(folder, action);
     return;
   }
@@ -114,7 +115,7 @@ async function backupRefresh() {
   const why = { space: 'skipped: not enough space on the stick', toobig: 'skipped: the library is too big for it',
                 failed: 'could not be written', shrunk: 'kept as it was: the library here is much smaller' }[j.last?.status];
   document.getElementById('backup-settings-state').textContent = j.backup
-    ? `Saved ${_when(j.backup.made_at)} on this stick (${j.backup.tracks} tracks)` + (why ? `; last try ${why}` : '')
+    ? `Saved ${_when(j.backup.made_at)} on this stick (${_n(j.backup.tracks, 'track')})` + (why ? `; last try ${why}` : '')
     : (why ? `Not saved yet: ${why}` : 'Not saved yet. Tunefield saves one shortly after it starts.');
   return j;
 }
@@ -132,7 +133,7 @@ async function backupBoot() {
   const b = j.offer;
   if (!b) return;
   const ok = await window.tfDialog({ title: 'Bring your library back?', ok: 'Continue', cancel: 'Ask me later',
-    html: `<p>This stick has a backup of your library from ${esc(_when(b.made_at))}: ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included). The library here now has ${b.now_tracks} tracks.</p>
+    html: `<p>This stick has a backup of your library from ${esc(_when(b.made_at))}: ${esc(_lib(b))}, with ratings, tags and settings (the Pro key included). The library here now has ${_n(b.now_tracks, 'track')}.</p>
       <label style="display:block"><input type="radio" name="bk-r" data-field="back" checked> Bring it back. Tunefield closes; open it again and the library is there. What is here now is kept in a folder beside it.</label>
       <label style="display:block"><input type="radio" name="bk-r" data-field="fresh"> Start fresh. The backup is put aside and not offered again.</label>` });
   if (!ok) return;

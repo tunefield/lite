@@ -98,9 +98,13 @@ def _sources(data):
 
 
 def stats(data):
-    """Tracks, Fields, sets and catalog bytes of a library; zeros when there is none."""
+    """Tracks, Fields, sets and catalog bytes of a library; zeros when there is none. Tracks are
+    distinct audio files (library_file), so a track in two Fields counts once (Release & QA)."""
     cats = os.path.join(data, "catalogs")
-    tracks = fields = sets = cbytes = 0
+    seen, fields, sets, cbytes = set(), 0, 0, 0
+    def add(e):
+        if isinstance(e, dict) and not e.get("_patch"):
+            seen.add(e.get("library_file") or e.get("id"))
     try:
         names = os.listdir(cats)
     except OSError:
@@ -110,26 +114,28 @@ def stats(data):
         if n.startswith(("_", ".")) or not os.path.isfile(p):
             continue
         cbytes += os.path.getsize(p)
-        if n.endswith(".journal.jsonl"):
-            try:
-                with open(p) as f:
-                    tracks += sum(1 for line in f if line.strip() and '"_patch"' not in line)
-            except OSError:
-                pass
-        elif n.endswith(".json"):
-            fields += 1
-            try:
-                with open(p) as f:
+        try:
+            with open(p) as f:
+                if n.endswith(".journal.jsonl"):
+                    for line in f:
+                        try:
+                            add(json.loads(line))
+                        except ValueError:
+                            pass                     # blank or torn line
+                elif n.endswith(".json"):
+                    fields += 1
                     d = json.load(f)
-                tracks += len(d) if isinstance(d, list) else 0
-            except (OSError, ValueError):
-                pass
+                    for e in d if isinstance(d, list) else ():
+                        add(e)
+        except (OSError, ValueError):
+            pass
+    seen.discard(None)
     try:
         sets = sum(1 for n in os.listdir(os.path.join(data, "playlists"))
                    if n.endswith(".json") and not n.startswith(("_", ".")))
     except OSError:
         pass
-    return {"tracks": tracks, "fields": fields, "sets": sets, "catalog_bytes": cbytes}
+    return {"tracks": len(seen), "fields": fields, "sets": sets, "catalog_bytes": cbytes}
 
 
 def read_meta(h):
