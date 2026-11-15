@@ -1299,6 +1299,7 @@ def library_roots_remove():
         r = e["path"]
         r_abs = r if os.path.isabs(r) else os.path.normpath(os.path.join(TUNEFIELD_ROOT, r))
         return r != path and r != abs_target and r_abs != abs_target
+    removed_roots = [e for e in roots if not _keep(e)]
     cfg["library_roots"] = [e for e in roots if _keep(e)]
     save_config(cfg)
     purged, snap = 0, None
@@ -1307,7 +1308,10 @@ def library_roots_remove():
             entries, under = _entries_under_root(purge_slug, path)
             if under:
                 gone = {e["id"] for e in under}
-                snap = _snapshot_entries_trash("remove-folder", {purge_slug: under})
+                # The folder itself rides in the snapshot: Undo brought the tracks back
+                # but not the folder, so "Check for new music" stopped watching it
+                # (Application Tests NEW-1, 15 Nov 2026).
+                snap = _snapshot_entries_trash("remove-folder", {purge_slug: under}, roots=removed_roots)
                 save_cat(purge_slug, [e for e in entries if e["id"] not in gone])
                 # Covers stay while the undo snapshot exists; the trash pruner removes
                 # them when it ages out (debug sweep #12: Undo restored tracks bare).
@@ -3514,8 +3518,9 @@ def repair_delete_orphans():
 ENTRIES_TRASH_DIR = os.path.join(DATA_DIR, "_trash", "entries")
 ENTRIES_TRASH_KEEP = 20
 
-def _snapshot_entries_trash(reason, removed_by_slug):
-    """removed_by_slug: {slug: [full entry dicts]}. Returns snapshot filename or None."""
+def _snapshot_entries_trash(reason, removed_by_slug, roots=None):
+    """removed_by_slug: {slug: [full entry dicts]}; roots: library_roots entries removed in
+    the same action, put back by Undo. Returns snapshot filename or None."""
     if not any(removed_by_slug.values()):
         return None
     os.makedirs(ENTRIES_TRASH_DIR, exist_ok=True)
@@ -3532,6 +3537,7 @@ def _snapshot_entries_trash(reason, removed_by_slug):
         "at": now.isoformat(timespec="microseconds"),
         "reason": reason,
         "catalogs": removed_by_slug,
+        **({"roots": roots} if roots else {}),
     })
     # prune to the newest ENTRIES_TRASH_KEEP; a pruned snapshot takes its covers with it
     try:
@@ -3613,10 +3619,28 @@ def repair_undo_entries():
         if add:
             save_cat(slug, cur + add)
             restored += len(add)
+    # Folders removed in the same action come back too (NEW-1), unless the user has
+    # added the folder again meanwhile or its Field is gone.
+    roots_back = 0
+    want = [r for r in (snap.get("roots") or []) if isinstance(r, dict) and isinstance(r.get("path"), str)]
+    if want:
+        cfg = load_config()
+        have = [_root_entry(r) for r in (cfg.get("library_roots") or [])]
+        known = {absolute_form(r["path"]).lower() for r in have}
+        for r in want:
+            if absolute_form(r["path"]).lower() in known:
+                continue
+            if r.get("cat") and r["cat"] not in known_slugs:
+                continue
+            have.append({"path": r["path"], "cat": r.get("cat")})
+            known.add(absolute_form(r["path"]).lower()); roots_back += 1
+        if roots_back:
+            cfg["library_roots"] = have
+            save_config(cfg)
     try: os.unlink(path)
     except OSError: pass
     return jsonify({"ok": True, "restored": restored, "already_in_field": already,
-                    "reason": snap.get("reason", "")})
+                    "folders_restored": roots_back, "reason": snap.get("reason", "")})
 
 
 @app.route("/catalog/<entry_id>/generated-cover", methods=["POST"])

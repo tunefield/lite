@@ -109,6 +109,30 @@ try:
     check("pruned snapshot takes its track's cover with it", not os.path.exists(os.path.join(tf.COVERS_DIR, f"{gone_id}.jpg")))
     check("a cover of a track still in a Field is never pruned", os.path.exists(os.path.join(tf.COVERS_DIR, f"{ids[0]}.jpg")))
 
+    # ── #12 + NEW-1 (Application Tests 15 Nov): remove a folder with its tracks, Undo ──
+    crate = os.path.realpath(os.path.join(ROOT, "crate")); os.makedirs(crate)   # the scan reports resolved paths
+    cpaths = [os.path.join(crate, f"c{i}.wav") for i in range(3)]
+    for i, p in enumerate(cpaths): wav(p, 8, kick_bpm=110 + 5 * i)
+    c.post("/library/roots", json={"path": crate, "cat": "default"})
+    J(c.post("/library/analyse", json={"paths": cpaths, "duration": 1.0, "cat": "default"}))
+    cids = [e["id"] for e in J(c.get("/catalog?cat=default")) if e["filename"].startswith("c")]
+    for i in cids:
+        with open(os.path.join(tf.COVERS_DIR, f"{i}.jpg"), "wb") as f: f.write(b"\xff\xd8\xff cover")
+    roots_now = lambda: [r["absolute"] for r in J(c.get("/library/roots"))]
+    rm = J(c.delete(f"/library/roots?path={crate}&cat=default&purge=1"))
+    check("folder removed with its 3 tracks, undoable", rm.get("purged") == 3 and rm.get("undoable") and crate not in roots_now(), rm)
+    j = J(c.post("/repair/undo-entries", json={"snapshot": rm["snapshot"]}))
+    back = [e for e in J(c.get("/catalog?cat=default")) if e["id"] in cids]
+    check("Undo: the 3 tracks are back with their covers", j.get("restored") == 3 and len(back) == 3
+          and all(e.get("has_cover") for e in back), (j, [e.get("has_cover") for e in back]))
+    check("Undo: the folder is back in the Field's folder list (NEW-1)", j.get("folders_restored") == 1 and crate in roots_now(), (j, roots_now()))
+    sc = J(c.get("/library/scan?cats=default"))
+    mine = [f for f in sc["files"] if f["path"].startswith(crate)]
+    check("…and watched again: its 3 files are scanned, nothing new", len(mine) == 3 and all(f["cataloged"] for f in mine), mine)
+    wav(os.path.join(crate, "c9.wav"), 8, kick_bpm=131)
+    sc = J(c.get("/library/scan?cats=default"))
+    check("…a file added afterwards is found as new", [f["filename"] for f in sc["files"] if f["path"].startswith(crate) and not f["cataloged"]] == ["c9.wav"])
+
     # ── #16 resolve past 500 ids ──
     fake = [f"fake-{i}" for i in range(600)]
     j = J(c.post("/tracks/resolve", json={"ids": fake + [ids[0]]}))

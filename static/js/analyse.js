@@ -584,7 +584,9 @@ async function _undoDeletedEntries(snapshot) {
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot ? { snapshot } : {}) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { showToast(j.error || 'Nothing to undo'); return; }
-  showToast(`Restored ${j.restored} entr${j.restored === 1 ? 'y' : 'ies'}`);
+  showToast(`Restored ${j.restored} entr${j.restored === 1 ? 'y' : 'ies'}`
+    + (j.folders_restored ? ` and ${j.folders_restored === 1 ? 'the folder' : j.folders_restored + ' folders'}` : ''));
+  if (j.folders_restored) await libRootsLoad();   // the folder is watched again (NEW-1)
   await loadCatalogMeta();
   await loadCatalog();
   window.updateTabCounts?.();
