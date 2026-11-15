@@ -150,7 +150,7 @@ function oddOneOut() {
   const at = ids.indexOf(worst);
   show(`<div class="vm-note">Sits furthest from the rest of the set:</div>
     <div class="vm-hit" onclick="vmPreview('${worst}')"><span class="vm-rank">${at + 1}</span><span class="vm-title">${name(worst)}</span></div>
-    <button class="btn-sm vm-add" onclick="removeTrackAt(${at}, '${worst}'); toolsNote('Removed. Undo brings it back.')">Remove it from the set</button>`);
+    <button class="btn-sm vm-add" onclick="removeTrackAt(${at}, '${worst}').then(ok => ok && toolsNote('Removed. Undo brings it back.'))">Remove it from the set</button>`);
 }
 function buildSet() {
   if (!needTrack()) return;

@@ -110,6 +110,7 @@ function setDial(key, value) {
 let _t = 0;
 window.onSetChange = () => { clearTimeout(_t); _t = setTimeout(rebuild, 150); };
 window.upNextTake = async () => { if (!queue.length) rebuild(); return queue[0] || null; };
+window.upNextHas = () => queue.length > 0;   // the transport keeps ⏭ live at a set's end (#40)
 
 {   // modules run after the page is parsed, so the markup is already here
   const list = document.getElementById('un-list');

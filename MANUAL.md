@@ -62,6 +62,8 @@ This is where music enters Tunefield.
 
 **Add music** opens the folder picker. Pick a folder and Tunefield adds it, looks through it, and analyses every track that isn't already in this Field — one action, nothing to tick. **Or paste a folder path** does the same from a typed path.
 
+Tunefield reads **MP3, AAC/M4A (including ALAC), WAV, AIFF, FLAC, OGG and Opus**. Other formats (WMA, APE, WavPack…) are counted and named when a folder is scanned, so a folder of them never just looks empty.
+
 While it runs:
 
 - **The progress panel is unmissable.** Within a second of pressing Add music it says what it is doing. The first few tracks take longest while the analyser warms up; after that you see *Analysing 120 of 1,376* and *about 9 min left*.

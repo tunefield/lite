@@ -89,3 +89,8 @@ const total = allCatalogs.reduce((t, c) => t + (c.count || 0), 0);
 let saved = null;
 try { saved = localStorage.getItem('active-tab'); } catch (_) {}
 switchTab(resumeWaiting || !total ? 'analyse' : (TABS.includes(saved) ? saved : 'neural'));
+// A stick that can't be written falls back to this Mac's data folder. Say so once per
+// launch: it used to go to stderr only, which a double-click never shows (review #47).
+fetch('/system/health').then(r => r.ok ? r.json() : null).then(h => {
+  if (h && h.fallback_reason) window.showToast?.(`Using this Mac's data, not the stick's: ${h.fallback_reason}.`, { duration: 12000 });
+}).catch(() => {});

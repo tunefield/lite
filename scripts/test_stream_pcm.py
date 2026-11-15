@@ -6,7 +6,7 @@ Often Pink Field, 2026-09-02. Runs against an isolated TUNEFIELD_ROOT.
 
     python3 scripts/test_stream_pcm.py
 """
-import os, sys, math, tempfile, shutil, uuid, struct
+import os, time, sys, math, tempfile, shutil, uuid, struct
 ROOT = tempfile.mkdtemp(prefix="tf-pcm-"); os.environ["TUNEFIELD_ROOT"] = ROOT
 os.makedirs(os.path.join(ROOT, "data")); MUSIC = os.path.join(ROOT, "music"); os.makedirs(MUSIC)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, REPO); os.chdir(REPO)
@@ -80,9 +80,14 @@ try:
         check(f"{sub}: overs saturate at the rails, none wrap ({rails} clipped, {flips} flips)",
               flips == 0 and rails > 0, f"flips={flips} rails={rails}")
 
-    before = os.stat(os.path.join(tf.STREAM_CACHE_DIR, cache[0])).st_mtime
+    # A re-decode writes a new file (temp + replace → new inode). mtime is no proxy any
+    # more: a cache hit now bumps it, since FAT32 keeps no access time (debug sweep #37).
+    st0 = os.stat(os.path.join(tf.STREAM_CACHE_DIR, cache[0]))
+    time.sleep(1.1)
     get(f16, WEBKIT, "bytes=0-1")
-    check("second request reuses the cached WAV (no re-decode)", os.stat(os.path.join(tf.STREAM_CACHE_DIR, cache[0])).st_mtime == before)
+    st1 = os.stat(os.path.join(tf.STREAM_CACHE_DIR, cache[0]))
+    check("second request reuses the cached WAV (no re-decode)", st1.st_ino == st0.st_ino)
+    check("…and marks it as just played (mtime bumped for the LRU)", st1.st_mtime > st0.st_mtime)
     r = get(f16, WEBKIT + "", "bytes=100-199")
     check("mid-file range honoured on the WAV", r.status_code == 206 and len(r.data) == 100 and r.headers["Content-Range"].startswith("bytes 100-199/"), r.headers.get("Content-Range"))
 finally:

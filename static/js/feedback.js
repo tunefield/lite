@@ -78,7 +78,7 @@ async function buildFeedbackContext() {
   return [
     '--- Tunefield Lite diagnostics (do not edit) ---',
     `version: ${h.version || '?'}   macOS: ${h.macos || '?'} (${h.arch || '?'})   python: ${h.python || '?'}`,
-    `data: ${h.root_mode || '?'}   tab: ${tab}`,
+    `data: ${h.root_mode || '?'}${h.fallback_reason ? ' (' + h.fallback_reason + ')' : ''}   tab: ${tab}`,
     `active Field: ${activeCat.name || '?'} (${activeCat.count ?? '?'} tracks)   viewed: ${viewedCatalogs.size} of ${allCatalogs.length}`,
     `minutes to first export: ${h.minutes_to_first_export ?? 'not yet'}`,
     `last error: ${window.__tfLastError || 'none'}`,

@@ -685,9 +685,14 @@ function anResumeDismiss() { anShow('idle'); }
 function anNothingNew(total) {
   if (_anActive) { showToast('Nothing new in that folder', { subtle: true }); _anUpdateBar(); return; }
   anShow('done', 'Nothing new');
+  // Say WHY a folder looks empty: the scan counts files it can't read by format (#30).
+  const sk = Object.entries(libScanResults?.skipped || {}).sort((a, b) => b[1] - a[1]);
+  const why = sk.length
+    ? ` ${sk.map(([ext, n]) => `${n.toLocaleString()} ${ext}`).join(', ')} file${sk.reduce((t, [, n]) => t + n, 0) === 1 ? '' : 's'} can’t be read by Tunefield (it reads MP3, AAC/M4A/ALAC, WAV, AIFF, FLAC, OGG and Opus).`
+    : '';
   $('lib-scan-status').textContent = total
-    ? `All ${total.toLocaleString()} files here are already in this Field.`
-    : 'No music files found in that folder.';
+    ? `All ${total.toLocaleString()} files here are already in this Field.${why}`
+    : `No music files found in that folder.${why}`;
 }
 
 // One action: pick a folder (or take a pasted path), add it, analyse everything new.
@@ -739,8 +744,10 @@ function renderLibRoots() {
   list.replaceChildren(...mine.map(r => {
     const row = document.createElement('div');
     row.className = 'an-folder';
-    row.innerHTML = `<span class="an-folder-name">${esc(r.path.split('/').filter(Boolean).pop() || r.path)}</span>
-      <span class="an-folder-path">${esc(r.path)}</span><button class="btn-sm">Remove</button>`;
+    // Show the real folder: on the stick r.path is the stored '../Music' form (#31).
+    const shown = r.absolute || r.path;
+    row.innerHTML = `<span class="an-folder-name">${esc(shown.split('/').filter(Boolean).pop() || shown)}</span>
+      <span class="an-folder-path">${esc(shown)}</span><button class="btn-sm">Remove</button>`;
     row.querySelector('button').onclick = () => libRootRemove(r.path);
     return row;
   }));

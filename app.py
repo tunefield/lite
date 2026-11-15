@@ -156,8 +156,14 @@ def _resolve_root():
         if exe_dir.endswith(os.path.join("Contents", "MacOS")):
             cands.append(os.path.dirname(os.path.dirname(os.path.dirname(exe_dir))))
         for c in cands:
-            if os.path.exists(os.path.join(c, "PORTABLE")) and os.access(c, os.W_OK):
-                return c, "portable"
+            if os.path.exists(os.path.join(c, "PORTABLE")):
+                if os.access(c, os.W_OK):
+                    return c, "portable"
+                _ROOT_FALLBACK.append(f"the folder beside the app ({c}) is read-only, so this Mac's "
+                                      "data folder is used instead")
+        if translocated and not _ROOT_FALLBACK:
+            _ROOT_FALLBACK.append("the app was launched from a quarantined copy, so this Mac's data "
+                                  "folder is used instead of the stick")
         if translocated:
             # Never fall to "installed" SILENTLY from a translocated launch — that is the
             # failure mode where a stick user's data lands on someone else's Mac.
@@ -167,16 +173,24 @@ def _resolve_root():
                   + " — using the installed data folder on this Mac. To run from the stick, "
                   "remove the quarantine flag once:  xattr -dr com.apple.quarantine <path to Tunefield.app>",
                   file=sys.stderr)
-        return _os_data_dir(), "installed"
-    if os.path.exists(os.path.join(app_dir, "PORTABLE")):
-        return app_dir, "portable"
-    if os.path.isdir(os.path.join(app_dir, "data")):
-        return app_dir, "portable"
+        return _os_data_dir(), ("installed-fallback" if _ROOT_FALLBACK else "installed")
+    # Source runs get the same writability check as the bundle, so a read-only stick
+    # behaves (and tests) the same either way (Release & QA, 15 Nov 2026).
+    if os.path.exists(os.path.join(app_dir, "PORTABLE")) or os.path.isdir(os.path.join(app_dir, "data")):
+        if os.access(app_dir, os.W_OK):
+            return app_dir, "portable"
+        _ROOT_FALLBACK.append(f"the folder beside the app ({app_dir}) is read-only, so this Mac's "
+                              "data folder is used instead")
+        return _os_data_dir(), "installed-fallback"
     if os.access(app_dir, os.W_OK):
         return app_dir, "source"
     return _os_data_dir(), "installed"
 
+# Why the root is not where the user expects it. The old stderr line was invisible after
+# a double-click (review #47); /system/health reports it and the page shows it once.
+_ROOT_FALLBACK = []
 TUNEFIELD_ROOT, TUNEFIELD_ROOT_MODE = _resolve_root()
+TUNEFIELD_ROOT_REASON = _ROOT_FALLBACK[0] if _ROOT_FALLBACK else None
 DATA_DIR      = os.path.join(TUNEFIELD_ROOT, "data")
 CATALOGS_DIR  = os.path.join(DATA_DIR, "catalogs")
 META_FILE     = os.path.join(CATALOGS_DIR, "_meta.json")
@@ -360,6 +374,31 @@ _LOCK_EXEMPT_ENDPOINTS = {
     "batch_extract_genres",    # ffprobe per track; takes _FS_LOCK around its commit
     "batch_extract_metadata",  # ffprobe per track; takes _FS_LOCK around its commits
 }
+
+# Requests in flight, so a window close can wait for the pagehide save to land instead
+# of a fixed 0.5 s: a save queued behind a journal fold (~2 s at 30k) was lost (#40).
+_INFLIGHT = {"n": 0}
+_INFLIGHT_LOCK = threading.Lock()
+
+@app.before_request
+def _inflight_in():
+    with _INFLIGHT_LOCK:
+        _INFLIGHT["n"] += 1
+    g._tf_counted = True
+
+@app.teardown_request
+def _inflight_out(_exc=None):
+    if g.pop("_tf_counted", False):
+        with _INFLIGHT_LOCK:
+            _INFLIGHT["n"] -= 1
+
+def _wait_for_requests(min_s=0.5, max_s=3.0):
+    """At quit: give the closing page's last POSTs time to arrive, then wait until
+    nothing is in flight, capped so a stuck request can never hold the quit."""
+    time.sleep(min_s)
+    end = time.time() + max(0.0, max_s - min_s)
+    while _INFLIGHT["n"] > 0 and time.time() < end:
+        time.sleep(0.05)
 
 # Test-only: TUNEFIELD_TEST_NO_STORAGE=1 makes the page's localStorage throw on access, as a
 # browser that blocks site data does, so Release & QA can check the bundled app still works
@@ -1033,6 +1072,8 @@ def library_roots_list():
 @app.route("/library/roots", methods=["POST"])
 def library_roots_add():
     body = request.json or {}
+    if not isinstance(body.get("path") or "", str):
+        return jsonify({"error": "path must be a string"}), 400
     path = (body.get("path") or "").strip()
     if not path:
         return jsonify({"error": "Path required"}), 400
@@ -1316,6 +1357,8 @@ def library_analyse():
         return jsonify({"error": "paths must be a list"}), 400
     if not paths:
         return jsonify({"error": "paths required"}), 400
+    if not all(isinstance(p, str) and p for p in paths):
+        return jsonify({"error": "paths must be strings"}), 400
     # A slug that passes _safe_slug but isn't registered in _meta.json would make
     # save_cat CREATE an unlisted catalog file — the entries would be invisible to every
     # meta-driven route (list, stream, export) and the analysis work silently stranded.
@@ -1660,6 +1703,8 @@ def _safe_slug(slug):
     return slug
 
 def cat_file(slug):
+    if slug == "_meta":                      # the Field list itself (debug sweep #54)
+        raise ValueError(f"invalid slug: {slug!r}")
     return os.path.join(CATALOGS_DIR, f"{_safe_slug(slug)}.json")
 
 def _load_cat_raw(slug):
@@ -1828,9 +1873,19 @@ def _merge_journal(base, pending):
     return merged
 
 
+def _index_forget(slug):
+    """Drop the id→file index for a Field we just wrote. Its stamp is (mtime, size), and
+    FAT32 keeps mtime to 2 s, so a same-size rewrite inside that window went unseen and
+    streaming kept serving the old file (debug sweep #56). Safe before the index exists."""
+    for name in ("_ENTRY_INDEX", "_ENTRY_INDEX_STAMPS"):
+        d = globals().get(name)
+        if d is not None:
+            d.pop(slug, None)
+
 def save_cat(slug, entries):
     """Authoritative full write. Clears any pending journal — `entries` IS the truth now."""
     atomic_json_dump(cat_file(slug), entries, compact=True)
+    _index_forget(slug)
     # `entries` is also the truth for the in-process dedup memory. Every removal path
     # (clear, delete-entry, dedup, orphans, move, folder purge) lands here, and each one
     # used to leave _COMMITTED_PATHS[slug] still holding the removed paths — so the next
@@ -1891,6 +1946,7 @@ def append_journal(slug, entry):
             f.flush()
             try: os.fsync(f.fileno())
             except OSError: pass
+        _index_forget(slug)
 
 
 def _read_journal(slug):
@@ -2011,6 +2067,7 @@ def fold_journal(slug):
         atomic_json_dump(cat_file(slug), merged, compact=True)
         try: os.remove(journal_file(slug))
         except OSError: pass
+        _index_forget(slug)
         return len(pending)
 
 # Run the energy rescale once, here rather than beside migrate_catalog_paths(), because
@@ -2272,11 +2329,14 @@ def list_catalogs():
 
 @app.route("/catalogs", methods=["POST"])
 def create_catalog():
-    name = (request.json or {}).get("name", "").strip()
+    name = (request.json or {}).get("name", "")
+    if not isinstance(name, str):
+        return jsonify({"error": "name must be a string"}), 400
+    name = name.strip()
     if not name:
         return jsonify({"error": "Name required"}), 400
     meta = ensure_default()
-    slug = make_slug(name, {m["slug"] for m in meta})
+    slug = make_slug(name, {m["slug"] for m in meta} | {"_meta"})   # never the meta file
     meta.append({"name": name, "slug": slug})
     save_meta(meta)
     atomic_json_dump(cat_file(slug), [])
@@ -2400,7 +2460,14 @@ def get_catalog():
                 e["file_created"] = datetime.fromtimestamp(ts).isoformat(timespec="seconds")
             except OSError:
                 pass
-    return jsonify(entries)
+    # ETag of the exact body, so a page that already holds it gets a 304 and skips both
+    # the transfer and the JSON parse (34 MB / ~0.8 s at 30k on every Field-tab entry,
+    # review #45). Hashing what is served keeps it correct whatever changed: a write, a
+    # new cover, a file gone from disk.
+    resp = jsonify(entries)
+    resp.add_etag()
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp.make_conditional(request)
 
 
 @app.route("/catalog/<entry_id>/rescan", methods=["POST"])
@@ -2447,9 +2514,12 @@ def rescan_entry(entry_id):
                     cover=result["has_cover"], src="rescan")
         return jsonify(result)
     except Exception as e:
-        usage_event("analyze_reject", fmt=fmt,
-                    reason=(str(e) or type(e).__name__)[:80], src="rescan")
-        return jsonify({"error": str(e) or "rescan failed"}), 422
+        # analyze()'s own error dict (an unreadable file) is the 422 path above. Anything
+        # landing here is OUR bug: logging it as a file rejection sent investigations
+        # after the wrong cause (debug sweep #36).
+        app.logger.exception("rescan failed for %s", entry_id)
+        usage_event("error", where="rescan", type=type(e).__name__)
+        return jsonify({"error": "internal error during rescan — this is a bug, not your file"}), 500
 
 
 # ── Re-analysis of existing tracks (1.1.0) ─────────────────────────────────────
@@ -2666,7 +2736,12 @@ def delete_catalog_entry(entry_id):
 # STREAM_CACHE_CAP; it lives under data/ so "start over" removes it with everything else.
 STREAM_PCM_EXTS  = {".flac", ".ogg", ".oga", ".opus"}
 STREAM_CACHE_DIR = os.path.join(DATA_DIR, "_stream_cache")
-STREAM_CACHE_CAP = 4 * 1024 ** 3
+# TUNEFIELD_STREAM_CACHE_CAP (bytes) lets a test run with a small cap, since a 4 GB
+# FAT32 test stick never reaches the default (Release & QA, 15 Nov 2026).
+try:
+    STREAM_CACHE_CAP = int(os.environ.get("TUNEFIELD_STREAM_CACHE_CAP") or 4 * 1024 ** 3)
+except ValueError:
+    STREAM_CACHE_CAP = 4 * 1024 ** 3
 # The cache never eats the last of the volume: on a nearly full stick a fixed 4 GB cap
 # filled it, and the next catalog write failed (debug sweep #15).
 STREAM_FREE_MARGIN = 512 * 1024 ** 2
@@ -2710,7 +2785,7 @@ def _stream_cache_trim(reserve=0):
     free = _stream_free()
     budget = STREAM_CACHE_CAP if free is None else \
         min(STREAM_CACHE_CAP, total + free - STREAM_FREE_MARGIN - reserve)
-    for path, st in sorted(files, key=lambda x: x[1].st_atime):
+    for path, st in sorted(files, key=lambda x: x[1].st_mtime):   # least recently played first
         if total <= budget:
             break
         try:
@@ -2725,7 +2800,10 @@ def _stream_pcm_path(entry_id, fpath):
     name = f"{_safe_slug(entry_id)}-{int(st.st_mtime)}-{st.st_size}.wav"
     out = os.path.join(STREAM_CACHE_DIR, name)
     if os.path.exists(out):
-        try: os.utime(out, (time.time(), os.stat(out).st_mtime))   # bump atime for the LRU, keep mtime
+        # Mark the use in mtime: FAT32 keeps only an access DATE, so an atime LRU evicted
+        # by directory slot, not by last play (debug sweep #37). mtime has 2 s resolution.
+        now = time.time()
+        try: os.utime(out, (now, now))
         except OSError: pass
         return out
     with _STREAM_LOCKS_GUARD:
@@ -2890,6 +2968,8 @@ def patch_entry(entry_id):
     if not target:
         return jsonify({"error": "Not found"}), 404
     if "genre" in body:
+        if not isinstance(body.get("genre") or "", str):
+            return jsonify({"error": "genre must be a string"}), 400
         target["genre"] = (body.get("genre") or "").strip()
     save_cat(slug, entries)
     return jsonify({"ok": True, "entry": target})
@@ -3205,8 +3285,8 @@ def repair_ignore():
     category = body.get("category")
     ids_in   = body.get("ids") or []
     if not category: return jsonify({"error": "category required"}), 400
-    if not isinstance(ids_in, list):
-        return jsonify({"error": "ids must be a list"}), 400
+    if not isinstance(ids_in, list) or not all(isinstance(i, str) for i in ids_in):
+        return jsonify({"error": "ids must be a list of strings"}), 400
     state = repair_ignored_load()
     cur   = state.get(category, set())
     for i in ids_in:
@@ -3234,12 +3314,6 @@ def repair_unignore():
         else:   state.pop(category, None)
     repair_ignored_save(state)
     return jsonify({"ok": True})
-
-@app.route("/repair/ignored", methods=["GET"])
-def repair_ignored_list():
-    state = repair_ignored_load()
-    return jsonify({k: sorted(list(v)) for k, v in state.items() if v})
-
 
 @app.route("/repair/delete-orphans", methods=["POST"])
 def repair_delete_orphans():
@@ -3414,54 +3488,36 @@ def repair_undo_entries():
             snap = json.load(f)
     except (OSError, json.JSONDecodeError):
         return jsonify({"error": "snapshot unreadable"}), 500
-    restored = 0
+    restored = already = 0
     known_slugs = {m["slug"] for m in ensure_default()}
+    def _fkey(e):
+        try: return absolute_form(e.get("library_file") or "").lower()
+        except Exception: return (e.get("library_file") or "").lower()
     for slug, entries in (snap.get("catalogs") or {}).items():
         if slug not in known_slugs:
             continue                       # catalog itself was deleted since — skip
         cur = load_cat(slug)
         have = {e["id"] for e in cur}
-        add = [e for e in entries if e.get("id") and e["id"] not in have]
+        # A file analysed again since the deletion has a NEW id: restoring the old entry
+        # beside it put one file in the Field twice (debug sweep #65). The newer one stays.
+        files = {k for k in map(_fkey, cur) if k}
+        add = [e for e in entries if e.get("id") and e["id"] not in have
+               and not (_fkey(e) and _fkey(e) in files)]
+        already += sum(1 for e in entries if e.get("id") and e["id"] not in have) - len(add)
         if add:
             save_cat(slug, cur + add)
             restored += len(add)
     try: os.unlink(path)
     except OSError: pass
-    return jsonify({"ok": True, "restored": restored, "reason": snap.get("reason", "")})
-
-
-@app.route("/repair/relink/<entry_id>", methods=["POST"])
-def repair_relink(entry_id):
-    """Update entry.library_file to a new path. Body: {path: '...'}"""
-    body = request.json or {}
-    new_path = (body.get("path") or "").strip()
-    if not new_path or not os.path.exists(new_path):
-        return jsonify({"error": "Path does not exist"}), 400
-    abs_new = os.path.abspath(new_path)
-    # Confine the target: it must be an audio file under a configured library root or under
-    # data/library. Otherwise relink + /stream would be an arbitrary-file-read primitive
-    # (point an entry at /etc/passwd, then stream it).
-    if os.path.splitext(abs_new)[1].lower() not in ALLOWED:
-        return jsonify({"error": "Target must be an audio file"}), 400
-    if not _path_within_library(abs_new):
-        return jsonify({"error": "Target must be inside a configured library folder"}), 400
-    entry, slug = find_entry_anywhere(entry_id)
-    if not entry:
-        return jsonify({"error": "Not found"}), 404
-    entries = load_cat(slug)
-    target = next((e for e in entries if e["id"] == entry_id), None)
-    if not target:
-        return jsonify({"error": "Not found"}), 404
-    target["library_file"] = store_path(new_path)
-    save_cat(slug, entries)
-    return jsonify({"ok": True, "entry": target})
+    return jsonify({"ok": True, "restored": restored, "already_in_field": already,
+                    "reason": snap.get("reason", "")})
 
 
 @app.route("/catalog/<entry_id>/generated-cover", methods=["POST"])
 def generated_cover(entry_id):
     """Save a client-generated cover (key-colour + artist/title, drawn on a canvas in
-    the browser) for a track whose file carries no art AND that Discogs doesn't know —
-    the last rung of the cover ladder: embedded -> folder art -> Discogs -> generated.
+    the browser) for a track whose file carries no art — the last rung of the cover
+    ladder: embedded -> folder art -> generated.
     Fill-only, like the rungs above it: an existing cover is never overwritten, so a
     real cover found later... wins by arriving first. Body: raw JPEG bytes."""
     entry, _slug = find_entry_anywhere(entry_id)
@@ -3604,7 +3660,11 @@ def repair_dedup():
     # a full JSON load + atomic dump for every deleted duplicate).
     drops_by_slug = {}
     if isinstance(drop_ids, list):
-        wanted = {i for i in drop_ids if isinstance(i, str) and i in slug_of}
+        # Only ids still in some duplicate group of the FRESH plan: one that stopped being
+        # a duplicate since the preview (or never was) is skipped, not deleted (#57).
+        in_groups = {r["id"] for p in plan for r in [p["keep"], *p["drop"]]}
+        wanted = {i for i in drop_ids if isinstance(i, str) and i in slug_of and i in in_groups}
+        skipped_ids = len({i for i in drop_ids if isinstance(i, str)}) - len(wanted)
         for i in wanted:
             drops_by_slug.setdefault(slug_of[i], set()).add(i)
         groups_n = sum(1 for p in plan if any(d["id"] in wanted for d in p["drop"]))
@@ -3613,6 +3673,7 @@ def repair_dedup():
             for d in p["drop"]:
                 drops_by_slug.setdefault(d["slug"], set()).add(d["id"])
         groups_n = len(plan)
+        skipped_ids = 0
     for slug, ids in drops_by_slug.items():
         entries = load_cat(slug)
         gone = [e for e in entries if e["id"] in ids]
@@ -3626,7 +3687,7 @@ def repair_dedup():
     snap = _snapshot_entries_trash("dedup-" + category, removed_by_slug)
     usage_event("repair", op="dedup", changed=deleted)
     return jsonify({"ok": True, "category": category, "deleted": deleted, "groups": groups_n,
-                    "undoable": bool(snap), "snapshot": snap})
+                    "skipped": skipped_ids, "undoable": bool(snap), "snapshot": snap})
 
 
 @app.route("/repair/preview-tag-filenames", methods=["POST"])
@@ -3722,50 +3783,20 @@ def undo_tag_filenames():
     return jsonify({"ok": True, "restored": restored})
 
 
-@app.route("/repair/apply/<entry_id>", methods=["POST"])
-def repair_apply(entry_id):
-    """Apply chosen fields from a suggestion to an entry. Body: {genre, artist, title}"""
-    body = request.json or {}
-    entry, slug = find_entry_anywhere(entry_id)
-    if not entry:
-        return jsonify({"error": "Entry not found"}), 404
-    entries = load_cat(slug)
-    target = next((e for e in entries if e["id"] == entry_id), None)
-    if not target:
-        return jsonify({"error": "Not found"}), 404
-    changed = []
-    if "genre" in body:
-        target["genre"] = (body.get("genre") or "").strip()
-        changed.append("genre")
-    if "filename" in body and (body.get("filename") or "").strip():
-        new_fn = body["filename"].strip()
-        # The frontend reconstructs the extension from the repair row it came from and
-        # misses it on some categories (missing_artist_title). Resolve it authoritatively
-        # here: if the proposed name has no audio extension, inherit the library file's.
-        if not os.path.splitext(new_fn)[1]:
-            lib_ext = os.path.splitext(target.get("library_file") or "")[1]
-            if lib_ext:
-                new_fn += lib_ext
-        target["filename"] = new_fn
-        changed.append("filename")
-    save_cat(slug, entries)
-    return jsonify({"ok": True, "changed": changed, "entry": target})
-
-
 @app.route("/repair/config", methods=["GET", "POST"])
 def repair_config():
     if request.method == "GET":
         cfg = load_config()
         return jsonify({
-            "discogs_token": bool(cfg.get("discogs_token")),
-            "acoustid_key":  bool(cfg.get("acoustid_key")),
             # Stored-path form; /repair/dedup re-validates against the configured
             # roots at use time, so a stale value degrades to "no preference".
             "dedup_preferred_root": cfg.get("dedup_preferred_root") or "",
         })
     body = request.json or {}
     cfg = load_config()
-    for k in ("discogs_token", "acoustid_key", "dedup_preferred_root"):
+    # Only the dedup preference: the Discogs/AcoustID keys had no feature behind them in
+    # Lite (debug sweep #58). Old keys already in config.json are left alone, unused.
+    for k in ("dedup_preferred_root",):
         if k in body:
             raw = body.get(k)
             # A non-string (int, list, dict…) would 500 on .strip() — refuse it cleanly.
@@ -4119,7 +4150,8 @@ def system_health():
         "python":     _plat.python_version(),
         "platform":   _plat.system(),
         "root":       TUNEFIELD_ROOT,
-        "root_mode":  TUNEFIELD_ROOT_MODE,   # env | installed | portable | source
+        "root_mode":  TUNEFIELD_ROOT_MODE,   # env | installed | installed-fallback | portable | source
+        "fallback_reason": TUNEFIELD_ROOT_REASON,
         "data_dir":   DATA_DIR,
         "log_file":   LOG_FILE if os.path.exists(LOG_FILE) else None,
         "usage_file": USAGE_FILE if os.path.exists(USAGE_FILE) else None,
@@ -4232,6 +4264,10 @@ def pl_save_state(state):
     atomic_json_dump(PL_STATE_FILE, state)
 
 def pl_file(slug):
+    # _meta.json and _state.json live beside the sets: PATCH /playlists/_state rewrote
+    # the state file (debug sweep #54). A user's "_x" set is still fine.
+    if slug in ("_meta", "_state"):
+        raise ValueError(f"invalid slug: {slug!r}")
     return os.path.join(PLAYLISTS_DIR, f"{_safe_slug(slug)}.json")
 
 def _pl_slugs_on_disk():
@@ -4310,7 +4346,7 @@ def playlists_create():
     # (surviving a meta corruption) must never be overwritten by a new empty one.
     # "active" and "snapshots" are static /playlists/<word> routes: a set so named rendered
     # permanently empty (debug sweep, 2 Nov 2026).
-    slug = make_slug(name, {m["slug"] for m in meta} | _pl_slugs_on_disk() | {"active", "snapshots"})
+    slug = make_slug(name, {m["slug"] for m in meta} | _pl_slugs_on_disk() | {"active", "snapshots", "_meta", "_state"})
     now  = datetime.now().isoformat(timespec="seconds")
     pl   = {
         "slug": slug, "name": name, "locked": False,
@@ -4357,7 +4393,9 @@ def playlists_delete(slug):
         shutil.move(p, tp)
     state = pl_load_state()
     if state.get("active_slug") == slug:
-        state["active_slug"] = meta[0]["slug"] if meta else None
+        # No auto-switch: the page leaves the builder empty after a delete, and the
+        # server picking meta[0] put another set back into it (debug sweep #39).
+        state["active_slug"] = None
         pl_save_state(state)
     return jsonify({"ok": True, "active_slug": state.get("active_slug"), "deleted_slug": slug, "restorable": True})
 
@@ -4389,6 +4427,8 @@ def playlists_patch(slug):
     if not pl: return jsonify({"error": "not found"}), 404
     pl["slug"] = slug          # the route is the authority; older files may not carry one
     body = request.get_json(force=True, silent=True) or {}
+    if "name" in body and not isinstance(body["name"], str):
+        return jsonify({"error": "name must be a string"}), 400
     if "name"   in body and body["name"].strip(): pl["name"]   = body["name"].strip()
     if "locked" in body: pl["locked"] = bool(body["locked"])
     if "anchor_track_id" in body:                 pl["anchor_track_id"] = body["anchor_track_id"]
@@ -4458,40 +4498,6 @@ def playlists_reorder(slug):
     pl["tracks"] = [pl["tracks"][i] for i in order]
     pl_save(pl)
     return jsonify({"ok": True})
-
-@app.route("/playlists/snapshots", methods=["GET"])
-def playlists_all_snapshots():
-    """Flattened snapshot list across every playlist. Newest first.
-    Used by the Playlists-tab Snapshots sidebar."""
-    meta = pl_load_meta()
-    out  = []
-    for m in meta:
-        slug = m.get("slug")
-        pl   = pl_load(slug)
-        if not pl: continue
-        snaps = pl.get("snapshots", []) or []
-        for idx, s in enumerate(snaps):
-            out.append({
-                "slug":         slug,
-                "name":         pl.get("name", slug),
-                "snapshot_id":  s.get("id"),      # collision-proof revert key
-                "snapshot_idx": idx,
-                "at":           s.get("at"),
-                "reason":       s.get("reason", "auto"),
-                "track_count":  len(s.get("tracks") or []),
-            })
-    out.sort(key=lambda x: x.get("at") or "", reverse=True)
-    return jsonify({"snapshots": out, "total": len(out)})
-
-@app.route("/playlists/<slug>/snapshot", methods=["POST"])
-def playlists_snapshot(slug):
-    pl = pl_load(slug)
-    if not pl: return jsonify({"error": "not found"}), 404
-    body   = request.get_json(force=True, silent=True) or {}
-    reason = body.get("reason", "manual")
-    pl_snapshot(pl, reason)
-    pl_save(pl)
-    return jsonify({"ok": True, "snapshots": len(pl["snapshots"])})
 
 @app.route("/playlists/<slug>/revert", methods=["POST"])
 def playlists_revert(slug):
@@ -4671,7 +4677,7 @@ def _window_mode(url, port=None):
             import webbrowser
             webbrowser.open(url)
         threading.Event().wait()   # keep the daemon server alive until Ctrl-C
-    time.sleep(0.5)  # let the pagehide beacons' POSTs land
+    _wait_for_requests()   # the pagehide save must land before the process goes
     usage_event("quit", mode="window")
     os._exit(0)
 

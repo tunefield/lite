@@ -304,6 +304,7 @@ async function loadCatalogMeta() {
 // Two overlapping loadCatalog calls (fast chip clicks) can resolve out of order; only the
 // newest one may write `catalog`.
 let _loadGen = 0;
+const _catHeld = new Map();   // slug → {etag, entries}: the last copy the server sent
 async function loadCatalog() {
   const gen = ++_loadGen;
   if (!activeCatalog) { catalog = []; applyFilters(); window.syncFieldEmpty?.(); return; }
@@ -311,10 +312,18 @@ async function loadCatalog() {
   let results;
   try {
     results = await Promise.all(slugs.map(async slug => {
-      const res = await fetch(`/catalog?cat=${encodeURIComponent(slug)}`);
+      // Send the ETag of the copy we hold: an unchanged Field answers 304 and is reused
+      // as is, no transfer and no parse (review #45). The server hashes what it would
+      // serve, so a 304 is never stale. no-store keeps the browser's own cache out of it.
+      const held = _catHeld.get(slug);
+      const res = await fetch(`/catalog?cat=${encodeURIComponent(slug)}`, {
+        cache: 'no-store', headers: held ? { 'If-None-Match': held.etag } : {} });
+      if (res.status === 304 && held) return held.entries;
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const entries = await res.json();
       entries.forEach(e => { e._cat = slug; });
+      const etag = res.headers.get('ETag');
+      if (etag) _catHeld.set(slug, { etag, entries }); else _catHeld.delete(slug);
       return entries;
     }));
   } catch (e) {
@@ -323,6 +332,7 @@ async function loadCatalog() {
     return;
   }
   if (gen !== _loadGen) return;
+  for (const sl of [..._catHeld.keys()]) if (!slugs.includes(sl)) _catHeld.delete(sl);   // hold only what is viewed
   const seen = new Set();
   catalog = [];
   results.flat().forEach(e => { if (!seen.has(e.id)) { seen.add(e.id); catalog.push(e); } });
@@ -1567,11 +1577,9 @@ function captureFieldView(name) {
   };
 }
 // pilot 12579
-let _viewWeightsSkipped = false;
 // pilot 12580
 function applyFieldView(v) {
   if (!v || v.schema !== VIEW_SCHEMA) { showToast('Not a Tunefield view file.'); return; }
-  _viewWeightsSkipped = false;
   for (const [id, val] of [['nx-axis', v.axes?.x], ['ny-axis', v.axes?.y], ['nz-axis', v.axes?.z],
                            ['n-color', v.axes?.color], ['n-size', v.axes?.size]]) {
     const el = document.getElementById(id);
@@ -1579,19 +1587,13 @@ function applyFieldView(v) {
     // Skip those quietly rather than blanking the select.
     if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
   }
-  // Similarity weights are Pro (they live in the ⋈ panel), but a saved view carries them
-  // and Import/apply is free — so a free install could take on weights it has no control
-  // to see or undo, permanently, via localStorage. They also feed vecMatrix(), which FLOW
-  // uses, so the leak changed free behaviour invisibly (audit, 2026-09-20).
+  // A saved view carries its similarity weights (the ⋈ panel in Settings); they feed
+  // vecMatrix(), so they are clamped and stored like the panel's own.
   if (v.weights) {
     for (const k of Object.keys(vecWeights)) {
       if (typeof v.weights[k] === 'number') vecWeights[k] = Math.max(0, Math.min(2, v.weights[k]));
     }
     try { localStorage.setItem('vec-weights', JSON.stringify(vecWeights)); } catch (_) {}
-  } else if (v.weights) {
-    // Flagged on the SUCCESS toast below rather than its own: a separate toast is replaced
-    // by "View … loaded." a moment later and the user never sees it.
-    _viewWeightsSkipped = true;
   }
   const fi = document.getElementById('formula-input');
   if (fi) fi.value = v.formula || '';
@@ -1605,8 +1607,7 @@ function applyFieldView(v) {
   rebuildGraph();
   renderFieldViews();
   fieldEvent('config_loaded', { name: (v.name || '').slice(0, 60) });
-  showToast(`View "${v.name}" loaded.` + (_viewWeightsSkipped
-    ? ' Its similarity weights need an unlock key \u2014 kept your own.' : ''), { subtle: true });
+  showToast(`View "${v.name}" loaded.`, { subtle: true });
 }
 // pilot 12619
 function saveFieldView() {
@@ -7712,9 +7713,14 @@ let playbackRange = (() => {
 // pilot 20421
 let _pbLastPos = -1;   // the slot the playing track last held in the sequence
 let _pbLastId = null;  // …and which track held it (a preview must not inherit the slot)
+let _pbSlotGone = false;   // the PLAYING copy was removed while another copy stays (#59)
 function _pbSeqPos(seq) {
   const playing = (typeof audioCurrentId !== 'undefined' && audioCurrentId) || null;
   const cur = (_pbSequencing && playing) ? playing : (anchorTrackId() || playing);
+  // With the same track twice in the set, removing the copy that plays must not jump to
+  // the other copy: report "not in the set" so Next takes the gap it left (_pbGapPos).
+  if (_pbSlotGone && cur === _pbLastId) return -1;
+  _pbSlotGone = false;
   const i = (_pbSeqIdx >= 0 && _pbSeqIdx < seq.ids.length && seq.ids[_pbSeqIdx] === cur)
     ? _pbSeqIdx : (cur ? seq.ids.indexOf(cur) : -1);
   if (i >= 0) { _pbLastPos = i; _pbLastId = cur; }
@@ -8120,8 +8126,12 @@ function updateTransport() {
 
   const tracks  = activePlaylist?.tracks || [];
   const curId   = audioCurrentId || anchorTrackId();
-  const trackI  = curId ? tracks.findIndex(t => t.track_id === curId) : -1;
-  if (trackI >= 0) { _pbLastPos = trackI; _pbLastId = curId; }   // every timeupdate lands here: the slot stays current for _pbGapPos
+  // The sequencer's own slot wins when it holds this track: with the same track twice in
+  // the set, findIndex named the FIRST copy and Next resumed after it (debug sweep #59).
+  const trackI  = !curId ? -1
+    : (_pbSeqIdx >= 0 && tracks[_pbSeqIdx]?.track_id === curId) ? _pbSeqIdx
+    : tracks.findIndex(t => t.track_id === curId);
+  if (trackI >= 0 && !_pbSlotGone) { _pbLastPos = trackI; _pbLastId = curId; }   // every timeupdate lands here: the slot stays current for _pbGapPos (held while a removed copy's gap is pending, #59)
 
   // Title from catalog lookup if we have one
   // (setNtTitle below wraps the text and starts the marquee only if it overflows)
@@ -8149,7 +8159,10 @@ function updateTransport() {
   const seq = (typeof playbackSequence === 'function') ? playbackSequence() : { ids: [] };
   const seqI = curId ? seq.ids.indexOf(curId) : -1;
   prevBtn.disabled = !audioCurrentId && seqI <= 0;
-  nextBtn.disabled = !seq.ids.length || (seqI >= 0 && seqI >= seq.ids.length - 1);
+  // On a set's last track ⏭ still goes somewhere when Up next has a track: the set
+  // carries on into it (advanceToNextTrack), so greying it out lied (review #40).
+  const carriesOn = seq.source === 'playlist' && !!window.upNextHas?.();
+  nextBtn.disabled = !carriesOn && (!seq.ids.length || (seqI >= 0 && seqI >= seq.ids.length - 1));
   stopT.disabled   = !audioCurrentId;
 
   // Progress — the dial's inner arc (the linear strip was removed 2026-08-03)
@@ -8527,17 +8540,23 @@ function removeTrackAt(idx, trackId) {
   const run = () => _removeTrackNow(idx, trackId);
   return (_rmChain = _rmChain.then(run, run));
 }
+// Resolves true only when a track was actually removed, so callers (Odd one out) never
+// claim a removal that didn't happen; a locked set says so instead of doing nothing (#43).
 async function _removeTrackNow(idx, trackId) {
-  if (!activePlaylist || activePlaylist.locked) return;
+  if (!activePlaylist) return false;
+  if (activePlaylist.locked) { showToast('Playlist is locked'); return false; }
   if (trackId != null) {
     const seq = (activePlaylist.tracks || []).map(t => t.track_id);
     if (seq[idx] !== trackId) idx = seq.indexOf(trackId);
-    if (idx < 0) return;   // already gone
+    if (idx < 0) return false;   // already gone
   }
   const r = await fetch(`/playlists/${activePlaylistSlug}/tracks/${idx}`, { method: 'DELETE' });
-  if (r.status === 423) return showToast('Playlist is locked');
-  if (!r.ok) return showToast('Failed to remove track');
+  if (r.status === 423) { showToast('Playlist is locked'); return false; }
+  if (!r.ok) { showToast('Failed to remove track'); return false; }
+  // Took out the slot that is playing: Next continues from that gap (#59).
+  if (idx === _pbLastPos && trackId != null && trackId === _pbLastId) { _pbSlotGone = true; _pbSeqIdx = -1; }
   await refreshPlaylistPanel();
+  return true;
 }
 // pilot 21426
 async function undoLastAdd() {
@@ -9584,7 +9603,9 @@ async function vecAdjacency(M, kN, onProgress) {
       for (let j = 0; j < M.n; j++) {
         if (j === i) continue;
         let sd = 0;
-        for (let q = 0; q < d; q++) { const dv = mat[i*d+q] - mat[j*d+q]; sd += dv*dv; if (sd >= worst) break; }
+        // Stop early only once the k-list is full: before that, a partial sum was stored
+        // as if it were the real distance (review #41).
+        for (let q = 0; q < d; q++) { const dv = mat[i*d+q] - mat[j*d+q]; sd += dv*dv; if (cnt === kN && sd >= worst) break; }
         if (cnt === kN && sd >= worst) continue;
         let pos = Math.min(cnt, kN - 1);
         while (pos > 0 && bd[pos-1] > sd) { bd[pos] = bd[pos-1]; bj[pos] = bj[pos-1]; pos--; }

@@ -3098,23 +3098,6 @@ body.neural-trail-on .neural-actions  #matrix-trail-btn {
 #key-drawer-body > #camelot-pane.in-neural-slot .cw-stop { padding:5px 2px; font-size:9px; }
 #key-drawer-body > #camelot-pane.in-neural-slot .btn-sm { font-size:10px; padding:2px 6px; }
 
-/* Matrix background-colour picker — hidden + disabled in V1, kept in the DOM so V2 can
-   un-hide without re-plumbing. Round swatch, bottom-right of the canvas. */
-.neural-bg-picker {
-  position:absolute; bottom:10px; right:10px; z-index:5;
-  width:26px; height:26px; border-radius:50%;
-  border:1.5px solid var(--border);
-  cursor:pointer; overflow:hidden; padding:0;
-  box-shadow:none;
-  opacity:.7; transition:opacity .15s, transform .15s;
-  display:flex; align-items:center; justify-content:center;
-  background:conic-gradient(from 0deg, var(--bh-red), #ffaa22, var(--bh-green), var(--bh-blue), var(--accent), #ff4488, var(--bh-red));
-}
-.neural-bg-picker:hover { opacity:1; transform:scale(1.08); }
-.neural-bg-picker input[type=color] {
-  position:absolute; inset:0; width:100%; height:100%;
-  border:none; padding:0; margin:0; opacity:0; cursor:pointer;
-}
 #neural-canvas { width:100%; height:100%; display:block; }
 /* Hover tooltip — ONE slim line since 2026-08-03 (Mark: it was blocking the view).
    Just Artist — Title in a compact dark chip; the cover + metric block are gone. */
@@ -3447,10 +3430,6 @@ body.on-tab-playlists .neural-transport { width:min(940px, calc(100% - 40px)); }
 .rep-empty { color:var(--muted); font-size:12px; text-align:center; padding:18px; }
 .rep-row-btn { background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:0; padding:3px 9px; font-size:11px; cursor:pointer; transition:all .12s; }
 .rep-row-btn:hover { border-color:var(--accent); color:var(--text); }
-/* AcoustID button when Chromaprint fpcalc is missing — dimmed + ⚠ so it reads as gated */
-.rep-row-btn.is-disabled { opacity:.5; border-style:dashed; }
-.rep-row-btn.is-disabled::before { content:'⚠ '; }
-.rep-row-btn.is-disabled:hover { border-color:var(--border); color:var(--muted); }
 /* Track count badge + legend — borderless, right-aligned, pushed close to the action
    cluster above. The "neural-actions" trio (Reset / Key View / Pathway) ends around
    y=170px from the top, so the badge slots right beneath it. */
@@ -3747,16 +3726,9 @@ input[type=range]::-moz-range-thumb     { border-radius:0 !important; }
    instead, which is the right sacrifice in a narrow sidebar. */
 .cw-dock .cw-dock-btn { border-radius:0; border-width:1px; flex:0 0 auto; }
 
-/* ── Gated features ──────────────────────────────────────────────────
-   A locked control stays visible and legible. Hiding paid features teaches
-   people the app is small; showing them teaches what it does. It simply
-   doesn't fire, and says why when clicked. */
-.tf-locked { position: relative; opacity: .42; cursor: not-allowed !important;
-             filter: saturate(.3); }
-.tf-locked:hover { opacity: .62; }
-*:has(> select.tf-locked) { position:relative; }   /* a <select> can't host ::after — badge its parent */
+/* ── Pro badge: Lite's export buttons (exports are Tunefield Pro) ─────── */
 .pro-badge { position: relative; }   /* full strength: it opens the Pro card, it isn't disabled */
-.tf-locked::after, *:has(> select.tf-locked)::after, .pro-badge::after {
+.pro-badge::after {
   content: 'PRO'; position: absolute; top: -5px; right: -5px; z-index: 3;
   font-size: 7px; font-weight: 700; letter-spacing: .06em; line-height: 1;
   padding: 2px 3px; border-radius: 2px; pointer-events: none;

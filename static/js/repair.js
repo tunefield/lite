@@ -148,9 +148,8 @@ const REPAIR_CATEGORIES = [
   { key:'missing_cover',    icon:REP_ICO('<rect x="3" y="4" width="18" height="16" rx="1.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m3 17 5.5-5 4 3.5L16 12l5 4.5"/>'),  title:'Missing cover art',          desc:'No embedded art and no folder cover.jpg', sev:'warn',
     actions: cat => [
       { label:'Extract covers (active Field)', run: async () => { await extractCovers(); await repairScan(); } },
-      // For files that genuinely carry no embedded art (untagged Beatport WAVs are the
-      // classic case) extraction has nothing to find — this asks Discogs instead.
-      // And for what Discogs doesn't know either: key colour + artist + title.
+      // For files that genuinely carry no art (untagged Beatport WAVs are the classic
+      // case) extraction has nothing to find: a key-colour cover with artist + title.
       { label:`Generate key-colour covers (${cat.length})`, run: () => generateCovers(cat.map(r => r.id)) },
     ] },
   { key:'missing_artist_title', icon:REP_ICO('<rect x="3" y="5" width="18" height="14" rx="1.5"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16.5c.6-1.7 1.7-2.5 3-2.5s2.4.8 3 2.5M14 9.5h4.5M14 13h4.5"/>'), title:'Missing artist / title',      desc:'No artist or title field stored — ID3 tags never extracted', sev:'warn',
@@ -295,7 +294,8 @@ function renderRepair() {
     // The ids in view (every member of every in-scope group): the server ignores exactly
     // these, not the category across every Field.
     const visibleIds = (cat.isGroups ? items.flat() : items).map(r => r.id);
-    const allActions = [...builtIn, { label:`Ignore all ${n} (suppress in scan)`, danger:false, run: () => ignoreCategoryAll(cat.key, visibleIds) }];
+    // Count what is ignored: for duplicate groups that is every member, not the groups (#45).
+    const allActions = [...builtIn, { label:`Ignore all ${visibleIds.length} (suppress in scan)`, danger:false, run: () => ignoreCategoryAll(cat.key, visibleIds) }];
     // Repair card action buttons: pick a colour + emoji per action so each verb reads at a
     // glance — same palette as the Library toolbar so the whole app speaks one visual language.
     const styleFor = (lbl, danger) => {

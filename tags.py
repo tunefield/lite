@@ -142,16 +142,9 @@ def _read_id3_block(f, size_hint=None):
 
 
 def _deunsync(b):
-    """Undo unsynchronisation: every 0xFF 0x00 pair was really a lone 0xFF."""
-    out = bytearray()
-    i, n = 0, len(b)
-    while i < n:
-        out.append(b[i])
-        if b[i] == 0xFF and i + 1 < n and b[i + 1] == 0x00:
-            i += 2
-        else:
-            i += 1
-    return bytes(out)
+    """Undo unsynchronisation: every 0xFF 0x00 pair was really a lone 0xFF. One C-speed
+    replace, not a Python byte loop (0.88 s per 5 MB tag, review #50); same output."""
+    return bytes(b).replace(b"\xff\x00", b"\xff")
 
 
 def _iter_id3_frames(block):
@@ -189,8 +182,22 @@ def _iter_id3_frames(block):
                 fsz = plain
         if fsz <= 0 or pos + hdrlen + fsz > len(body):
             break
-        yield fid, body[pos + hdrlen:pos + hdrlen + fsz]
+        data = body[pos + hdrlen:pos + hdrlen + fsz]
         pos += hdrlen + fsz
+        if ver >= 4:
+            # v2.4 frame format flags (review #49): a grouping byte and a 4-byte data-length
+            # indicator may precede the data, and unsynchronisation is per frame. Ignoring
+            # them left a stray control character in titles and broke covers.
+            fmt = body[pos - fsz - 1]
+            if fmt & 0x0C:                 # compressed or encrypted: nothing we can read
+                continue
+            if fmt & 0x40:
+                data = data[1:]
+            if fmt & 0x01:
+                data = data[4:]
+            if fmt & 0x02:
+                data = _deunsync(data)
+        yield fid, data
 
 
 def _id3_genre(text):

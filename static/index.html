@@ -249,7 +249,7 @@
 </div>
 
 <div class="tab-panel" id="tab-repair">
-  <!-- Scan library — own row, primary CTA. API keys moved up to the page header. -->
+  <!-- Scan library — own row, primary CTA. -->
   <div class="repair-scan-row">
     <!-- Single-select since 2026-08-28 (Mark): repair scopes to exactly ONE Field via a
          plain dropdown — the multi-tick picker stays on List, where combining makes sense. -->
@@ -412,8 +412,7 @@
     <div class="neural-toolbar" style="display:none">
 <!-- Key View toggle moved into the Camelot wheel block 2026-07-24 — it's the key-relationship
            display switch, so it lives with the key controls it governs. -->
-      <!-- #n-style select removed 2026-05-30 — rebuildGraph's ?.value fallback resolves to 'sphere'.
-           cover-orb / sphere-cover render branches preserved as V2 jumping-off point. -->
+      <!-- #n-style select removed 2026-05-30 — rebuildGraph's ?.value fallback resolves to 'sphere'. -->
     </div>
     <!-- Spread slider — top-centre of the tunefield. Morphs each axis with a tanh S-curve:
          right = orbs further apart (outliers compressed back on-screen), left = tighter. -->
@@ -534,11 +533,6 @@
         <div id="neural-empty-msg">This Field is empty.<br>Analyse some tracks on the <b>Analyse</b> tab and they'll appear here.</div>
       </div>
     </div>
-    <!-- Background-colour picker — HIDDEN + DISABLED in V1; DOM stays so V2 can re-enable
-         without re-plumbing. Don't delete. -->
-    <button class="neural-bg-picker" style="display:none" title="Field background colour (V2)">
-      <input type="color" id="neural-bg-input" value="#050508" disabled oninput="setNeuralBackground(this.value)">
-    </button>
     <!-- Camelot wheel slot — bottom-left of the neural window. The actual wheel DOM (#camelot-pane)
          is reparented in/out of this slot when the Neural tab is activated / left. -->
     <div class="neural-legend" id="neural-legend" style="display:none" title="What the node colours mean — follows the Colour dropdown in the ⊞ AXES drawer"></div>

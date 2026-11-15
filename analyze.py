@@ -1036,6 +1036,7 @@ def analyze(filepath, duration_limit=60, verbose=True):
     # values (30, 60, ... 99999) still work — the smallest of those is 30, so nothing
     # ambiguous falls in the (0, 1] band.
     fractional = (0.0 < duration_limit <= 1.0) and duration > 0
+    unknown_len = False
     if fractional:
         # Block sampling only pays off when the sample is long: under 60 s the six faded
         # splices of a 4 s file BECOME the beat. Read such a file whole instead.
@@ -1052,6 +1053,11 @@ def analyze(filepath, duration_limit=60, verbose=True):
     elif full_track:
         offset = 0.0
         load_dur = min(duration, FULL_TRACK_CAP) if duration > 0 else FULL_TRACK_CAP
+    elif duration <= 0 and 0.0 < duration_limit <= 1.0:
+        # A FRACTION was asked but no length could be read: the old fall-through clamped
+        # it to one second from the start, with no warning (debug sweep #53). Read the
+        # whole file (capped) and take the length from what decoded.
+        offset, load_dur, unknown_len = 0.0, FULL_TRACK_CAP, True
     else:
         offset = (duration * 0.2 if duration > 90 else 0.0)
         load_dur = min(duration_limit, duration - offset) if duration > 0 else duration_limit
@@ -1100,6 +1106,13 @@ def analyze(filepath, duration_limit=60, verbose=True):
         # WARNING only, never an error — short decodes and bpm==0 are legitimate for
         # loops and ambient material, and rejecting them deletes valid uploads.
         decoded_sec = y.size / float(sr)
+        if unknown_len:
+            if decoded_sec < FULL_TRACK_CAP - 1:
+                result["metadata"]["duration_sec"] = round(decoded_sec, 1)
+                result["scan_fraction"] = 1.0
+            else:
+                result.setdefault("warnings", []).append(
+                    f"length unreadable — analysed the first {int(FULL_TRACK_CAP)}s")
         if duration > 30 and decoded_sec < 0.7 * load_dur and not result.get("warnings"):
             result.setdefault("warnings", []).append(
                 f"only {round(decoded_sec)}s of the expected {round(load_dur)}s decoded — "
@@ -1286,6 +1299,16 @@ def analyze(filepath, duration_limit=60, verbose=True):
             "dynamic_range": _r(dynamic_range, 3),
             "loudness_lufs": _r(loudness_lufs, 1) if loudness_lufs is not None else None,
         }
+        # No audible content, no key: a DC-only (silent-with-offset) file came out as a
+        # confident "F major" (0.92), because the chroma of a step is not flat (debug
+        # sweep #32). A signal that barely moves sample to sample has nothing pitched in
+        # it (a -60 dBFS tone still clears this 4x); loudness metering alone misses DC,
+        # whose first block passes the gate. New analyses only.
+        _moves = float(np.sqrt(np.mean(np.diff(y) ** 2))) if y.size > 1 else 0.0
+        if _moves < 1e-5 or (LOUDNESS_OK and (loudness_lufs is None or loudness_lufs < -45.0)):
+            key, mode = "unknown", "unknown"
+            result["harmony"].update({"key": "unknown", "root": "unknown", "mode": "unknown",
+                                      "key_confidence": 0.0})
 
         # ── Timbre / Spectral ─────────────────────────────────────────────────────
         log("Timbre analysis...")
