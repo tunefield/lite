@@ -10094,6 +10094,7 @@ function cancelScan() {}
 function openSettings()  {
   const m = document.getElementById('settings-modal');
   if (m) m.style.display = 'block';
+  window.renderExportApprovals?.();   // export.js: what Tunefield may write outside its folder
 }
 // pilot 10766
 function closeSettings() {

@@ -704,6 +704,89 @@ def _needs_pro():
 
 
 
+# ── Export approvals (1.1.0, E0) ─────────────────────────────────────────────
+# Mark, 15 Nov 2026: every export that writes into another app's location or settings,
+# or into the user's own files, is approved by the user in the page first; approvals
+# are remembered and can be removed in Settings. Locations on a Mac are approved per Mac
+# ("Yes, ask per Mac"); locations on the stick itself travel with the stick. Downloads
+# are not covered: the user's own save dialog is the approval there.
+EXPORT_APPROVALS_FILE = os.path.join(DATA_DIR, "export_approvals.json")
+APPROVAL_KINDS = ("rekordbox_bridge", "serato_crate", "collect_folder", "tag_write")
+_HOST_KEY = []
+
+def _host_key():
+    """This Mac, as a 16-hex hash: never the raw hardware id. TUNEFIELD_TEST_HOST_ID stands
+    in for it in tests (a second Mac without a second Mac)."""
+    if _HOST_KEY:
+        return _HOST_KEY[0]
+    raw = os.environ.get("TUNEFIELD_TEST_HOST_ID") or ""
+    if not raw:
+        try:
+            import subprocess as _sp
+            out = _sp.run(["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                          capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r'"IOPlatformUUID" = "([^"]+)"', out)
+            raw = m.group(1) if m else ""
+        except Exception:
+            raw = ""
+    raw = raw or f"node:{uuid.getnode()}"
+    _HOST_KEY.append(hashlib.sha256(raw.encode()).hexdigest()[:16])
+    return _HOST_KEY[0]
+
+def _volume_of(path):
+    parts = os.path.realpath(path).split(os.sep)
+    return os.sep.join(parts[:3]) if len(parts) > 2 and parts[1] == "Volumes" else os.sep
+
+def _approval_host(target):
+    """None for a target on the stick that holds this data (travels with it), else this Mac."""
+    if TUNEFIELD_ROOT_MODE == "portable":
+        vol = _volume_of(TUNEFIELD_ROOT)
+        if vol != os.sep and _volume_of(target) == vol:
+            return None
+    return _host_key()
+
+def _approvals_load():
+    try:
+        with open(EXPORT_APPROVALS_FILE) as f:
+            d = json.load(f)
+        lst = d.get("approvals") if isinstance(d, dict) else None
+        return [a for a in (lst or []) if isinstance(a, dict)]
+    except (OSError, ValueError):
+        return []
+
+def _approvals_save(lst):
+    atomic_json_dump(EXPORT_APPROVALS_FILE, {"version": 1, "approvals": lst})
+
+def _is_approved(kind, target):
+    t, h = os.path.abspath(target), _approval_host(target)
+    return any(a.get("kind") == kind and a.get("target") == t and a.get("host") == h
+               for a in _approvals_load())
+
+def _approval_required(kind, target):
+    """The answer for an export that may not write yet. Nothing has been written."""
+    return jsonify({"error": "Tunefield needs your OK before it writes here.",
+                    "approval_required": {"kind": kind, "target": os.path.abspath(target)}}), 409
+
+@app.route("/export/approvals", methods=["GET", "POST", "DELETE"])
+def export_approvals():
+    if request.method == "GET":
+        h = _host_key()
+        return jsonify({"host": h, "approvals": [a for a in _approvals_load() if a.get("host") in (None, h)]})
+    body = request.get_json(silent=True) or {}
+    kind, target = body.get("kind"), body.get("target")
+    if kind not in APPROVAL_KINDS or not isinstance(target, str) or not os.path.isabs(target):
+        return jsonify({"error": "kind and an absolute target are required"}), 400
+    t, h = os.path.abspath(target), _approval_host(target)
+    lst = [a for a in _approvals_load()
+           if not (a.get("kind") == kind and a.get("target") == t and a.get("host") == h)]
+    if request.method == "POST":
+        if (denied := _needs_pro()): return denied
+        lst.append({"kind": kind, "target": t, "host": h,
+                    "approved_at": datetime.now().isoformat(timespec="seconds")})
+    _approvals_save(lst)
+    return jsonify({"ok": True, "approved": request.method == "POST", "kind": kind, "target": t, "host": h})
+
+
 # ── Annotations: ratings, custom tags, saved views — SERVER-side ─────────────
 # These lived only in browser localStorage until 2026-08-15, and localStorage is scoped
 # to an ORIGIN — which includes the port. The app deliberately drifts to :5051 when
@@ -4056,6 +4139,7 @@ def rekordbox_export_status():
     return jsonify({
         "bridge_path":      bridge,
         "bridge_exists":    os.path.exists(bridge),
+        "bridge_approved":  _is_approved("rekordbox_bridge", bridge),
         "bridge_playlists": [p["name"] for p in store["playlists"]],
         "pyrekordbox":      has_pyrb,
         "rekordbox_db":     db_path,
@@ -4065,6 +4149,11 @@ def rekordbox_export_status():
 @app.route("/export/rekordbox/bridge", methods=["POST"])
 def rekordbox_export_bridge():
     if (denied := _needs_pro()): return denied
+    # The bridge file lives in ~/Music, Rekordbox's side of the fence: nothing is written
+    # (not the store, not the folder) until the user has approved that exact path on
+    # this Mac (E0). Earlier builds wrote first and showed the setup afterwards.
+    if not _is_approved("rekordbox_bridge", _rb_bridge_xml()):
+        return _approval_required("rekordbox_bridge", _rb_bridge_xml())
     body   = request.get_json(force=True) or {}
     name   = str(body.get("name", "")).strip()[:200] or "Tunefield"
     tracks = _rb_clean_tracks(body.get("tracks"))

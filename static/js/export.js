@@ -1,7 +1,7 @@
 // Export: M3U8, Rekordbox XML (download or the bridge file Rekordbox watches), Ableton .als,
 // Traktor NML. Lifted from the pilot (index.html @ 7c8c0e7) with the paid gates removed;
 // "// pilot N" marks each source line. The experimental direct Rekordbox collection write is not shipped.
-import { activeCatalog, activePlaylist, allTags, catalog, featUse, getFilteredCatalog, getRating, getTrackTags, noteToCamelot, showToast, trackArtistTitle } from './field.js';
+import { activeCatalog, activePlaylist, allTags, catalog, esc, featUse, getFilteredCatalog, getRating, getTrackTags, noteToCamelot, showToast, trackArtistTitle } from './field.js';
 
 
 // pilot 6125
@@ -329,13 +329,55 @@ async function exportAls(rows, name, baseName) {
               + ' — open in Ableton Live');
   } catch (err) { showToast('Ableton export failed: ' + err.message); }
 }
+// ── Approvals (1.1.0, E0) ───────────────────────────────────────────────────
+// Anything written into another app's place or into the user's own files needs the
+// user's OK first (Mark, 15 Nov). The server answers 409 approval_required with the
+// exact path and writes nothing; we ask, record the OK (per Mac, or on the stick for a
+// stick folder) and retry once. Declining writes nothing.
+const APPROVAL_TEXT = {
+  rekordbox_bridge: p => `Tunefield will write its Rekordbox file here, and update it on every Rekordbox bridge export:\n\n${p}\n\nRekordbox only reads it; your Rekordbox collection is never changed.\n\nAllow this on this Mac? You can remove it later in Settings → Export locations.`,
+};
+async function withApproval(doFetch) {
+  const r = await doFetch();
+  if (r.status !== 409) return r;
+  const req = (await r.clone().json().catch(() => ({}))).approval_required;
+  if (!req) return r;
+  const say = APPROVAL_TEXT[req.kind] || (p => `Tunefield will write here:\n\n${p}\n\nAllow this? You can remove it later in Settings → Export locations.`);
+  if (!confirm(say(req.target))) return null;
+  const ok = await fetch('/export/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify(req) });
+  if (!ok.ok) { showToast('Could not save your OK — nothing was written'); return null; }
+  renderExportApprovals();
+  return doFetch();
+}
+async function renderExportApprovals() {
+  const el = document.getElementById('export-approvals');
+  if (!el) return;
+  let j = null;
+  try { j = await fetch('/export/approvals').then(r => r.ok ? r.json() : null); } catch (_) {}
+  const list = j?.approvals || [];
+  const label = { rekordbox_bridge: 'Rekordbox file', serato_crate: 'Serato crates', collect_folder: 'Collect folder', tag_write: 'Tags in files' };
+  el.innerHTML = list.length
+    ? list.map((a, i) => `<div class="ea-row"><span class="ea-kind">${esc(label[a.kind] || a.kind)}${a.host ? '' : ' · on this stick'}</span>
+        <code class="ea-path" title="${esc(a.target)}">${esc(a.target)}</code>
+        <button class="btn-sm" data-i="${i}">Remove</button></div>`).join('')
+    : '<span class="ea-none">Nothing approved yet. Tunefield asks before it writes outside its own folder.</span>';
+  el.querySelectorAll('button[data-i]').forEach(b => b.onclick = async () => {
+    const a = list[+b.dataset.i];
+    await fetch('/export/approvals', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify({ kind: a.kind, target: a.target }) });
+    _rbStatus = null;
+    renderExportApprovals();
+  });
+}
 // pilot 8724
 async function exportRbBridge(rows, name) {
   const payload = { name: name || rbExportName(), tracks: rows.map(rekordboxTrackAttrs).filter(t => t.location) };
   if (!payload.tracks.length) { showToast('No exportable tracks (missing file paths)'); return; }
   try {
-    const r = await fetch('/export/rekordbox/bridge', { method: 'POST',
-      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const r = await withApproval(() => fetch('/export/rekordbox/bridge', { method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }));
+    if (!r) { showToast('Nothing written: the Rekordbox file needs your OK first'); return; }
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     _rbStatus = null; // playlist list changed
@@ -419,4 +461,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

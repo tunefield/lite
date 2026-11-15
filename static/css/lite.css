@@ -48,6 +48,13 @@
 .field-empty p { font-size: 18px; margin: 0; }
 #tab-neural { position: relative; }
 .field-empty .an-add { align-self: center; }
+.settings-row-col { flex-direction: column; align-items: stretch; gap: 6px; }
+.settings-row-col .settings-label { flex: none; }   /* its 92px flex basis is a width in a row, a height here */
+.export-approvals { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ea-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.ea-kind { font-weight: 700; white-space: nowrap; }
+.ea-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.ea-none { color: var(--muted); }
 .field-empty-msg { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 /* The cover never hides the way out: FIELDS stays above it, so another Field can always be
    ticked. The other drawers have nothing to act on while the Field is empty. */
