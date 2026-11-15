@@ -581,14 +581,23 @@ async function exportCollect(rows, name, baseName) {
 }
 // ── Tags into your files (1.1.0, E4) ────────────────────────────────────────
 // Strictly opt-in (Settings), previewed and confirmed every run, each music folder
-// approved once, old values saved first, Undo in the header. tag_write.py on the server
-// never writes a file in place and checks the audio is untouched.
-let _tagsOn = false;
+// approved once, old values saved first. Undo is its own (NEW-4): an Undo button on the
+// message after writing, and "Undo last write" in Settings next to the switch. It is NOT the
+// set Undo. tag_write.py on the server never writes a file in place and checks the audio
+// is untouched.
+let _tagsOn = false, _tagsLast = null;
 async function tagsRefresh() {
-  try { _tagsOn = !!(await fetch('/export/tags/settings').then(r => r.json())).enabled; } catch (_) { _tagsOn = false; }
+  let j = {};
+  try { j = await fetch('/export/tags/settings').then(r => r.json()); } catch (_) {}
+  _tagsOn = !!j.enabled; _tagsLast = j.last_run || null;
   const st = document.getElementById('tags-settings-state'), b = document.getElementById('tags-settings-btn');
   if (st) st.textContent = _tagsOn ? 'On' : 'Off';
   if (b) b.textContent = _tagsOn ? 'Turn off' : 'Turn on';
+  const u = document.getElementById('tags-undo-btn');
+  if (u) {
+    u.hidden = !_tagsLast;
+    if (_tagsLast) u.title = `Puts the old BPM, key and energy back into the ${_tagsLast.files} file${_tagsLast.files === 1 ? '' : 's'} written ${_tagsWhen(_tagsLast.at)}`;
+  }
   const row = document.getElementById('tags-settings-row');
   if (row) row.hidden = !EXPORT_SWITCHES.tagWrite;
 }
@@ -603,6 +612,45 @@ async function tagsToggle() {
   await fetch('/export/tags/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !_tagsOn }) });
   await tagsRefresh();
   showToast(_tagsOn ? 'Tag writing is on: find it under Export' : 'Tag writing is off');
+}
+const _tagsWhen = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+async function _tagsRestore(run) {
+  let u = {};
+  try { u = await (await fetch('/export/tags/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                       body: JSON.stringify({ run }) })).json(); } catch (e) { u = { error: e.message }; }
+  showToast(u.error ? 'Undo failed: ' + u.error
+    : `Old tags put back in ${u.restored} file${u.restored === 1 ? '' : 's'}` + (u.skipped?.length ? ` · ${u.skipped.length} changed since, left alone` : ''), { duration: 6000 });
+  tagsRefresh();
+}
+async function tagsUndoLast() {
+  const last = _tagsLast;
+  if (!last) return;
+  const ok = await tfDialog({ title: 'Undo last tag write', ok: 'Put old values back', html:
+    `<p style="margin:0">Puts the old BPM, key and energy back into the <b>${last.files}</b> file${last.files === 1 ? '' : 's'} written ${esc(_tagsWhen(last.at))}.</p>
+     <p style="margin:0;color:var(--muted);font-size:12px">A file another app changed since is left alone.</p>` });
+  if (ok) await _tagsRestore(last.run);
+}
+// The message after a write carries the Undo, so it is right where the user is looking.
+function _tagsWrittenToast(msg, run) {
+  let t = document.getElementById('tags-undo-toast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'tags-undo-toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:96px;z-index:600;display:flex;align-items:center;gap:12px;'
+      + 'pointer-events:auto;background:color-mix(in srgb, var(--surface2) 94%, #000);color:var(--text);'
+      + 'padding:8px 10px 8px 14px;border-radius:0;font-size:12.5px;font-weight:600;'
+      + 'box-shadow:3px 3px 0 var(--scrim), 0 0 0 1px var(--border);transform:translateX(-50%)';
+    document.body.appendChild(t);
+  }
+  t.innerHTML = `<span>${esc(msg)}</span>`
+    + `<button class="undo-btn" style="background:var(--accent);color:#fff;border:none;border-radius:0;padding:4px 12px;font-weight:800;font-size:11px;letter-spacing:.3px;text-transform:uppercase;cursor:pointer">Undo</button>`;
+  const hide = () => t.remove();
+  // Hide the "Writing tags…" message. showToast shows it in an animation frame, which a
+  // fast write can beat, so hide it in a later frame (frames run in the order asked for).
+  const busy = document.getElementById('toast');
+  if (busy) requestAnimationFrame(() => { clearTimeout(busy._tid); busy.style.opacity = '0'; });
+  clearTimeout(t._tid);
+  t._tid = setTimeout(hide, 30000);
+  t.querySelector('.undo-btn').onclick = async () => { clearTimeout(t._tid); hide(); await _tagsRestore(run); };
 }
 async function exportTags(rows) {
   const ids = rows.map(e => e.id).filter(Boolean);
@@ -623,7 +671,7 @@ async function exportTags(rows) {
   const ok = await tfDialog({ title: 'Write tags — check before writing', ok: `Write into ${plan.writable} file${plan.writable === 1 ? '' : 's'}`, html:
     `<p style="margin:0">Writes <b>${esc(fields)}</b> into <b>${plan.writable}</b> of ${plan.count} file${plan.count === 1 ? '' : 's'}.</p>
      ${Object.keys(why).length ? `<p style="margin:0;color:var(--muted)">Left alone: ${Object.entries(why).map(([r, n]) => `${n} (${esc(r)})`).join(', ')}.</p>` : ''}
-     <p style="margin:0">The old values are saved first; <b>Undo</b> (top bar) puts them back.</p>` });
+     <p style="margin:0">The old values are saved first. To put them back, click <b>Undo</b> on the message after writing, or later <b>Undo last write</b> in Settings, next to Write tags into music files.</p>` });
   if (!ok || !plan.writable) return;
   showToast(`Writing tags into ${plan.writable} file${plan.writable === 1 ? '' : 's'}…`, { duration: 60000 });
   try {
@@ -631,12 +679,9 @@ async function exportTags(rows) {
     if (!r) { showToast('Nothing written: the music folder needs your OK first'); return; }
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-    showToast(`Tags written into ${j.written} file${j.written === 1 ? '' : 's'}` + (j.skipped.length ? ` · ${j.skipped.length} left alone` : ''), { duration: 6000 });
-    if (j.run) window.tfUndoPush?.(`writing tags into ${j.written} files`, async () => {
-      const u = await (await post('/export/tags/restore', { run: j.run })).json().catch(() => ({}));
-      showToast(u.error ? 'Undo failed: ' + u.error
-        : `Old tags restored in ${u.restored} file${u.restored === 1 ? '' : 's'}` + (u.skipped?.length ? ` · ${u.skipped.length} changed since, left alone` : ''));
-    });
+    const msg = `Tags written into ${j.written} file${j.written === 1 ? '' : 's'}` + (j.skipped.length ? ` · ${j.skipped.length} left alone` : '');
+    if (j.run) _tagsWrittenToast(msg, j.run); else showToast(msg, { duration: 6000 });
+    tagsRefresh();
   } catch (err) { showToast('Tag writing failed: ' + err.message); }
 }
 // ── Arrangement mix (1.1.0, E6) ─────────────────────────────────────────────
@@ -754,4 +799,4 @@ document.addEventListener('click', e => {
   if (m && m.style.display === 'block' && !m.contains(e.target)) closeExportMenu();
 });
 
-Object.assign(window, {exportTags, tagsToggle, tagsRefresh, exportCollect, editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });
+Object.assign(window, {exportTags, tagsToggle, tagsRefresh, tagsUndoLast, exportCollect, editFields, ensureFields, exportSerato, tfDialog, exportArrangement, buildSetSheet, withApproval, renderExportApprovals, exportLocked, openProCard, closeProCard, proSignUp, proRefresh, proUnlock, proSettingsAction, traktorKeyValue, setExportSource, openExportMenu, closeExportMenu, exportRows, exportAs, downloadBlob, escXml, fileUri, buildM3U8, rekordboxTrackAttrs, buildRekordboxXml, rbStatus, rbExportName, exportAls, exportRbBridge, openRbSetup, closeRbSetup, copyRbBridgePath, buildTraktorNml, exportMenuClose: closeExportMenu });

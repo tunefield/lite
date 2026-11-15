@@ -306,7 +306,7 @@ The first Rekordbox or Traktor export shows **which Tunefield value goes into wh
 
 Off unless you turn it on: **⚙ Settings → Write tags into music files**. Then Export has **Write BPM, key & energy into files**. You choose the fields (key as `Am` or Camelot `8A`, energy 1–10); Tunefield shows how many files it will change and which it leaves alone, and asks before writing. It writes into **MP3, FLAC, M4A/AAC/ALAC and AIFF** only, and only those three fields — never title, artist or genre. A file whose existing tags it can't keep exactly as they are is left alone, with the reason.
 
-The old values are saved first: **↶ Undo** in the top bar puts them back (a file another app changed since is left alone). Each file is replaced with an updated copy, so the audio is untouched but the file is new to other apps: Rekordbox, Traktor or a CDJ may read it again, and Finder tags on it are kept but its creation date is not.
+The old values are saved first. To put them back, click **Undo** on the message that appears after writing, or later **Undo last write** in Settings, next to Write tags into music files (it undoes the most recent run; a file another app changed since is left alone). Each file is replaced with an updated copy, so the audio is untouched but the file is new to other apps: Rekordbox, Traktor or a CDJ may read it again, and Finder tags on it are kept but its creation date is not.
 
 ### Where Tunefield may write
 

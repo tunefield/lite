@@ -6,6 +6,7 @@
 - MP3 and FLAC get the values; a WAV is left alone with its reason
 - the entries' stored file_size follows the write, so /library/stale never flags our own write
 - Undo (restore) puts the old values back, absent fields removed; a run undone twice → 404
+- Settings learns the newest run to offer "Undo last write", and nothing once it is undone
 - leftover .tftmp- temps are removed at startup (in-flight record) and by a library scan
 
 Needs ffmpeg for the test files (skips without it). Keys are signed by the public TEST key.
@@ -74,7 +75,7 @@ try:
     check("preview: 2 of 3 writable, the WAV left alone with its reason, nothing written",
           j.get("count") == 3 and j.get("writable") == 2 and j["skipped"][0]["reason"] == tag_write.R_FORMAT
           and all(open(p, "rb").read() == b for p, b in before.items()), j)
-    check("tag writing is off by default", J(c.get("/export/tags/settings")) == {"enabled": False})
+    check("tag writing is off by default, nothing to undo", J(c.get("/export/tags/settings")) == {"enabled": False, "last_run": None})
     r = c.post("/export/tags/write", json=body)
     check("…so a write is refused (409), nothing written", r.status_code == 409 and J(r).get("tag_write_disabled")
           and all(open(p, "rb").read() == b for p, b in before.items()))
@@ -95,12 +96,15 @@ try:
     check("our own write is not flagged as a changed file", st.get("changed") == 0, st)
 
     run = j["run"]
+    lr = J(c.get("/export/tags/settings")).get("last_run") or {}
+    check("Settings offers Undo for that run (NEW-4)", lr.get("run") == run and lr.get("files") == 2 and lr.get("at"), lr)
     u = J(c.post("/export/tags/restore", json={"run": run}))
     check("Undo restores both files", u.get("restored") == 2 and u.get("skipped") == [], u)
     check("…old values back (absent → removed)", tag_write.read_values(mp3) == {"bpm": None, "key": None, "energy": None}
           and tag_write.read_values(flac) == {"bpm": None, "key": None, "energy": None},
           (tag_write.read_values(mp3), tag_write.read_values(flac)))
     check("…and still not flagged as changed", J(c.get("/library/stale?cat=default")).get("changed") == 0)
+    check("…and once it is undone, Settings offers nothing", J(c.get("/export/tags/settings")).get("last_run") is None)
     check("a run undone twice → 404", c.post("/export/tags/restore", json={"run": run}).status_code == 404)
     check("bad bodies answer 400", [c.post("/export/tags/preview", json=b).status_code for b in (
         {"ids": [], "fields": {"bpm": True}}, {"ids": ids, "fields": {}}, {"ids": ids, "fields": {"bpm": False}})] == [400, 400, 400])

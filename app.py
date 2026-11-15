@@ -4298,6 +4298,23 @@ _CAMELOT = {("C", "major"): "8B", ("G", "major"): "9B", ("D", "major"): "10B", (
 def _tags_settings():
     return {"enabled": bool(load_config().get("tag_write_enabled"))}
 
+def _last_tag_run():
+    """The newest tag-writing run, for Settings' "Undo last write"; None once it is undone.
+    Run names sort by time (YYYYmmdd-HHMMSS-ffffff, 22 characters)."""
+    try:
+        names = [f for f in os.listdir(TAGS_TRASH_DIR) if re.fullmatch(r"\d{8}-\d{6}-\d{6}(\.undone)?\.json", f)]
+    except OSError:
+        return None
+    newest = max(names, key=lambda f: f[:22], default=None)
+    if not newest or newest.endswith(".undone.json"):
+        return None
+    try:
+        with open(os.path.join(TAGS_TRASH_DIR, newest)) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return {"run": newest[:22], "at": doc.get("at"), "files": len(doc.get("files") or [])}
+
 @app.route("/export/tags/settings", methods=["GET", "POST"])
 def export_tags_settings():
     if request.method == "POST":
@@ -4305,7 +4322,7 @@ def export_tags_settings():
         if not isinstance(on, bool):
             return jsonify({"error": "enabled must be true or false"}), 400
         cfg = load_config(); cfg["tag_write_enabled"] = on; save_config(cfg)
-    return jsonify(_tags_settings())
+    return jsonify({**_tags_settings(), "last_run": _last_tag_run()})
 
 def _tag_values(e, want, key_format):
     """The values to write for one entry; None means "leave that field alone"."""
