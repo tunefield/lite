@@ -7,9 +7,9 @@ TUNEFIELD LITE — on a USB stick
 WHAT THIS IS
   Tunefield runs entirely from this folder. Your Fields, sets, covers, ratings
   and tags live in a data/ folder that appears HERE, next to the app (display
-  settings stay with the computer you plug into). Your music
-  data stays on the stick; small caches stay on the computer. Take the stick,
-  take your analysis with you.
+  settings stay with the computer you plug into). Your Fields, sets and
+  analysis stay on the stick; small caches stay on the computer. Take the
+  stick, take your analysis with you.
 
   NOTE: the stick carries what Tunefield MEASURED, not your music - it never
   moves your audio files, and changes them only if you switch on Settings >
@@ -73,6 +73,6 @@ SOMETHING BROKEN, OR JUST CONFUSING?
   diagnostics snapshot already filled in. Or email mark@tunefield.app.
 
 NOTES
-  * Quit by closing the Tunefield window in the menu bar / Dock, or Cmd-Q.
+  * Quit with Cmd-Q, or by closing the Tunefield window.
   * Analysing straight from the stick works; a slow stick makes analysis slower,
     not wrong. The safest moment to unplug is when the app is not analysing.
