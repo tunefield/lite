@@ -24,7 +24,11 @@ Choosing the stick and confirming is the approval (E0) for that one run; nothing
 recorded. Test hooks (env, as TUNEFIELD_TEST_HOST_ID; a double-click never sets them):
 TUNEFIELD_TEST_STICK_PAYLOAD, _VERSION, _PAUSE and _RESUME, described where they are read.
 """
-import os, re, sys, shutil, signal, subprocess, threading, time, plistlib
+import os, re, sys, shutil, signal, subprocess, threading, time, plistlib, logging
+
+# Raw tool and OS text (ditto, codesign, errno) goes here, into the app's log; the user
+# sees only the plain sentence (Release & QA, 16 Nov).
+log = logging.getLogger("tunefield.stick")
 
 BUNDLE_ID = "com.futurefabrik.tunefield-lite"
 APP, OLD, STAGE = "Tunefield.app", "Tunefield-old.app", ".tunefield-update"
@@ -388,10 +392,9 @@ def _copy(payload, dest, total):
                 hit.add(mark)
                 _pause(f"copy-{mark}", proc)
     if proc.returncode != 0:
-        why = (proc.stderr.read() or "").strip().splitlines()
+        log.warning("stick copy: ditto exited %s: %s", proc.returncode, (proc.stderr.read() or "").strip()[-2000:])
         raise RuntimeError("The copy stopped before it finished (was the stick unplugged?). The app and the "
-                           "library on the stick were left as they were; run it again to finish."
-                           + (f" ({why[-1][-160:]})" if why else ""))
+                           "library on the stick were left as they were; run it again to finish.")
 
 
 def _restore(folder):
@@ -425,11 +428,12 @@ def run(folder, action, payload, note="", restore=None, version=""):
             _set(phase="backup")
             try:
                 st, detail = stick_backup.make(folder, version=f"stick tool {version}")
-            except Exception as e:
-                st, detail = "failed", str(e)
+            except Exception:
+                log.exception("stick backup before %s failed", action)
+                st = "failed"
             if st in ("space", "toobig", "failed"):
                 backup_note = " The library's backup on the stick was skipped (" + {
-                    "space": "not enough space", "toobig": "the library is too big for it"}.get(st, str(detail)) + ")."
+                    "space": "not enough space", "toobig": "the library is too big for it"}.get(st, "it could not be written") + ")."
         os.makedirs(folder, exist_ok=True)
         stage = os.path.join(folder, STAGE)
         os.makedirs(stage)
@@ -445,8 +449,9 @@ def run(folder, action, payload, note="", restore=None, version=""):
         if ok and _quarantined(new):
             ok, why = False, "quarantine flag on the copy"
         if not ok or bundle_info(new) != bundle_info(payload):
+            log.warning("stick copy did not verify: %s", why or "version or bundle id differs")
             _rmtree(stage)
-            raise RuntimeError(MSG["verify"] + (f" ({why})" if why else ""))
+            raise RuntimeError(MSG["verify"])
         _set(phase="swap")
         _pause("swap")
         app, old = os.path.join(folder, APP), os.path.join(folder, OLD)
@@ -483,8 +488,9 @@ def run(folder, action, payload, note="", restore=None, version=""):
             stick_backup.decline(folder)
         _set(phase="done", message=msg + (" " + note if note else ""))
     except Exception as e:
+        log.warning("stick %s of %s failed", action, folder, exc_info=not isinstance(e, RuntimeError))
         _set(phase="failed", ok=False, message=str(e) if isinstance(e, RuntimeError) else
-             f"Writing to the stick stopped ({e.__class__.__name__}: {e}). The library was not touched; "
+             "Writing to the stick stopped. The library was not touched; "
              "plug the stick back in and run it again to finish or undo the change.")
     finally:
         _set(done=True)

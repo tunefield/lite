@@ -173,7 +173,29 @@ try:
     check("a failed verify: job fails, old app left, no staging", job and job["ok"] is False and "didn't check out" in job["message"]
           and version_of(os.path.join(DF, "Tunefield.app")) == "1.1.0"
           and not os.path.exists(os.path.join(DF, ".tunefield-update")) and manifest(DF) == before, job)
+    check("…the codesign text goes to the log, not to the user", "sealed resource" not in job["message"], job["message"])
     ui.VERIFY = lambda p: (True, "")
+
+    # a stick pulled mid-run: one plain sentence, no tool or errno text (Release & QA, 16 Nov)
+    try:
+        ui._copy(os.path.join(TMP, "no-such-payload.app"), os.path.join(TMP, "copy-dest", "Tunefield.app"), 1)
+        msg = ""
+    except RuntimeError as e:
+        msg = str(e)
+    check("a copy that stops: plain message, no ditto text", msg.startswith("The copy stopped")
+          and "ditto" not in msg and "No such file" not in msg, msg)
+    real_copy = ui._copy
+    def pulled(*a):
+        raise FileNotFoundError(2, "No such file or directory", os.path.join(DF, ".tunefield-update", "Tunefield.app"))
+    ui._copy = pulled
+    before = manifest(os.path.join(DF, "data"))
+    r, job = run(DF, "repair")
+    ui._copy = real_copy
+    check("an OS error mid-run: plain message, no errno or path, library untouched", job and job["ok"] is False
+          and job["message"].startswith("Writing to the stick stopped.") and "Errno" not in job["message"]
+          and ".tunefield-update" not in job["message"] and manifest(os.path.join(DF, "data")) == before, job)
+    r, job = run(DF, "repair")
+    check("…and the next run tidies up and finishes", job and job["ok"] and not os.path.exists(os.path.join(DF, ".tunefield-update")), job)
 
     # refusals: running, space
     ui.running_under = lambda folder, ps_text=None, mount_text=None: folder == DF

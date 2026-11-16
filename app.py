@@ -243,7 +243,7 @@ def _setup_file_logging():
         h = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=1, encoding="utf-8")
         h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         h.setLevel(logging.INFO)
-        for lg in (app.logger, logging.getLogger("werkzeug")):
+        for lg in (app.logger, logging.getLogger("werkzeug"), logging.getLogger("tunefield.stick")):
             lg.addHandler(h)
             lg.setLevel(logging.INFO)
     except OSError:
